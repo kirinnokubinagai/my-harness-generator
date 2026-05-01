@@ -1,0 +1,15 @@
+# Claude Code / OMC セッション状態
+.omc/
+templates/.omc/
+
+# OS / エディタ
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# 生成物
+node_modules/
+dist/
+build/
+*.log
