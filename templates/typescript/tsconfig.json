@@ -27,5 +27,18 @@
     }
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist", "build"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".harness",
+    "lanes",
+    ".bare",
+    ".wrangler",
+    "drizzle",
+    "playwright-report",
+    "test-results",
+    "android",
+    "ios"
+  ]
 }
