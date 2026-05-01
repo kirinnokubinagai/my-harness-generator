@@ -172,6 +172,21 @@ mkdir -p dev/.harness
 rsync -a --exclude='.git' --exclude='.bootstrap.env' "$HARNESS_DIR/" dev/.harness/
 cp .harness/.bootstrap.env dev/.harness/.bootstrap.env
 
+# 5. dev で初期 scaffold をコミット（Nix flake は git tracked なファイルしか見ないため必須）
+#    既にコミットがあれば（再実行時）スキップする。
+if ! git -C dev log --oneline 2>/dev/null | grep -q "chore: harness scaffold"; then
+  echo "[bootstrap] dev で初期 scaffold コミットを作成"
+  (
+    cd dev
+    git add -A
+    if ! git diff --cached --quiet; then
+      # husky フックが未インストールでも通すため --no-verify を使用
+      git -c user.name="harness-bot" -c user.email="harness@local" \
+        commit --no-verify -m "chore: harness scaffold ($(cat .harness/.bootstrap.env | grep -E 'USE_|DB_KIND' | tr '\n' ' '))"
+    fi
+  )
+fi
+
 cat <<EOS
 
 ==================================
