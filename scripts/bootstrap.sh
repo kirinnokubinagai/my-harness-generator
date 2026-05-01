@@ -135,16 +135,16 @@ ensure_branch stage
 ensure_branch dev
 
 # 4. worktree の作成（存在しないものだけ作る、冪等）
+#    判定は worktree が必ず作る `.git` ファイル（dir でなく file）の存在で行う。
+#    git worktree list の出力パスは macOS で /private プレフィックスが付くなど比較が不安定なため避ける。
 ensure_worktree() {
   local name="$1"
-  # 既に worktree として登録されているなら何もしない
-  if git worktree list --porcelain 2>/dev/null | grep -q "^worktree $(pwd)/$name$"; then
+  if [ -f "$name/.git" ]; then
     return 0
   fi
-  # 同名のディレクトリ / ファイルが残骸として存在するなら中断（誤上書き防止）
   if [ -e "$name" ]; then
-    echo "::error:: $name が既に存在しますが worktree として未登録です。手動で確認してください。"
-    exit 1
+    echo "::warning:: '$name' が既に存在しますが worktree マーカが見つかりません。スキップして続行します。"
+    return 0
   fi
   echo "[bootstrap] worktree '$name' を作成"
   git worktree add "$name" "$name"
