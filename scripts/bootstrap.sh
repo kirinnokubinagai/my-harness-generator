@@ -104,7 +104,7 @@ echo "=== 設定確定 ==="
 cat .harness/.bootstrap.env
 echo
 
-# 1. bare git + worktree
+# 1. bare git の作成（無い場合のみ）
 if [ ! -d .bare ]; then
   echo "[bootstrap] bare repository を初期化"
   git init --bare .bare
@@ -116,10 +116,28 @@ if [ ! -d .bare ]; then
   git update-ref refs/heads/main "$C"
   git branch stage main
   git branch dev main
-  git worktree add main main
-  git worktree add stage stage
-  git worktree add dev dev
 fi
+
+# .git ファイルの存在を保証（直前のセットアップが中断していた場合の救済）
+[ -f .git ] || printf 'gitdir: ./.bare\n' > .git
+
+# 2. worktree の作成（存在しないものだけ作る、冪等）
+ensure_worktree() {
+  local name="$1"
+  if [ -d "$name" ] && [ -e "$name/.git" ]; then
+    return 0
+  fi
+  if [ -e "$name" ] && [ ! -d "$name" ]; then
+    echo "::error:: $name は worktree でないファイルが存在します。中断"
+    exit 1
+  fi
+  echo "[bootstrap] worktree '$name' を作成"
+  git worktree add "$name" "$name"
+}
+ensure_worktree main
+ensure_worktree stage
+ensure_worktree dev
+
 mkdir -p lanes
 
 # 2. 共通ファイル（Biome / Husky / Nix / GitHub workflows / issue template / tsconfig 等）を先に配布
