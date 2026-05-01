@@ -108,27 +108,42 @@ echo
 if [ ! -d .bare ]; then
   echo "[bootstrap] bare repository を初期化"
   git init --bare .bare
-  printf 'gitdir: ./.bare\n' > .git
-  git --git-dir=.bare symbolic-ref HEAD refs/heads/main
-  git read-tree --empty
-  EMPTY=$(git write-tree)
-  C=$(git commit-tree "$EMPTY" -m "chore: initial commit")
-  git update-ref refs/heads/main "$C"
-  git branch stage main
-  git branch dev main
 fi
 
 # .git ファイルの存在を保証（直前のセットアップが中断していた場合の救済）
 [ -f .git ] || printf 'gitdir: ./.bare\n' > .git
 
-# 2. worktree の作成（存在しないものだけ作る、冪等）
+# 2. main ブランチに初期コミットを保証（refs が無ければ作る、冪等）
+if ! git --git-dir=.bare rev-parse --verify refs/heads/main >/dev/null 2>&1; then
+  echo "[bootstrap] 初期コミットと main ブランチを作成"
+  git --git-dir=.bare symbolic-ref HEAD refs/heads/main
+  git read-tree --empty
+  EMPTY=$(git write-tree)
+  INITIAL_COMMIT=$(git commit-tree "$EMPTY" -m "chore: initial commit")
+  git update-ref refs/heads/main "$INITIAL_COMMIT"
+fi
+
+# 3. stage / dev ブランチを保証（main 起点で生やす、既存ならスキップ）
+ensure_branch() {
+  local branchName="$1"
+  if ! git --git-dir=.bare rev-parse --verify "refs/heads/$branchName" >/dev/null 2>&1; then
+    echo "[bootstrap] ブランチ '$branchName' を main から作成"
+    git --git-dir=.bare branch "$branchName" main
+  fi
+}
+ensure_branch stage
+ensure_branch dev
+
+# 4. worktree の作成（存在しないものだけ作る、冪等）
 ensure_worktree() {
   local name="$1"
-  if [ -d "$name" ] && [ -e "$name/.git" ]; then
+  # 既に worktree として登録されているなら何もしない
+  if git worktree list --porcelain 2>/dev/null | grep -q "^worktree $(pwd)/$name$"; then
     return 0
   fi
-  if [ -e "$name" ] && [ ! -d "$name" ]; then
-    echo "::error:: $name は worktree でないファイルが存在します。中断"
+  # 同名のディレクトリ / ファイルが残骸として存在するなら中断（誤上書き防止）
+  if [ -e "$name" ]; then
+    echo "::error:: $name が既に存在しますが worktree として未登録です。手動で確認してください。"
     exit 1
   fi
   echo "[bootstrap] worktree '$name' を作成"
