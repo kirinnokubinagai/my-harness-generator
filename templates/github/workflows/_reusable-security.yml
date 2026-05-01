@@ -1,0 +1,97 @@
+# 概要: 再利用可能なセキュリティゲート（OWASP ZAP for Web、MobSF for iOS / Android）。
+#       stage / main マージで使用。失敗時は issue 自動起票。
+
+name: Reusable - Security
+
+on:
+  workflow_call:
+    inputs:
+      web_target_url:
+        description: ZAP 対象の Web URL（vars.STAGE_URL 等）。空ならスキップ
+        type: string
+        required: false
+        default: ''
+      mobile_artifact_path:
+        description: MobSF 対象の .ipa / .apk パス（artifact から取得済みのローカルパス）。空ならスキップ
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  owasp-zap:
+    if: ${{ inputs.web_target_url != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: ZAP Baseline スキャン
+        uses: zaproxy/action-baseline@v0.13.0
+        with:
+          target: ${{ inputs.web_target_url }}
+          fail_action: true
+          allow_issue_writing: true
+      - if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              ...context.repo,
+              title: '[security:zap] baseline failed',
+              labels: ['security', 'priority/p1'],
+              body: `OWASP ZAP が失敗しました。\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+            });
+
+  mobsf:
+    if: ${{ inputs.mobile_artifact_path != '' }}
+    runs-on: ubuntu-latest
+    services:
+      mobsf:
+        image: opensecurity/mobile-security-framework-mobsf:latest
+        ports: ['8000:8000']
+        env:
+          MOBSF_API_KEY: ${{ secrets.MOBSF_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: MobSF API でアップロード+スキャン
+        run: |
+          set -e
+          # MobSF が起動するまで待機
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8000/api/v1/scans -H "Authorization: ${{ secrets.MOBSF_API_KEY }}" && break || sleep 5
+          done
+          UPLOAD=$(curl -fsS -F "file=@${{ inputs.mobile_artifact_path }}" \
+            http://localhost:8000/api/v1/upload \
+            -H "Authorization: ${{ secrets.MOBSF_API_KEY }}")
+          HASH=$(echo "$UPLOAD" | jq -r .hash)
+          curl -fsS -X POST http://localhost:8000/api/v1/scan \
+            -H "Authorization: ${{ secrets.MOBSF_API_KEY }}" \
+            -d "hash=$HASH"
+          curl -fsS -X POST http://localhost:8000/api/v1/report_json \
+            -H "Authorization: ${{ secrets.MOBSF_API_KEY }}" \
+            -d "hash=$HASH" -o mobsf-report.json
+          # 重大度 high が 0 件であることを確認
+          HIGH=$(jq '.appsec.high | length' mobsf-report.json)
+          if [ "$HIGH" -gt 0 ]; then
+            echo "MobSF: high severity 件数=$HIGH"
+            exit 1
+          fi
+      - name: レポート保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobsf-report
+          path: mobsf-report.json
+      - if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              ...context.repo,
+              title: '[security:mobsf] mobile DAST/SAST failed',
+              labels: ['security', 'mobile', 'priority/p1'],
+              body: `MobSF が失敗しました。\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+            });

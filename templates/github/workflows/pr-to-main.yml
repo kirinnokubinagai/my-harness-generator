@@ -1,0 +1,70 @@
+# 概要: stage → main または hotfix/* → main の PR で実行。
+#       stage 用の全ゲートに加え、人間承認ラベル `approved-for-prod` を必須とする。
+
+name: PR to main
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: main への PR は stage または hotfix/* のみ許可
+        run: |
+          if [[ "${{ github.head_ref }}" != "stage" ]] && [[ "${{ github.head_ref }}" != hotfix/* ]]; then
+            echo "::error::main への PR は stage または hotfix/* のみ許可"
+            exit 1
+          fi
+
+  quality:
+    uses: ./.github/workflows/_reusable-quality.yml
+    with:
+      run_history_scan: true
+
+  e2e:
+    if: ${{ github.head_ref == 'stage' }}
+    needs: quality
+    uses: ./.github/workflows/_reusable-e2e.yml
+    with:
+      base_url: ${{ vars.STAGE_URL }}
+      environment_name: stage
+
+  security:
+    if: ${{ github.head_ref == 'stage' }}
+    needs: quality
+    uses: ./.github/workflows/_reusable-security.yml
+    with:
+      web_target_url: ${{ vars.STAGE_URL }}
+      mobile_artifact_path: ${{ vars.STAGE_IPA_PATH || '' }}
+    secrets: inherit
+
+  hotfix-minimum:
+    if: ${{ startsWith(github.head_ref, 'hotfix/') }}
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hotfix の最小ゲートのみ。post-merge で ZAP / MobSF を即時実行する"
+
+  auto-merge:
+    needs: [guard, quality]
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: 人間承認ラベル approved-for-prod を必須化
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name')
+          echo "$LABELS" | grep -q "approved-for-prod" || (echo "approved-for-prod ラベル必須" && exit 1)
+      - name: PR を auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --merge --repo ${{ github.repository }}

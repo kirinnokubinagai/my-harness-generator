@@ -1,0 +1,61 @@
+# 概要: hotfix が main にマージされた直後、即座に OWASP ZAP / MobSF を走らせる。
+#       不合格なら直ちに GitHub issue を起票してロールバック判断を促す。
+
+name: Post-merge - Hotfix Validation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  detect-hotfix:
+    runs-on: ubuntu-latest
+    outputs:
+      is_hotfix: ${{ steps.check.outputs.is_hotfix }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - id: check
+        run: |
+          MSG=$(git log -1 --pretty=%B HEAD)
+          if echo "$MSG" | grep -qiE "from .*hotfix/"; then
+            echo "is_hotfix=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_hotfix=false" >> $GITHUB_OUTPUT
+          fi
+
+  validate:
+    needs: detect-hotfix
+    if: needs.detect-hotfix.outputs.is_hotfix == 'true'
+    uses: ./.github/workflows/_reusable-security.yml
+    with:
+      web_target_url: ${{ vars.PROD_URL }}
+      mobile_artifact_path: ${{ vars.PROD_IPA_PATH || '' }}
+    secrets: inherit
+
+  back-merge-stage-and-dev:
+    needs: validate
+    if: needs.detect-hotfix.outputs.is_hotfix == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: stage に main をマージコミットで取り込み
+        run: |
+          git config user.name "harness-bot"
+          git config user.email "harness@users.noreply.github.com"
+          git fetch origin main stage dev
+          git checkout stage
+          git merge --no-ff origin/main -m "merge: hotfix back-merge main → stage"
+          git push origin stage
+          git checkout dev
+          git merge --no-ff origin/stage -m "merge: hotfix back-merge stage → dev"
+          git push origin dev

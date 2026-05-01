@@ -1,0 +1,102 @@
+harness:
+  version: 1.0.0
+  name: generic-multi-agent-harness
+  description: 4 レーン並列 / Issue ドリブン / dev → stage → main フローの汎用ハーネス
+
+repository:
+  bare_dir: .bare
+  worktrees:
+    base: ./
+    feature_root: ./lanes
+  protected_branches:
+    - main
+    - stage
+  working_branch: dev
+  pr_target_default: dev
+
+branches:
+  main:
+    description: 本番。stage からのマージのみ許可。
+    deploy_target: production
+    require_human_approval: true
+  stage:
+    description: ステージング。dev からのマージのみ。OWASP ZAP + E2E 必須。
+    deploy_target: staging
+    require_human_approval: true
+  dev:
+    description: 既定の作業統合先。feature ブランチの PR 先。
+
+lanes:
+  count: 4
+  agents:
+    - analyst
+    - engineer
+    - e2e-reviewer
+    - reviewer
+
+quality_gates:
+  pre_commit:
+    - biome:format
+    - biome:lint
+    - test:unit
+  pre_push:
+    - biome:format:check
+    - biome:lint:check
+    - test:all
+    - typecheck
+  pr_to_dev:
+    - biome:format:check
+    - biome:lint:check
+    - test:all
+    - typecheck
+  pr_to_stage:
+    - all_pr_to_dev_gates
+    - test:e2e:playwright
+    - test:e2e:maestro
+    - dast:owasp-zap
+    - sast:semgrep
+    - dependency:trivy
+  pr_to_main:
+    - all_pr_to_stage_gates
+    - human_approval
+
+issue_policy:
+  require_parent_for_features: true
+  max_child_issue_size_lines: 300
+  conflict_avoidance:
+    - one_directory_per_child_when_possible
+    - declare_owned_files_in_issue_body
+  conflict_resolution:
+    forbidden:
+      - git reset --hard
+      - git rebase
+      - force push
+    required:
+      - merge_commit_only
+
+hotfix:
+  branch_prefix: hotfix/
+  source: main
+  pr_target: main
+  backport_to:
+    - stage
+    - dev
+  backport_method: merge_commit
+  sla_hours: 24
+
+permissions:
+  bypass_permissions: true
+
+engineering_standards:
+  language: typescript
+  formatter: biome
+  linter: biome
+  test_runner: vitest
+  e2e:
+    web: playwright
+    mobile: maestro
+  backend_framework: hono
+  backend_architecture: clean_architecture
+  environment: nix_flake_pure
+  documentation: jsdoc_tsdoc_japanese
+  design_reference: https://www.shokasonjuku.com/ux-psychology

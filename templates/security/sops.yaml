@@ -1,0 +1,12 @@
+# SOPS 暗号化ルール（プロジェクトルートに `.sops.yaml` として配置）
+# 概要: 機密ファイルを age 公開鍵で暗号化し、安全に Git コミットできるようにする。
+#       秘密鍵は各メンバーがローカル / 1Password / iCloud Keychain で管理する。
+
+creation_rules:
+  - path_regex: secrets/.*\.enc\.(json|yaml|yml|env)$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,
+      age1yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+  - path_regex: \.env\.encrypted$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

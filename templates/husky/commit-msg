@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 概要: Conventional Commits を強制する。本文（subject 以降）は日本語で書くこと。
+ROOT="$(git rev-parse --show-toplevel)"
+nix develop "$ROOT" --command npx --no -- commitlint --edit "$1"

@@ -1,0 +1,16 @@
+# 概要: Maestro の iOS / Android 共通ログインフロー E2E。
+#       PR ごとに macos ランナーで `xcrun simctl` でシミュレータを起動した後、
+#       `maestro --device booted test` で実行する。
+appId: com.example.harness
+---
+- launchApp
+- assertVisible: "ログイン"
+- tapOn: "メールアドレス"
+- inputText: "test@example.com"
+- tapOn: "パスワード"
+- inputText: "DummyP@ssword123"
+- tapOn: "ログイン"
+- assertVisible:
+    text: "ようこそ"
+    timeout: 10000
+- takeScreenshot: post-login

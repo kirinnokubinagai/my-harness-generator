@@ -1,0 +1,60 @@
+# 概要: dev → stage の PR で実行。dev 用の全ゲートに加え、OWASP ZAP / MobSF / 履歴 gitleaks を強制。
+
+name: PR to stage
+
+on:
+  pull_request:
+    branches: [stage]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: stage への PR は dev からのみ許可
+        run: |
+          if [[ "${{ github.head_ref }}" != "dev" ]]; then
+            echo "::error::stage への PR は dev からのみ許可"
+            exit 1
+          fi
+
+  quality:
+    uses: ./.github/workflows/_reusable-quality.yml
+    with:
+      run_history_scan: true
+
+  e2e:
+    needs: quality
+    uses: ./.github/workflows/_reusable-e2e.yml
+    with:
+      base_url: ${{ vars.STAGE_URL }}
+      environment_name: stage
+
+  security:
+    needs: quality
+    uses: ./.github/workflows/_reusable-security.yml
+    with:
+      web_target_url: ${{ vars.STAGE_URL }}
+      mobile_artifact_path: ${{ vars.STAGE_IPA_PATH || '' }}
+    secrets: inherit
+
+  auto-merge:
+    needs: [guard, quality, e2e, security]
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: 人間承認ラベルがあるか確認
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name')
+          echo "$LABELS" | grep -q "approved-for-stage" || (echo "approved-for-stage ラベル必須" && exit 1)
+      - name: PR を auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --merge --repo ${{ github.repository }}

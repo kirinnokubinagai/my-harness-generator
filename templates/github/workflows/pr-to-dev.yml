@@ -1,0 +1,72 @@
+# 概要: feat/* または fix/* → dev の PR で必須の品質ゲート。
+#       Claude Code Action による AI レビュー、Biome、Vitest、TS、Gitleaks、Semgrep、Trivy、E2E。
+#       認証は configure-claude-action.sh が ANTHROPIC_API_KEY か CLAUDE_CODE_OAUTH_TOKEN を選んで埋める。
+
+name: PR to dev
+
+on:
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: feat/* / fix/* 以外、dev 以外への PR を拒否
+        run: |
+          if [[ "${{ github.head_ref }}" != feat/* ]] && [[ "${{ github.head_ref }}" != fix/* ]]; then
+            echo "::error::PR のソースは feat/* または fix/* のみ許可"
+            exit 1
+          fi
+
+  quality:
+    uses: ./.github/workflows/_reusable-quality.yml
+    with:
+      run_history_scan: false
+
+  e2e:
+    needs: quality
+    uses: ./.github/workflows/_reusable-e2e.yml
+    with:
+      base_url: ${{ vars.DEV_URL || 'http://localhost:3000' }}
+      environment_name: dev
+
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            このPRのコード変更を以下のエンジニア規約に対して厳格にレビューしてください。
+            - any 型 / else 文 / 関数内コメント / JSDoc 欠落
+            - Hono Clean Architecture 違反 / Drizzle push の使用
+            - Lucide 以外のアイコン / 絵文字 / ハードコード機密値
+            - 説明文が日本語以外
+            違反は ファイル:行 の形でリスト化してください。
+          claude_args: '{"model": "claude-opus-4-7"}'
+        env:
+          # bootstrap で oauth を選んだ場合は CLAUDE_CODE_OAUTH_TOKEN、
+          # api を選んだ場合は ANTHROPIC_API_KEY が configure-claude-action.sh で書き換わる
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  auto-merge:
+    needs: [guard, quality, e2e, claude-review]
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR を auto-merge に登録（merge コミット保持）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge ${{ github.event.pull_request.number }} --auto --merge --repo ${{ github.repository }}

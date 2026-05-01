@@ -1,0 +1,81 @@
+# 概要: 再利用可能な品質ゲート（biome / vitest / tsc / gitleaks / forbidden-patterns）。
+#       他の workflow から `uses: ./.github/workflows/_reusable-quality.yml` で呼び出す。
+
+name: Reusable - Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      run_history_scan:
+        description: gitleaks で履歴全体（--all）をスキャンするかどうか
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Nix セットアップ
+        uses: DeterminateSystems/nix-installer-action@v18
+
+      - name: magic-nix-cache
+        uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: pnpm 取得とキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: 依存関係のインストール
+        run: nix develop --command pnpm install --frozen-lockfile
+
+      - name: Biome（format/lint チェック）
+        run: nix develop --command pnpm exec biome check .
+
+      - name: TypeScript 型検査
+        run: nix develop --command pnpm exec tsc --noEmit
+
+      - name: 単体テスト（vitest）
+        run: nix develop --command pnpm exec vitest run --coverage
+
+      - name: 機密検出（pull request 範囲）
+        if: ${{ inputs.run_history_scan == false }}
+        run: nix develop --command gitleaks protect --redact --staged --config .gitleaks.toml
+
+      - name: 機密検出（履歴全体）
+        if: ${{ inputs.run_history_scan == true }}
+        run: nix develop --command gitleaks detect --redact --config .gitleaks.toml --log-opts="--all --full-history"
+
+      - name: ハードコード禁止パターン検出
+        run: nix develop --command bash .harness/scripts/check-forbidden-patterns.sh $(git diff --name-only origin/${{ github.base_ref || 'dev' }}...HEAD)
+
+      - name: SAST（Semgrep）
+        run: nix develop --command semgrep ci --config p/typescript --error
+
+      - name: 依存関係スキャン（Trivy、安全 SHA pin 済）
+        # 2026/3 サプライチェーン攻撃を踏まえ、攻撃前の安全な commit SHA に固定。
+        # 参照: https://www.stepsecurity.io/blog/trivy-compromised-a-second-time
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          scan-type: fs
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy.sarif
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+
+      - name: SARIF アップロード
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif

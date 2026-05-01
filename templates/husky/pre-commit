@@ -1,0 +1,41 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 概要: コミット時に必ず実行される最終ゲート。
+#       ハードコードされた機密値の検出、書式・型・テストの検証を行う。
+#       何かひとつでも失敗したらコミットを中止する。
+
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | tr '\n' ' ')
+
+# 何もステージされていない場合は何もせずに終了する
+if [ -z "$STAGED" ]; then
+  echo "[pre-commit] ステージ済みファイルがないためスキップします"
+  exit 0
+fi
+
+# Nix の純粋環境で全チェックを実行する
+nix develop "$ROOT" --command sh -c "
+  set -e
+  echo '[pre-commit] gitleaks: 機密情報スキャン（git index）'
+  gitleaks protect --staged --redact --config '$ROOT/.gitleaks.toml'
+
+  echo '[pre-commit] forbidden-patterns: 環境変数/APIキーの直書き検出'
+  sh '$ROOT/.harness/scripts/check-forbidden-patterns.sh' $STAGED
+
+  echo '[pre-commit] biome format (staged のみ書き換え、Biome 2.x の --staged を使用)'
+  biome check --write --staged --no-errors-on-unmatched
+
+  echo '[pre-commit] biome lint final check (staged)'
+  biome check --staged --no-errors-on-unmatched
+
+  echo '[pre-commit] typecheck'
+  pnpm exec tsc --noEmit
+
+  echo '[pre-commit] vitest (related)'
+  pnpm exec vitest related --run $STAGED || pnpm exec vitest run
+"
+
+# format によって書き換わった可能性があるので staged を更新する
+git add $STAGED

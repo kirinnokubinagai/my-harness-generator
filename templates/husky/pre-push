@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 概要: push 直前ゲート。保護ブランチへの直接 push を遮断し、
+#       全体の整合（format/lint/test/typecheck/secrets スキャン）を再確認する。
+
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+# 保護ブランチへの直接 push を遮断する（main / stage は PR でしか進めない）
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/stage)
+      echo "[pre-push] $remote_ref への直接 push は禁止です。PR を作成してください。" >&2
+      exit 1
+      ;;
+  esac
+done
+
+nix develop "$ROOT" --command sh -c "
+  set -e
+  echo '[pre-push] gitleaks: 履歴全体スキャン'
+  gitleaks detect --redact --config '$ROOT/.gitleaks.toml'
+
+  echo '[pre-push] forbidden-patterns: 全変更ファイル検査'
+  sh '$ROOT/.harness/scripts/check-forbidden-patterns.sh' \$(git diff --name-only origin/HEAD...HEAD 2>/dev/null || git ls-files)
+
+  echo '[pre-push] biome check (全体)'
+  biome check .
+
+  echo '[pre-push] typecheck'
+  pnpm exec tsc --noEmit
+
+  echo '[pre-push] vitest'
+  pnpm exec vitest run
+"

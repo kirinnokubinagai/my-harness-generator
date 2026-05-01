@@ -1,0 +1,159 @@
+# 概要: 本番 Cloudflare D1 を 3 日に 1 回 SQL エクスポートして R2 に保存する。
+#       同時に stage D1 を最新バックアップから復元してテスト環境を「本番ライク」に保つ。
+#       D1 の場合は wrangler d1 export / execute を使用する（pg_dump は使わない）。
+
+name: Scheduled - Production D1 Backup to R2
+
+on:
+  schedule:
+    - cron: '0 18 */3 * *'  # 3 日に 1 回 UTC 18:00 = JST 03:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  export-and-upload:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
+      AGE_RECIPIENTS: ${{ vars.AGE_RECIPIENTS }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: D1 から SQL エクスポート
+        run: |
+          set -euo pipefail
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          mkdir -p backup
+          # データとスキーマ両方を含む完全エクスポート
+          nix develop --command pnpm exec wrangler d1 export DB \
+            --remote --output "backup/prod-${STAMP}.sql"
+          echo "STAMP=$STAMP" >> $GITHUB_ENV
+
+      - name: age 暗号化（公開鍵で固める）
+        run: |
+          set -euo pipefail
+          RECIPIENT_FLAGS=""
+          for r in $AGE_RECIPIENTS; do RECIPIENT_FLAGS="$RECIPIENT_FLAGS -r $r"; done
+          # シェル変数のままだと展開順が壊れるので eval を回避するため一時 export
+          export RECIPIENT_FLAGS
+          nix develop --command sh -c '
+            age $RECIPIENT_FLAGS -o "backup/prod-${STAMP}.sql.age" "backup/prod-${STAMP}.sql"
+          '
+          rm -f "backup/prod-${STAMP}.sql"
+
+      - name: R2 へアップロード
+        run: |
+          nix develop --command aws s3 cp \
+            "backup/prod-${STAMP}.sql.age" \
+            "s3://$R2_BUCKET/backups/prod-${STAMP}.sql.age" \
+            --endpoint-url "$R2_ENDPOINT"
+
+      - name: 90 日経過分を削除
+        run: |
+          nix develop --command sh -c '
+            CUTOFF=$(date -u -d "90 days ago" +%Y-%m-%d 2>/dev/null || date -u -v-90d +%Y-%m-%d)
+            aws s3 ls "s3://$R2_BUCKET/backups/" --endpoint-url "$R2_ENDPOINT" \
+              | awk -v c="$CUTOFF" "$1 < c {print $4}" \
+              | while read OBJ; do
+                  [ -z "$OBJ" ] && continue
+                  aws s3 rm "s3://$R2_BUCKET/backups/$OBJ" --endpoint-url "$R2_ENDPOINT" || true
+                done
+          '
+
+      - name: 失敗時に issue 起票
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              ...context.repo,
+              title: '[backup] D1 export 失敗',
+              labels: ['ops', 'priority/p0'],
+              body: `本番 D1 のエクスポートに失敗しました。\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
+            });
+
+  restore-to-stage:
+    needs: export-and-upload
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+
+      - name: 最新バックアップを R2 から取得
+        run: |
+          set -euo pipefail
+          LATEST=$(nix develop --command aws s3 ls "s3://${{ vars.R2_BACKUP_BUCKET }}/backups/" \
+            --endpoint-url "$R2_ENDPOINT" | sort | tail -1 | awk '{print $4}')
+          nix develop --command aws s3 cp \
+            "s3://${{ vars.R2_BACKUP_BUCKET }}/backups/$LATEST" \
+            "/tmp/$LATEST" --endpoint-url "$R2_ENDPOINT"
+          echo "BACKUP_FILE=/tmp/$LATEST" >> $GITHUB_ENV
+
+      - name: 復号
+        env:
+          AGE_SECRET_KEY: ${{ secrets.AGE_SECRET_KEY_STAGE }}
+        run: |
+          echo "$AGE_SECRET_KEY" > /tmp/age.key
+          nix develop --command age -d -i /tmp/age.key -o /tmp/restore.sql "$BACKUP_FILE"
+          shred -u /tmp/age.key
+
+      - name: 個人情報マスキング（PII の匿名化）
+        run: nix develop --command bash .harness/scripts/anonymize-pii-d1.sh /tmp/restore.sql
+
+      - name: stage D1 を一旦初期化（既存テーブル drop）
+        run: |
+          nix develop --command pnpm exec wrangler d1 execute DB \
+            --env staging --remote \
+            --command "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%';" \
+            --json | nix develop --command jq -r '.[0].results[].name' \
+            | while read T; do
+              nix develop --command pnpm exec wrangler d1 execute DB \
+                --env staging --remote --command "DROP TABLE IF EXISTS $T;"
+            done
+
+      - name: stage D1 に restore
+        run: |
+          nix develop --command pnpm exec wrangler d1 execute DB \
+            --env staging --remote --file /tmp/restore.sql
+
+      - name: stage で進行中だった追加マイグレーションを再適用
+        env:
+          STAGE_D1_DATABASE_ID: ${{ secrets.STAGE_D1_DATABASE_ID }}
+        run: nix develop --command bash .harness/scripts/migrate-after-restore.sh
+
+  testflight-stage:
+    needs: restore-to-stage
+    if: ${{ vars.IOS_ENABLED == 'true' }}
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - name: TestFlight ビルドアップロード（stage）
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+        run: |
+          # iOS ディレクトリで fastlane を実行する想定
+          cd ios && fastlane pilot upload || echo "fastlane 設定後に有効化"

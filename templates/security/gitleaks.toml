@@ -1,0 +1,71 @@
+# gitleaks 設定: コミット段階で機密値を確実に弾くためのルール集。
+#                プロジェクトのルートに `.gitleaks.toml` として配置する。
+
+title = "harness gitleaks rules"
+
+[extend]
+useDefault = true
+
+# プロジェクト固有の機密パターン
+[[rules]]
+id = "generic-api-key"
+description = "汎用 API キー / シークレットらしき高エントロピー文字列"
+regex = '''(?i)(api[_-]?key|secret|token|password|passwd|pwd)[\"'\s:=]{1,5}[\"']?([A-Za-z0-9_\-+/=]{20,})'''
+secretGroup = 2
+entropy = 4.0
+
+[[rules]]
+id = "stripe-live-key"
+description = "Stripe ライブ鍵"
+regex = '''sk_live_[0-9a-zA-Z]{20,}'''
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI API キー"
+regex = '''sk-(proj-)?[A-Za-z0-9_\-]{20,}'''
+
+[[rules]]
+id = "anthropic-key"
+description = "Anthropic API キー"
+regex = '''sk-ant-[A-Za-z0-9_\-]{20,}'''
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS アクセスキー ID"
+regex = '''AKIA[0-9A-Z]{16}'''
+
+[[rules]]
+id = "gcp-service-account"
+description = "GCP サービスアカウント JSON"
+regex = '''"type"\s*:\s*"service_account"'''
+
+[[rules]]
+id = "cloudflare-token"
+description = "Cloudflare API トークン"
+regex = '''(?i)cloudflare[_-]?(api[_-]?)?token[\"'\s:=]{1,5}[\"']?[A-Za-z0-9_-]{40,}'''
+
+[[rules]]
+id = "github-token"
+description = "GitHub トークン"
+regex = '''gh[pousr]_[A-Za-z0-9]{30,}'''
+
+[[rules]]
+id = "jwt"
+description = "JWT らしき三段ドット文字列"
+regex = '''eyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+'''
+
+[[rules]]
+id = "private-key-block"
+description = "PEM 形式秘密鍵"
+regex = '''-----BEGIN ((RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY( BLOCK)?-----'''
+
+[allowlist]
+# テストフィクスチャや明示的サンプルは除外する
+paths = [
+  '''(.*)\.example$''',
+  '''.*/__fixtures__/.*''',
+  '''.*\.test\.(ts|tsx|js)$''',
+]
+regexes = [
+  '''EXAMPLE_KEY_DO_NOT_USE''',
+]
