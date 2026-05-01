@@ -70,10 +70,17 @@ fi
 # 6) Claude Code Action
 echo
 USE_CLAUDE_ACTION=$(ask_yn "PR レビューに Claude Code Action を使う" "y")
-CLAUDE_AUTH="api"
+CLAUDE_AUTH="oauth"
 if [ "$USE_CLAUDE_ACTION" = "yes" ]; then
-  echo "  認証方式: 1) API Key  2) サブスクリプション (Claude Pro/Max OAuth)"
-  CLAUDE_AUTH=$(ask "  どっち？ (api/oauth)" "oauth")
+  echo "  認証方式: api = Anthropic API キー / oauth = サブスクリプション (Claude Pro/Max)"
+  while :; do
+    CLAUDE_AUTH=$(ask "  どっち？ (api/oauth)" "oauth")
+    case "$CLAUDE_AUTH" in
+      api|API)   CLAUDE_AUTH=api;   break ;;
+      oauth|OAUTH) CLAUDE_AUTH=oauth; break ;;
+      *) echo "    → 'api' か 'oauth' で答えてください" ;;
+    esac
+  done
 fi
 
 # 設定をファイルに保存（後続のスクリプトが参照）

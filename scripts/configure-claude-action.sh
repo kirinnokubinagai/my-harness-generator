@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 概要: bootstrap.env の選択に応じて、Claude Code Action の認証部分を生成する。
-#       USE_CLAUDE_ACTION=no なら workflow から該当ジョブを除去する。
+# 概要: bootstrap.env の選択に応じて、Claude Code Action の認証部分を切り替える。
+#       Python / yaml に依存せず、sed と awk だけで処理する（macOS / Linux 両対応）。
+#       USE_CLAUDE_ACTION=no なら claude-review ジョブを workflow から削除する。
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
@@ -9,79 +10,35 @@ source "$ROOT/.harness/.bootstrap.env"
 cd "$ROOT/dev"
 
 WF=".github/workflows/pr-to-dev.yml"
+[ -f "$WF" ] || { echo "[configure-claude-action] $WF が無いのでスキップ"; exit 0; }
 
 if [ "$USE_CLAUDE_ACTION" = "no" ]; then
-  # claude-review ジョブを除去
-  python3 - "$WF" <<'PY'
-import sys, yaml, io
-path = sys.argv[1]
-with open(path) as f:
-    data = yaml.safe_load(f)
-if 'jobs' in data and 'claude-review' in data['jobs']:
-    del data['jobs']['claude-review']
-    needs = data['jobs'].get('auto-merge', {}).get('needs', [])
-    if isinstance(needs, list) and 'claude-review' in needs:
-        needs.remove('claude-review')
-with open(path, 'w') as f:
-    yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-PY
+  # claude-review: ... のブロックを丸ごと削除する。
+  # 次の同インデント（2 スペース）のジョブまでを削除対象とする。
+  awk '
+    BEGIN { skip = 0 }
+    /^  claude-review:/ { skip = 1; next }
+    skip == 1 && /^  [A-Za-z0-9_-]+:/ { skip = 0 }
+    skip == 0 { print }
+  ' "$WF" > "$WF.tmp" && mv "$WF.tmp" "$WF"
+
+  # auto-merge.needs から "claude-review" を取り除く
+  # `needs: [guard, quality, e2e, claude-review]` の形を想定
+  sed -i.bak -E 's/, *claude-review//; s/claude-review *, *//; s/\[claude-review\]/\[\]/' "$WF"
+  rm -f "$WF.bak"
+
+  echo "[configure-claude-action] claude-review ジョブを除去しました"
   exit 0
 fi
 
-# 認証種別に応じた env を埋める
-AUTH_BLOCK=""
-if [ "$CLAUDE_AUTH" = "oauth" ]; then
-  AUTH_BLOCK='
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}'
+# 認証種別を埋める。pr-to-dev.yml の既定は CLAUDE_CODE_OAUTH_TOKEN なので、
+# api を選んだ場合だけ ANTHROPIC_API_KEY に書き換える。
+if [ "$CLAUDE_AUTH" = "api" ]; then
+  sed -i.bak \
+    -e 's|CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets\.CLAUDE_CODE_OAUTH_TOKEN }}|ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}|' \
+    "$WF"
+  rm -f "$WF.bak"
+  echo "[configure-claude-action] 認証=api（ANTHROPIC_API_KEY）を適用"
 else
-  AUTH_BLOCK='
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}'
+  echo "[configure-claude-action] 認証=oauth（CLAUDE_CODE_OAUTH_TOKEN、既定）を適用"
 fi
-
-# 既存ワークフローの claude-review ジョブを正しい構文で書き換える
-python3 - "$WF" "$AUTH_BLOCK" <<'PY'
-import sys, yaml, re
-path = sys.argv[1]
-auth_block_yaml = sys.argv[2].strip()
-
-content = open(path).read()
-data = yaml.safe_load(content)
-
-review_step = {
-    'uses': 'anthropics/claude-code-action@v1',
-    'with': {
-        'prompt': (
-            'このPRのコード変更を以下のエンジニア規約に対して厳格にレビューしてください。\n'
-            '- any 型 / else 文 / 関数内コメント / JSDoc 欠落\n'
-            '- Hono Clean Architecture 違反 / Drizzle push の使用\n'
-            '- Lucide 以外のアイコン / 絵文字 / ハードコード機密値\n'
-            '- 説明文が日本語以外\n'
-            '違反は ファイル:行 の形でリスト化してください。'
-        ),
-        'claude_args': '{"model": "claude-opus-4-7"}',
-    },
-}
-
-# OAuth or API Key 環境変数
-auth_kind = 'oauth' if 'OAUTH' in auth_block_yaml else 'api'
-env = ({'CLAUDE_CODE_OAUTH_TOKEN': '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}'}
-       if auth_kind == 'oauth'
-       else {'ANTHROPIC_API_KEY': '${{ secrets.ANTHROPIC_API_KEY }}'})
-
-data.setdefault('jobs', {})
-data['jobs']['claude-review'] = {
-    'runs-on': 'ubuntu-latest',
-    'permissions': {'contents': 'read', 'pull-requests': 'write'},
-    'steps': [
-        {'uses': 'actions/checkout@v5', 'with': {'fetch-depth': 0}},
-        {**review_step, 'env': env},
-    ],
-}
-
-with open(path, 'w') as f:
-    yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-PY
-
-echo "[configure-claude-action] 認証=$CLAUDE_AUTH を適用"
