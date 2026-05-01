@@ -3,10 +3,12 @@
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
-cd "$ROOT/dev"
 
+# bootstrap.env は $ROOT/.harness/ に保存されている（dev/.harness/ にコピーされるのは後段）
 # shellcheck disable=SC1091
-source .harness/.bootstrap.env
+source "$ROOT/.harness/.bootstrap.env"
+
+cd "$ROOT/dev"
 
 # 共通の base
 BASE='{

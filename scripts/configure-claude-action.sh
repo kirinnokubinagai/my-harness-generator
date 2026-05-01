@@ -4,9 +4,9 @@
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
-cd "$ROOT/dev"
 # shellcheck disable=SC1091
-source .harness/.bootstrap.env
+source "$ROOT/.harness/.bootstrap.env"
+cd "$ROOT/dev"
 
 WF=".github/workflows/pr-to-dev.yml"
 
