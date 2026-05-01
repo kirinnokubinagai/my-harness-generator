@@ -122,12 +122,14 @@ if [ ! -d .bare ]; then
 fi
 mkdir -p lanes
 
-# 2. テンプレ配布（プラットフォーム / DB / メールに応じて）
-echo "[bootstrap] テンプレートを配布"
-bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
-
-# 3. 共通ファイル配布
+# 2. 共通ファイル（Biome / Husky / Nix / GitHub workflows / issue template / tsconfig 等）を先に配布
+#    setup-platforms.sh の中で workflow を書き換えるため、先に置いておく必要がある
+echo "[bootstrap] 共通ファイルを配布"
 bash "$HARNESS_DIR/scripts/setup-common.sh" "$ROOT"
+
+# 3. プラットフォーム / DB / メールに応じたテンプレ配布 + workflow / package.json の動的編集
+echo "[bootstrap] プラットフォーム別テンプレを配布"
+bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 
 # 4. .harness 自体を dev/.harness にコピー（プロジェクト内で実行可能に）
 mkdir -p dev/.harness

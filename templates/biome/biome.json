@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -7,7 +7,25 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "ignore": ["dist", "build", "coverage", ".next", "out", "node_modules"]
+    "includes": [
+      "**",
+      "!**/node_modules/**",
+      "!**/dist/**",
+      "!**/build/**",
+      "!**/out/**",
+      "!**/.next/**",
+      "!**/coverage/**",
+      "!**/.harness/**",
+      "!**/lanes/**",
+      "!**/.bare/**",
+      "!**/drizzle/**",
+      "!**/.wrangler/**",
+      "!**/playwright-report/**",
+      "!**/test-results/**",
+      "!**/android/build/**",
+      "!**/android/.gradle/**",
+      "!**/ios/**"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -16,8 +34,12 @@
     "lineWidth": 100,
     "lineEnding": "lf"
   },
-  "organizeImports": {
-    "enabled": true
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
   },
   "linter": {
     "enabled": true,
@@ -33,18 +55,7 @@
       "style": {
         "noNegationElse": "error",
         "useConst": "error",
-        "useImportType": "error",
-        "useNamingConvention": {
-          "level": "error",
-          "options": {
-            "strictCase": false,
-            "conventions": [
-              { "selector": { "kind": "variable" }, "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"] },
-              { "selector": { "kind": "function" }, "formats": ["camelCase"] },
-              { "selector": { "kind": "typeLike" }, "formats": ["PascalCase"] }
-            ]
-          }
-        }
+        "useImportType": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",
@@ -59,5 +70,27 @@
       "trailingCommas": "all",
       "arrowParentheses": "always"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.test.ts", "**/*.spec.ts", "**/__fixtures__/**", "**/__mocks__/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/db/schema.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    }
+  ]
 }
