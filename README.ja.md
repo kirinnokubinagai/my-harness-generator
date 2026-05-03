@@ -25,7 +25,7 @@
 
 - **`/my-harness-init`** — 仕様書の生成と `bootstrap.sh` 実行までを一気通貫で行う対話インタビュー。
 - **Codex CLI 連携（任意）** — session resume による真のマルチターン対話。ロゴ・UI モックを `gpt-image-2` で生成。
-- **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Hono + Drizzle + Resend + Playwright + Maestro。
+- **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Hono + Drizzle + Resend + Playwright + Maestro。任意で Web / iOS / Android / Desktop（Tauri or Electron）をターゲット指定可能。
 - **4 レーン並列開発** — `harness-team-lead` agent が issue を 4 レーンに振り分け、各レーンが analyst → engineer → e2e-reviewer → reviewer のフローで並列実装。
 - **自動機密マスキング** — `UserPromptSubmit` フックがユーザー入力を `mask-secrets.sh`（9 パターン）に通して `dev/docs/talk/<日付>.md` に記録。
 - **21 個の skill を lazy load** — TDD / Hono Clean Architecture / Drizzle migrate-only / Nix pure / デザイン規律 / JSDoc / Git 規律 / ハードコード機密検出 ほか。
@@ -250,6 +250,9 @@ PROJECT_NAME=todo-app
 USE_WEB=yes
 USE_IOS=no
 USE_ANDROID=no
+USE_DESKTOP=no                # Web フロントエンドを tauri / electron で包む
+DESKTOP_KIND=tauri            # USE_DESKTOP=yes のときのみ（tauri | electron）
+DESKTOP_OS=macos,windows,linux  # USE_DESKTOP=yes のときのみ
 USE_DB=yes
 DB_KIND=d1                    # cloudflare d1（現状唯一の選択肢）
 USE_EMAIL=yes                 # Resend + パスワードリセットフロー

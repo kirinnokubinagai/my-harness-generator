@@ -25,7 +25,7 @@ The result on disk is a project where:
 
 - **`/my-harness-init`** — guided interview that produces spec markdowns and runs the bootstrap automatically.
 - **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`.
-- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Hono + Drizzle + Resend + Playwright + Maestro.
+- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Hono + Drizzle + Resend + Playwright + Maestro. Optional Web / iOS / Android / Desktop (Tauri or Electron) targets.
 - **4-lane parallel development** — `harness-team-lead` agent assigns issues across 4 independent lanes (analyst → engineer → e2e-reviewer → reviewer per lane).
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
 - **21 skills, lazy-loaded** — TDD, Hono Clean Architecture, Drizzle migrate-only, Nix-pure execution, design discipline, JSDoc, git discipline, hardcoded-secret prevention, and more.
@@ -250,6 +250,9 @@ PROJECT_NAME=todo-app
 USE_WEB=yes
 USE_IOS=no
 USE_ANDROID=no
+USE_DESKTOP=no                # tauri or electron wrapping the Web frontend
+DESKTOP_KIND=tauri            # only when USE_DESKTOP=yes (tauri | electron)
+DESKTOP_OS=macos,windows,linux  # only when USE_DESKTOP=yes
 USE_DB=yes
 DB_KIND=d1                    # cloudflare d1 (only option for now)
 USE_EMAIL=yes                 # Resend + password-reset flow
