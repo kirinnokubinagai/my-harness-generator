@@ -63,10 +63,37 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ===== プロジェクトの .harness-init/.config から session を自動解決 =====
+#       cwd（または親ディレクトリ）に .harness-init/.config があり、CODEX_SESSION が定義されていれば
+#       --session 未指定時に自動採用する。これで Claude が毎回 --session を書かなくても
+#       同じ session が resume され続ける。
+auto_resolve_session() {
+  local current_dir="$PWD"
+  while [ "$current_dir" != "/" ] && [ -n "$current_dir" ]; do
+    if [ -f "$current_dir/.harness-init/.config" ]; then
+      # shellcheck disable=SC1091
+      local cfg_session
+      cfg_session=$(grep -E "^CODEX_SESSION=" "$current_dir/.harness-init/.config" 2>/dev/null | head -1 | cut -d= -f2-)
+      if [ -n "$cfg_session" ]; then
+        if [ -z "$SESSION_KEY" ]; then
+          SESSION_KEY="$cfg_session"
+          echo "[codex-ask] session を .harness-init/.config から自動解決: $SESSION_KEY" >&2
+        fi
+        if [ "$SESSION_DIR" = "./.codex-sessions" ]; then
+          SESSION_DIR="$current_dir/.harness-init/codex-sessions"
+        fi
+      fi
+      return 0
+    fi
+    current_dir=$(dirname "$current_dir")
+  done
+}
+auto_resolve_session
+
 # ===== --reset-session 単独（Codex CLI 不要、純粋なファイル操作なので先に実行）=====
 if [ "$RESET_SESSION" -eq 1 ]; then
   if [ -z "$SESSION_KEY" ]; then
-    echo "::error:: --reset-session には --session KEY が必須です" >&2
+    echo "::error:: --reset-session には --session KEY が必須です（または .harness-init/.config が必要）" >&2
     exit 1
   fi
   rm -f "$SESSION_DIR/$SESSION_KEY.id"
