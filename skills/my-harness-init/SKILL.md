@@ -248,6 +248,15 @@ USE_CODEX=yes なら architect で正規化チェック。
 
 ### フェーズ 5: ビジュアル（ロゴ + 主要画面 UI モック）
 
+**画像形式の絶対ルール**:
+- **PNG のみ**。SVG は **禁止**（生成する画像形式として）。透過 PNG（背景アルファ）は許可。
+- 解像度: ロゴ最低 1024×1024、UI モックは下記指定の解像度を厳守
+- 生成後は **必ず `open` コマンドで自動オープン**（macOS）してユーザーが即座に確認できるようにする
+  - macOS: `open <path>`
+  - Linux: `xdg-open <path>`
+  - Windows: `start "" <path>`
+  - Claude は `uname` で OS を判定して適切なコマンドを選ぶ
+
 **固定質問**（1 ターン 1 問）:
 
 1. **主色は？**（例: `#14b8a6`、または「青系」「緑系」のような曖昧表現も可、Claude が #コード化）
@@ -261,16 +270,33 @@ USE_CODEX=yes なら architect で正規化チェック。
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --out <root>/.my-harness/codex-logo.md \
-  "$PROJECT_NAME のロゴを 3 案、各 PNG として保存。
+  "$PROJECT_NAME のロゴを 3 案。
+**必ず PNG 形式で保存（SVG は絶対禁止）**。1024x1024 以上、透過背景。
 主色: <主色>、印象: <印象>、方向性: <方向性>
-ミニマル、ベクター調、白背景、テキスト無し
+ミニマル、ベクター調、テキスト無し（マーク or コンビなら）
 保存先:
 - <root>/dev/docs/design/logo-1.png
 - <root>/dev/docs/design/logo-2.png
 - <root>/dev/docs/design/logo-3.png"
 ```
 
-ユーザーが 1 案選定 → `<root>/dev/docs/design/logo-final.png` に symlink or copy。
+生成完了後、3 案を即座にオープン（macOS の例）:
+
+```bash
+open <root>/dev/docs/design/logo-1.png \
+     <root>/dev/docs/design/logo-2.png \
+     <root>/dev/docs/design/logo-3.png
+```
+
+Linux なら `xdg-open` を 3 回、Windows なら `start "" <path>` を 3 回。`uname -s` で分岐。
+
+**ファイル形式の検証**（生成直後に必ず実行）:
+```bash
+file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
+```
+PNG 以外（SVG / JPEG など）が混じっていたら Codex に再生成依頼。SVG が生成された場合は削除して PNG で再生成。
+
+ユーザーが 1 案選定 → `<root>/dev/docs/design/logo-final.png` に copy（symlink ではなく実体 copy、git 管理しやすくするため）。
 
 #### UI モック生成（主要画面ごと）
 
@@ -281,6 +307,7 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --out <root>/.my-harness/codex-mock-<画面>.md \
   "$PROJECT_NAME の <画面名> 画面を 2 案。
+**必ず PNG 形式で保存（SVG は絶対禁止）**。
 主機能: <この画面で行う操作>
 主色: <主色>、印象: <印象>、Lucide Icons のみ、AI 風デザイン禁止
 解像度: <Web なら 1280x800 / モバイルなら 375x812 / Desktop なら 1280x800>
@@ -290,7 +317,12 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
 - <root>/dev/docs/design/mock-<画面>-2.png"
 ```
 
-各画面 2 案 → ユーザー選定。OG 画像 / favicon も同方式。
+生成完了後、2 案を即座にオープン:
+```bash
+open <root>/dev/docs/design/mock-<画面>-{1,2}.png
+```
+
+PNG 検証も同様に `file` コマンドで実施。各画面 2 案 → ユーザー選定。OG 画像 / favicon も同方式（**全部 PNG**）。
 
 #### iteration（重要）
 
