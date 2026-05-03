@@ -71,8 +71,14 @@ merge_hook_into_settings() {
     .hooks //= {} |
     .hooks.UserPromptSubmit //= [] |
     .hooks.Stop //= [] |
-    if any(.hooks.UserPromptSubmit[]; .command == $up) then . else .hooks.UserPromptSubmit += [{"command": $up}] end |
-    if any(.hooks.Stop[]; .command == $sp) then . else .hooks.Stop += [{"command": $sp}] end
+    if [.hooks.UserPromptSubmit[]?.hooks[]?.command] | index($up)
+      then .
+      else .hooks.UserPromptSubmit += [{"hooks": [{"type": "command", "command": $up}]}]
+    end |
+    if [.hooks.Stop[]?.hooks[]?.command] | index($sp)
+      then .
+      else .hooks.Stop += [{"hooks": [{"type": "command", "command": $sp}]}]
+    end
     ' "$settings_path" > "$tmp" && mv "$tmp" "$settings_path"
   echo "  → $settings_path に hook を登録"
 }
