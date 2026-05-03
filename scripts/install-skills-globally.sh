@@ -56,8 +56,8 @@ if [ "$SKIP_HOOKS" -eq 0 ]; then
   if ! command -v jq >/dev/null 2>&1; then
     echo "  ::warning:: jq が無いため hooks 登録をスキップ。手動で settings.json に追記してください。"
   else
-    USER_HOOK="bash $HARNESS_DIR/templates/hooks/log-user-prompt.sh"
-    STOP_HOOK="bash $HARNESS_DIR/templates/hooks/log-claude-output.sh"
+    USER_HOOK="bash $HARNESS_DIR/hooks/log-user-prompt.sh"
+    STOP_HOOK="bash $HARNESS_DIR/hooks/log-claude-output.sh"
     tmp=$(mktemp)
     jq \
       --arg up "$USER_HOOK" \

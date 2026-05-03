@@ -1,95 +1,89 @@
 # my-harness-generator
 
-> A Claude Code plugin that turns "I have a vague idea" into a fully scaffolded production-ready project, in one conversation.
+> A Claude Code plugin that turns "I have a vague idea" into a fully scaffolded, production-ready project — in one conversation.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://code.claude.com)
 [![日本語](https://img.shields.io/badge/lang-日本語-red.svg)](./README.ja.md)
 
-[日本語版はこちら](./README.ja.md)
+[日本語版はこちら / Japanese version](./README.ja.md)
 
 ---
 
-## Why this exists
+## What it does
 
-Most "starter kit" generators give you boilerplate but leave the **hard part** (requirements, architecture, lane assignment, security discipline) on you. This plugin walks Claude through a **7-stage interview** with you, optionally consults OpenAI Codex for second opinions, generates logos, decides the tech stack, and produces a fully wired-up monorepo with branch protection, CI, hooks, and 4-lane parallel-development conventions—all from one slash command.
+Most starter kits give you boilerplate but leave the hard parts — requirements discovery, architecture decisions, lane assignment, security discipline — entirely to you. This plugin runs a structured interview with you, optionally consults OpenAI Codex for second opinions, generates branding (logo + UI mocks), settles the tech stack, and produces a fully wired-up monorepo with branch protection, CI, git hooks, and 4-lane parallel-development conventions — all from a single slash command.
 
-## Key features
+The result on disk is a project where:
 
-- **`/my-harness-init`**: 7-stage product spec interview → spec markdowns → automated bootstrap
-- **Codex CLI integration (optional)**: real multi-turn dialogue with session resume; logo / OG image generation via gpt-image-2
-- **One-command bootstrap**: bare git + dev/stage/main worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Hono + Drizzle + Resend + Playwright + Maestro
-- **4-lane parallel development** with role-based agents (analyst → engineer → e2e-reviewer → reviewer × 4)
-- **Automatic secret masking**: `UserPromptSubmit` hook captures every prompt, runs it through `mask-secrets.sh` (9 patterns), writes to `dev/docs/talk/<date>.md`
-- **20 skills, lazy-loaded**: TDD, Hono Clean Architecture, Drizzle migrate-only, Nix pure execution, design discipline, JSDoc, git rules, hardcoded-secret prevention, etc.
-- **Optional GitHub Issue mode**: switch between `gh issue create` and local `docs/task/*.md` files
+- The first commit is already green (CI, tests, lints all pass).
+- Branch protection is applied to `main` / `stage` / `dev` and direct push is impossible.
+- Every conversation you have with Claude is auto-logged (with secrets masked) into `dev/docs/talk/`.
+- The next step is always documented — you never have to wonder "what now?".
+
+## Highlights
+
+- **`/my-harness-init`** — guided interview that produces spec markdowns and runs the bootstrap automatically.
+- **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`.
+- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Hono + Drizzle + Resend + Playwright + Maestro.
+- **4-lane parallel development** — `harness-team-lead` agent assigns issues across 4 independent lanes (analyst → engineer → e2e-reviewer → reviewer per lane).
+- **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
+- **21 skills, lazy-loaded** — TDD, Hono Clean Architecture, Drizzle migrate-only, Nix-pure execution, design discipline, JSDoc, git discipline, hardcoded-secret prevention, and more.
+- **GitHub-Issue mode toggle** — choose between `gh issue create` and local `dev/docs/task/*.md` files at init time.
 
 ## Installation
 
 ### Prerequisites
 
 - Claude Code (latest)
-- `git`, `bash`, `jq`, `direnv` (for Nix dev shell auto-activation)
-- (Optional) `npm install -g @openai/codex` and `codex login` if you want Codex consultations
+- `git`, `bash`, `jq`, and `direnv` (for Nix dev shell auto-activation)
+- Optional: `npm install -g @openai/codex` and `codex login` if you want Codex consultations
 
 ### Install the plugin
 
-In Claude Code, run:
+In Claude Code:
 
 ```
 /plugin marketplace add https://github.com/kirinnokubinagai/my-harness-generator
 /plugin install my-harness@my-harness-generator
 ```
 
-Then **fully restart Claude Code** (or run `/clear`) so the new skills and hooks are loaded.
+Then **fully restart Claude Code** (or run `/clear`) so the new skills and hooks load.
 
 ### Verify
-
-```
-/my-harness-generator
-```
-The top-level skill should respond with a description of all available commands.
-
-## Quick start (5 minutes)
 
 ```
 /my-harness-init
 ```
 
-Claude will ask you, one at a time:
+The interview should start. If the first question appears, the plugin is installed correctly. Press `Esc` (or close the conversation) to abort the interview without creating anything.
 
-1. **Project root directory** (default: `~/<project-name>`)
-2. **Project name** (slug, lowercase + hyphens)
-3. **Use Codex integration?** (y/n)
-4. (If yes) Codex login check + session name
-5. **Task management mode?** (`y` = GitHub Issues, `n` = local `docs/task/`)
-6. **Inherit your global Claude settings?** (y = use `~/.claude/CLAUDE.md`, n = isolate)
+## Quick start
 
-Then you'll go through 7 stages:
+`/my-harness-init` is the only command you need to start a new project. It walks through the following phases — one question per turn, with masked Q&A automatically saved to `dev/docs/spec/` and `dev/docs/talk/`:
 
-| Stage | Topic | Output |
-|-------|-------|--------|
-| 1 | Problem definition | `dev/docs/spec/01-problem.md` |
-| 2 | Personas / users | `dev/docs/spec/02-personas.md` |
-| 3 | Features / MVP boundary | `dev/docs/spec/03-features.md` |
-| 4 | Tech stack | `dev/docs/spec/04-stack.md` + `.my-harness/.config` |
-| 5 | Data model | `dev/docs/spec/05-data-model.md` (with mermaid ER) |
-| 6 | Visual / branding | `dev/docs/spec/06-visual.md` + `dev/docs/design/logo-*.png` |
-| 7 | Final review + bootstrap | runs `bootstrap.sh --config .my-harness/.config` |
-
-Every Q&A turn is auto-saved (masked) to `dev/docs/talk/<date>.md` via the `UserPromptSubmit` hook.
+| Phase | What you decide |
+|-------|-----------------|
+| **Setup** | Project root path, slug, Codex y/n, task management mode (GitHub Issues or local files), whether to inherit your global `~/.claude/CLAUDE.md` |
+| **Problem** | Who has what pain, why existing tools fall short, success criteria |
+| **Personas** | User types, contexts, technical literacy |
+| **Features** | MVP boundary and priorities for 5–10 core capabilities |
+| **Stack** | Web / iOS / Android, database, email provider, E2E choices |
+| **Data model** | Entities, relationships, PII handling (mermaid ER diagram) |
+| **Visual** | Logo (3 variants) and 3–5 UI mocks via Codex `gpt-image-2`; loop back to earlier phases if a mock reveals missing requirements |
+| **Finalize** | Cross-check the spec, run `bootstrap.sh`, generate initial issues / task files (one per lane) |
 
 After bootstrap completes:
 
 ```bash
-cd ~/<project-name>/dev
+cd ~/<project>/dev
 direnv allow
 nix develop --command pnpm install
 nix develop --command pnpm exec husky
 nix develop --command pnpm exec vitest run    # health.test.ts should be green
 ```
 
-Then push to GitHub:
+Push to GitHub:
 
 ```bash
 git remote add origin git@github.com:<owner>/<repo>.git
@@ -98,131 +92,79 @@ bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
 bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
-## Detailed usage
+## Project lifecycle
 
-### Working on a feature (4-lane parallel)
+The plugin enforces a 6-phase flow from idea to production. The first three phases all live inside `/my-harness-init`; phases four through six each have their own command.
 
-```
-/harness-new-feature 42 user-login
-```
+| Phase | Activity | Primary command |
+|-------|----------|-----------------|
+| 1. Spec | Problem, personas, features, stack, data model | `/my-harness-init` (Problem → Data-model phases) |
+| 2. Design | Logo + UI mocks + spec iteration | `/my-harness-init` (Visual phase) |
+| 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Finalize phase) |
+| 4. Implementation | 4-lane parallel feature work; each issue runs in a fresh subagent context | `/harness-new-feature <issue>` |
+| 5. Deploy setup | Terraform infra (Cloudflare D1 / R2 / Pages), wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
+| 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |
 
-This invokes `harness-new-feature` skill which calls `new-feature.sh 42 user-login`, creating `lanes/feat-42-user-login/` worktree from `dev`. Move into it:
+A separate emergency path (`/harness-new-hotfix`) exists for production fixes; see "Daily commands" below.
 
-```bash
-cd lanes/feat-42-user-login
-direnv allow
-```
+## Daily commands
 
-Now write a failing test first (the `harness-tdd` skill auto-fires when you mention "tests"):
+After init, these are the slash commands you'll reach for most often:
 
-```ts
-// src/auth/login.test.ts
-import { describe, expect, it } from 'vitest';
-import { login } from './login';
+| What you want | Command |
+|---------------|---------|
+| Start a new feature in a 4-lane parallel worktree | `/harness-new-feature <issue#> <slug>` |
+| Emergency hotfix (branched from `main`) | `/harness-new-hotfix <issue#> <slug>` |
+| Resolve a conflict (merge-commit only — no rebase) | `/harness-resolve-conflict` |
+| Sync all feature branches with `dev` after a hotfix back-merge | `/harness-sync-features` |
+| Ask Codex for a second opinion | `/harness-codex-consult` (or just say "ask Codex") |
+| Manual secret scan | `/harness-check-secrets` |
+| Apply branch protection in bulk | `/harness-branch-protection` |
+| Generate Terraform deploy infrastructure | `/harness-deploy-setup` |
+| Run a staged production deploy | `/harness-deploy-execute` |
 
-describe('login', () => {
-  it('rejects empty email', async () => {
-    const result = await login({ email: '', password: 'x' });
-    expect(result.error).toBe('email is required');
-  });
-});
-```
+## Auto-firing skills
 
-Run it (must fail first):
-```bash
-nix develop --command pnpm exec vitest related --run src/auth/login.test.ts
-```
+These convention skills load automatically when you do certain things — you don't have to invoke them:
 
-Implement minimal code to pass, then commit. Husky pre-commit runs Biome / vitest / tsc / gitleaks / forbidden-pattern-check.
-
-```bash
-git add -A
-git commit -m "feat(auth): メールアドレス必須バリデーション"
-git push origin feat/42-user-login
-gh pr create --base dev --title "feat(#42): user login"
-```
-
-CI runs `pr-to-dev.yml` (quality + e2e + claude-review + auto-merge).
-
-### Asking Codex for a second opinion
-
-```
-/harness-codex-consult
-```
-
-Or just talk: "Codex に聞いてください、Hono の middleware 順序として A→B→C と B→A→C どちらが正しいか"
-
-Claude calls `codex-ask.sh --role architect ...` with auto-resolved session (set up at /my-harness-init stage 0). Codex remembers all previous stages.
-
-### Generating a logo
-
-In stage 6 of `/my-harness-init`, or any time:
-
-> "todo-app のロゴを 3 案、ミニマル / ベクター / 主色 #14b8a6 で `dev/docs/design/logo-{1,2,3}.png` に保存して"
-
-Claude invokes `harness-codex-consult` with `role: designer`. Codex (which has gpt-image-2 access) generates and saves the PNGs. **No special flags needed**—it's just a normal request.
-
-### Hotfix flow
-
-```
-/harness-new-hotfix 99 critical-auth-bypass
-```
-
-Creates `lanes/hotfix-99-critical-auth-bypass/` from `main` (not dev). After merge to main:
-- `post-merge-hotfix.yml` runs OWASP ZAP / MobSF immediately
-- Auto back-merges main → stage → dev with **merge commits** (no rebase)
-
-### Resolving conflicts
-
-**Never use `git rebase` / `git reset --hard` / `git push --force`**. Use:
-
-```
-/harness-resolve-conflict
-```
-
-Which calls `resolve-conflict.sh` that does `git merge --no-ff` only.
-
-### Syncing all features after a hotfix back-merge
-
-```
-/harness-sync-features
-```
-
-Runs `sync-features-with-dev.sh` which iterates `lanes/feat-*` and merges `origin/dev` into each via `git merge --no-ff`.
-
-## Available skills
-
-### Top-level (2)
-| Skill | Trigger |
-|-------|---------|
-| `my-harness-generator` | "harness について" / "ハーネス更新" |
-| `my-harness-init` | New project from scratch |
-
-### Convention skills (10, lazy-load)
 | Skill | When it fires |
-|-------|--------------|
-| `harness-tdd` | Writing tests, fixing bugs, refactoring |
+|-------|---------------|
+| `harness-tdd` | Writing tests, fixing bugs, refactoring, behavior changes |
 | `harness-hono-clean-arch` | Implementing Hono routes, services, repositories |
-| `harness-drizzle-rules` | Schema changes, migrations |
-| `harness-nix-pure` | Running commands, installing tools |
-| `harness-design-rules` | UI components, colors, icons |
-| `harness-jsdoc` | Writing functions, types, comments |
-| `harness-git-discipline` | Git operations, conflicts |
-| `harness-no-hardcoded-secrets` | env vars, API keys, `.env` |
-| `harness-mask` | Manual secret masking |
-| `harness-codex-consult` | "Codex に聞いて", second opinions |
+| `harness-drizzle-rules` | Schema changes or migrations (enforces migrate-only, blocks `drizzle-kit push`) |
+| `harness-nix-pure` | Running commands or installing tools (forbids `brew install`, requires `nix develop --command`) |
+| `harness-design-rules` | UI components, color choices, icon usage (Lucide only, no AI-style gradients) |
+| `harness-jsdoc` | Writing functions, types, comments (JSDoc/TSDoc required, no inline comments inside functions) |
+| `harness-git-discipline` | Git operations and conflicts (no `rebase` / `reset --hard` / `push --force`) |
+| `harness-no-hardcoded-secrets` | Working with env vars, API keys, `.env` files |
+| `harness-mask` | Manually masking sensitive content before logging |
+| `harness-codex-consult` | "Ask Codex …" / second-opinion flows |
 
-### Shell-wrapping skills (8)
-| Skill | Wraps |
-|-------|-------|
-| `harness-new-feature` | `new-feature.sh` |
-| `harness-new-hotfix` | `new-hotfix.sh` |
-| `harness-resolve-conflict` | `resolve-conflict.sh` |
-| `harness-sync-features` | `sync-features-with-dev.sh` |
-| `harness-check-codex-auth` | `check-codex-auth.sh` |
-| `harness-check-secrets` | `check-forbidden-patterns.sh` |
-| `harness-setup-secrets` | `setup-secrets.sh` |
-| `harness-branch-protection` | `setup-branch-protection.sh` |
+## All skills (21 total)
+
+| Category | Skill | Purpose |
+|----------|-------|---------|
+| Entry point | `my-harness-init` | New project from scratch (interview → bootstrap) |
+| Convention | `harness-tdd` | Enforces Red-Green-Refactor |
+| Convention | `harness-hono-clean-arch` | 4-layer Clean Architecture for Hono |
+| Convention | `harness-drizzle-rules` | Drizzle migrate-only, descriptive migration names |
+| Convention | `harness-nix-pure` | Nix flake pure environment, direnv auto-activation |
+| Convention | `harness-design-rules` | Anti-AI-look design, Lucide icons only, WCAG AA |
+| Convention | `harness-jsdoc` | JSDoc / TSDoc on every export, Japanese descriptions |
+| Convention | `harness-git-discipline` | No rebase / reset / force-push; merge commits only |
+| Convention | `harness-no-hardcoded-secrets` | env vars or SOPS only; never hardcode |
+| Convention | `harness-mask` | 9-pattern secret masking helper |
+| Convention | `harness-codex-consult` | Wraps `codex-ask.sh` for second opinions |
+| Workflow | `harness-new-feature` | dev-based feature worktree |
+| Workflow | `harness-new-hotfix` | main-based hotfix worktree |
+| Workflow | `harness-resolve-conflict` | Merge-commit-only conflict resolution |
+| Workflow | `harness-sync-features` | Back-merge `dev` into all feature branches |
+| Workflow | `harness-check-codex-auth` | Codex CLI install + login state |
+| Workflow | `harness-check-secrets` | Forbidden-pattern scan |
+| Workflow | `harness-setup-secrets` | Interactive GitHub Secrets / Variables registration |
+| Workflow | `harness-branch-protection` | Apply protection rules in bulk |
+| Workflow | `harness-deploy-setup` | Generate Terraform / wrangler / fastlane |
+| Workflow | `harness-deploy-execute` | Staged deploy: dev → stage → main canary |
 
 ## Architecture
 
@@ -232,14 +174,14 @@ Runs `sync-features-with-dev.sh` which iterates `lanes/feat-*` and merges `origi
 [UserPromptSubmit hook] → mask-secrets.sh → dev/docs/talk/<date>.md
     ↓
 [Claude]
-    ↓ lazy load
-[harness-* skill] (auto-selects from 20)
-    ↓ skill instructs
+    ↓ lazy-load
+[harness-* skill]  (auto-selected from 21)
+    ↓
 [shell script]
     ↓
 [implementation]
     ↓
-[Stop hook] → extract assistant response → mask → talk/
+[Stop hook] → extract assistant response → mask → dev/docs/talk/
     ↓
 [git pre-commit] → gitleaks + check-forbidden-patterns (double defense)
     ↓
@@ -250,49 +192,58 @@ Runs `sync-features-with-dev.sh` which iterates `lanes/feat-*` and merges `origi
 
 ```
 <project>/
-├── .bare/                              bare git
+├── .bare/                              bare git repo
 ├── .git → .bare                        gitfile pointing to .bare
 ├── .my-harness/.config                 selected options (team-shared, in git)
 ├── .my-harness/codex-sessions/         Codex session IDs (gitignored)
-├── dev/   stage/   main/               worktrees (only work in dev)
-├── lanes/feat-<n>-<slug>/              feature worktrees (4 parallel)
-├── lanes/hotfix-<n>-<slug>/            hotfix worktrees (main-based)
-└── dev/                                main work area
-    ├── .claude/                        if USE_GLOBAL_CLAUDE=no
+├── dev/   stage/   main/               worktrees (you only work in dev)
+├── lanes/feat-<n>-<slug>/              feature worktrees (up to 4 in parallel)
+└── lanes/hotfix-<n>-<slug>/            main-based hotfix worktrees
+    ├── .claude/                        only if USE_GLOBAL_CLAUDE=no
     ├── docs/{spec,design,talk,task}/   spec / mocks / Q&A logs / tasks
     ├── .my-harness/                    plugin runtime files (copied)
-    ├── flake.nix .envrc                Nix pure environment
+    ├── flake.nix .envrc                Nix-pure environment
     ├── biome.json package.json         dev tooling
     ├── .husky/                         pre-commit / pre-push / commit-msg
     └── .github/
         ├── workflows/                  9 CI workflows
-        └── scripts/maybe-create-issue.js  GitHub Issue branching helper
+        └── scripts/maybe-create-issue.js   GitHub-Issue branching helper
 ```
 
 ## Branch policy
 
 | from → to | requirement |
 |-----------|-------------|
-| `feat/*` → `dev` | PR + format/lint/test/typecheck pass |
+| `feat/*` → `dev` | PR + format / lint / test / typecheck pass |
 | `dev` → `stage` | Human approval + OWASP ZAP + Playwright + Maestro + Semgrep + Trivy pass |
 | `stage` → `main` | Human approval + all gates green + canary 10% → 100% |
-| `hotfix/*` → `main` | Emergency approval + minimal test/lint/format (post-merge ZAP/E2E) |
+| `hotfix/*` → `main` | Emergency approval + minimal test/lint/format (post-merge ZAP / E2E runs immediately) |
 
-Direct push to `main` and `stage` is blocked by both pre-push hook and GitHub branch protection (`harness-branch-protection` skill applies the latter).
+Direct pushes to `main` and `stage` are blocked twice: by the local pre-push hook and by GitHub branch protection (applied via `/harness-branch-protection`).
 
-## Convention enforcement (skills handle these)
+## Conventions enforced
 
-- **TDD strict**: Red-Green-Refactor; deleting code that was written before tests
-- **Hono Clean Architecture**: domain ← application ← infrastructure / interfaces, with strict dependency direction
-- **Drizzle migrate only**: `drizzle-kit push` is forbidden
-- **Nix pure**: all tooling via `nix develop --command`; `direnv allow` automates this
-- **No AI-looking design**: only Lucide Icons, no gradients/neon/emoji, WCAG AA, 10 essential UX-psychology principles
-- **JSDoc/TSDoc required**, no inline comments inside functions, all explanations in 日本語
-- **Git rules**: no `rebase` / `reset --hard` / `push --force`; conflicts resolved via merge commits
+- **TDD strict** — Red-Green-Refactor cycle. Production code written without a failing test first must be deleted and rewritten.
+- **Hono Clean Architecture** — `domain ← application ← infrastructure / interfaces`, dependency direction enforced.
+- **Drizzle migrate-only** — `drizzle-kit push` is forbidden (no migration history, no rollback).
+- **Nix pure** — all tooling via `nix develop --command`. `brew install` is forbidden.
+- **No AI-look design** — Lucide Icons only; no gradients, neon, or emoji; WCAG AA; the 10 essential UX-psychology principles required.
+- **JSDoc / TSDoc required** — on every export; no inline comments inside functions; descriptions in Japanese (project default).
+- **Git discipline** — no `rebase`, `reset --hard`, or `push --force`. Conflicts are resolved with merge commits.
 
-## Configuration options
+## Fresh-agent-per-issue principle
 
-`/my-harness-init` interview produces `<root>/.my-harness/.config`:
+Every issue is processed in a brand-new subagent context. `harness-team-lead` always spawns engineer / analyst / e2e-reviewer / reviewer agents via `Task(subagent_type=..., prompt=...)`, never via `SendMessage` continuation. This guarantees:
+
+- No bleed-over of decisions or naming choices from previous issues.
+- No accumulating context cost as the project grows.
+- Each lane stays truly independent — what happens in lane 2 cannot influence lane 3.
+
+When the orchestrating session itself becomes heavy (after 5–10 issues), `harness-team-lead` saves progress to `.my-harness/team-state.json` and asks you to `/clear` and resume from that file.
+
+## Configuration
+
+The interview produces `<root>/.my-harness/.config`:
 
 ```bash
 PROJECT_NAME=todo-app
@@ -300,60 +251,83 @@ USE_WEB=yes
 USE_IOS=no
 USE_ANDROID=no
 USE_DB=yes
-DB_KIND=d1                    # cloudflare d1
-USE_EMAIL=yes                 # Resend + password reset
+DB_KIND=d1                    # cloudflare d1 (only option for now)
+USE_EMAIL=yes                 # Resend + password-reset flow
 USE_PLAYWRIGHT=yes
 USE_MAESTRO=no
-USE_CLAUDE_ACTION=yes
+USE_CLAUDE_ACTION=yes         # PR review via Claude Code Action
 CLAUDE_AUTH=oauth             # or "api"
-USE_GLOBAL_CLAUDE=yes         # inherit ~/.claude/CLAUDE.md
+USE_GLOBAL_CLAUDE=yes         # inherit ~/.claude/CLAUDE.md, or isolate
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
 CODEX_SESSION=my-harness-init
 ```
 
-You can re-run `bootstrap.sh <root> --config <root>/.my-harness/.config` non-interactively.
+You can re-run bootstrap non-interactively:
+
+```bash
+bash bootstrap.sh <root> --config <root>/.my-harness/.config
+```
 
 ## Troubleshooting
 
-- **Skill doesn't fire**: Restart Claude Code or `/clear`
-- **Hook doesn't write to talk/**: Check `~/.claude/settings.json` has `UserPromptSubmit` and `Stop` hook entries from the plugin
-- **Codex returns auth error**: Run `/harness-check-codex-auth`, then `codex login`
-- **Conflict during hotfix back-merge**: Use `/harness-resolve-conflict` (never rebase)
-- **`drizzle-kit push` accidentally used**: revert and use `drizzle-kit generate --name <descriptive>` then `wrangler d1 migrations apply`
-- **Update plugin**: `/plugin marketplace update` then `/plugin install my-harness@my-harness-generator`
+| Symptom | Fix |
+|---------|-----|
+| Skill doesn't fire | Restart Claude Code or `/clear` |
+| Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` and `Stop` hooks; run `/doctor` to validate the schema |
+| Codex returns auth error | `/harness-check-codex-auth`, then `codex login` |
+| Conflict during hotfix back-merge | `/harness-resolve-conflict` (never rebase) |
+| Accidentally ran `drizzle-kit push` | Revert, then `drizzle-kit generate --name <descriptive>` followed by `wrangler d1 migrations apply` |
+| Update plugin | `/plugin marketplace update`, then `/plugin install my-harness@my-harness-generator` |
+| Stale worktree refs | `git worktree prune` (bootstrap does this for you) |
+| `direnv: error Path 'flake.nix' is not tracked by Git` | `git add flake.nix && git commit` (bootstrap does this for you) |
+
+## FAQ
+
+**Can I add this to an existing project?**
+Possible but not recommended. `/my-harness-init` assumes a fresh start. To retrofit, you'd write `.my-harness/.config` by hand and run `bootstrap.sh --config`, but the bare-git swap is destructive.
+
+**Is Codex CLI required?**
+No. Pick `n` at the Setup phase and Claude will run all phases solo (only image generation is skipped).
+
+**How do team members avoid drifting in personal config?**
+Pick `USE_GLOBAL_CLAUDE=no` at Setup. The plugin then writes `dev/.claude/CLAUDE.md` with project-only instructions and skips your personal `~/.claude/CLAUDE.md`. Note: Claude Code does not allow 100% isolation — this just minimizes the surface.
+
+**What does "4-lane parallel" actually do?**
+`harness-team-lead` partitions issues across `lane/1` through `lane/4` based on file ownership (no two lanes touch the same files). Each lane runs analyst → engineer → e2e-reviewer → reviewer in its own worktree. See [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
+
+**Will `dev/docs/talk/` end up in my repo?**
+Yes (private repo recommended). `mask-secrets.sh` redacts secrets, but the conversational content itself is committed. Add `dev/docs/talk/` to `.gitignore` if you'd rather not.
+
+**How do I update the plugin?**
+`/plugin marketplace update` then `/plugin install my-harness@my-harness-generator`. Don't `git pull` inside the plugin cache directory.
+
+## Detailed docs
+
+- Workflow: [`docs/WORKFLOW.md`](./docs/WORKFLOW.md)
+- Hotfix procedure: [`docs/HOTFIX.md`](./docs/HOTFIX.md)
+- Security: [`docs/SECURITY.md`](./docs/SECURITY.md)
+- Infrastructure: [`docs/INFRA.md`](./docs/INFRA.md)
+- iOS DAST: [`docs/IOS_DAST.md`](./docs/IOS_DAST.md)
+- Engineering standards: [`docs/ENGINEER_STANDARDS.md`](./docs/ENGINEER_STANDARDS.md)
+- Setup details: [`docs/SETUP.md`](./docs/SETUP.md)
 
 ## Contributing
 
 PRs welcome. The plugin enforces its own conventions on its own development:
-- All shell scripts must `bash -n` clean
-- All SKILL.md require front-matter `name` and `description`
-- All commits via Conventional Commits + Japanese body
-- See [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) for the full lane-based workflow
+
+```bash
+git clone https://github.com/kirinnokubinagai/my-harness-generator
+cd my-harness-generator
+# Add as a local marketplace to test changes
+/plugin marketplace add ./
+/plugin install my-harness@my-harness-generator
+```
+
+- All shell scripts must pass `bash -n` (syntax check).
+- Every `SKILL.md` requires a front-matter `name` and `description`.
+- Commits follow Conventional Commits with a Japanese body.
+- Lane workflow described in [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
 
 ## License
 
-MIT (see [LICENSE](./LICENSE))
-
----
-
-## Six-phase project flow
-
-The end-to-end project lifecycle this plugin enforces:
-
-| Phase | What | How |
-|-------|------|-----|
-| 1 | **Spec creation** (problem, personas, features, stack, data model) | `/my-harness-init` stages 1–5 |
-| 2 | **Design mocks + logos + spec iteration** | `/my-harness-init` stage 6 — generates 3–5 UI screen mocks via Codex `gpt-image-2`; loops back to stages 1–5 if mocks reveal missing requirements |
-| 3 | **Issue / task creation** | `/my-harness-init` stage 7 — `gh issue create` (USE_GITHUB_ISSUES=yes) or local `dev/docs/task/{parent,child}/*.md` (=no) |
-| 4 | **Team implementation + close** | `/harness-new-feature <issue>`, 4-lane parallel via `harness-team-lead` agent; PR-merge closes the issue |
-| 5 | **Deploy setup (Terraform)** | `/harness-deploy-setup` — generates `infra/main.tf` (Cloudflare provider), wrangler bindings, GitHub secrets/vars, fastlane (iOS) |
-| 6 | **Deploy execution** | `/harness-deploy-execute` — dev → stage (auto + human label) → main (canary 10%→100%) |
-
-### Fresh-agent-per-issue principle
-
-Every issue is processed in **a brand-new subagent context**. `harness-team-lead` always spawns engineer / analyst / e2e-reviewer / reviewer via `Task(subagent_type=..., prompt=...)`, never via `SendMessage`. This guarantees:
-- No bleed-over of decisions from previous issues
-- No accumulating context cost
-- Each lane stays truly independent
-
-When the orchestrating session itself gets heavy (e.g. after 5–10 issues), team-lead saves progress to `.my-harness/team-state.json` and asks you to `/clear` and resume from that file.
+MIT — see [`LICENSE`](./LICENSE).

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin",
   "name": "my-harness",
   "version": "1.0.0",
-  "description": "汎用ハーネスジェネレータ。Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS の任意組み合わせを bootstrap。4 レーン並列開発、TDD 強制、Codex 連携、機密マスキング、Git 規律を skills として提供。",
+  "description": "Generic project harness generator. Bootstraps any combination of Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS. Provides 4-lane parallel development, TDD enforcement, Codex integration, secret masking, and git discipline as composable skills.",
   "author": {
     "name": "kirinnokubinagai",
     "email": "removed@redacted.local"

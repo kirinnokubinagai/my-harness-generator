@@ -60,8 +60,8 @@ merge_hook_into_settings() {
     echo "  ::warning:: jq が無いため $settings_path に手動追記してください: hooks.UserPromptSubmit / Stop"
     return 0
   fi
-  local user_prompt_hook="bash $HARNESS_DIR/templates/hooks/log-user-prompt.sh"
-  local stop_hook="bash $HARNESS_DIR/templates/hooks/log-claude-output.sh"
+  local user_prompt_hook="bash $HARNESS_DIR/hooks/log-user-prompt.sh"
+  local stop_hook="bash $HARNESS_DIR/hooks/log-claude-output.sh"
   local tmp
   tmp=$(mktemp)
   jq \

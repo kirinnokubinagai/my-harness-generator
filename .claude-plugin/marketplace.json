@@ -5,7 +5,7 @@
     "name": "kirinnokubinagai",
     "email": "removed@redacted.local"
   },
-  "description": "汎用ハーネスジェネレータ。/my-harness-init で深掘りインタビュー → 仕様書 → bootstrap を一気通貫。Hono + Cloudflare D1 + Resend + Playwright + Maestro 対応、4 レーン並列開発、TDD 強制、Codex 連携、機密マスキング、Git 規律。",
+  "description": "Generic project harness generator. /my-harness-init walks you through a structured interview, produces spec markdowns, and bootstraps the project end-to-end. Supports Hono + Cloudflare D1 + Resend + Playwright + Maestro, with 4-lane parallel development, TDD enforcement, Codex integration, secret masking, and git discipline.",
   "version": "1.0.0",
   "metadata": {
     "version": "1.0.0"
@@ -14,7 +14,7 @@
     {
       "name": "my-harness",
       "source": "./",
-      "description": "ハーネスジェネレータ本体。20 個の skills（規約 + shell ラッパー）+ 5 個の agents（4 レーン並列）+ 2 個の hooks（talk 自動記録）。",
+      "description": "Harness generator core. 21 skills (entry point + conventions + shell wrappers) + 5 agents (4-lane parallel coordination) + 2 hooks (auto-logged conversations).",
       "version": "1.0.0",
       "author": {
         "name": "kirinnokubinagai",
