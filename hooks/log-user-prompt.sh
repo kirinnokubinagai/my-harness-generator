@@ -45,7 +45,7 @@ while [ "$PROJECT_ROOT" != "/" ] && [ "$PROJECT_ROOT" != "" ]; do
 done
 [ -f "$PROJECT_ROOT/.my-harness/.config" ] || exit 0
 
-HARNESS_GENERATOR_DIR="${HARNESS_GENERATOR_DIR:-$HOME/my-harness-generator}"
+HARNESS_GENERATOR_DIR="${CLAUDE_PLUGIN_ROOT:-${HARNESS_GENERATOR_DIR:-$HOME/my-harness-generator}}"
 MASK="$HARNESS_GENERATOR_DIR/scripts/mask-secrets.sh"
 
 if [ -x "$MASK" ]; then

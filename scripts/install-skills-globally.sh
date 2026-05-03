@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# 概要: my-harness-generator の templates/skills/ と templates/hooks/ を
+# 概要: ローカルチェックアウトから直接 ~/.claude/skills/ にインストールする（plugin install しない場合の代替）。
+#       推奨は: /plugin marketplace add <repo> + /plugin install my-harness-harness-generator
 #       ~/.claude/ に直接インストールする（bootstrap を経由しない）。
 #       既存ファイルは上書き（最新テンプレに同期）するので、ジェネレータ更新後の反映に使う。
 #
 # 使い方:
-#   bash ~/my-harness-generator/scripts/install-skills-globally.sh
-#   bash ~/my-harness-generator/scripts/install-skills-globally.sh --no-hooks   # hooks 登録をスキップ
+#   bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/install-skills-globally.sh
+#   bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/install-skills-globally.sh --no-hooks   # hooks 登録をスキップ
 #
 # やること:
 #   1. templates/skills/harness-* を ~/.claude/skills/ に上書きコピー

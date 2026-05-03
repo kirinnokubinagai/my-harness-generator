@@ -9,14 +9,14 @@ Claude → Codex（外部 LLM）への対話を、`codex-ask.sh` ラッパー sh
 
 ## 前提
 
-- `~/my-harness-generator/scripts/codex-ask.sh` が実行可能
+- `${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/codex-ask.sh` が実行可能
 - `codex` CLI がインストールされ `codex login` 済（`check-codex-auth.sh` で確認可能）
 - `<root>/.my-harness/.config` に `USE_CODEX=yes` が設定されている
 
 ## 標準呼び出し
 
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh \
+${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/codex-ask.sh \
   --role <role> \
   --out <root>/.my-harness/codex-<topic>.md \
   --log <root>/.my-harness/codex.jsonl \
@@ -86,7 +86,7 @@ codex-ask.sh --session brainstorm --reset-session  # 破棄
 ## 失敗時のハンドリング
 
 - Codex 未インストール → exit 127、`npm i -g @openai/codex` を案内
-- 未ログイン → `bash ~/my-harness-generator/scripts/check-codex-auth.sh` で確認、`codex login` を促す
+- 未ログイン → `bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/check-codex-auth.sh` で確認、`codex login` を促す
 - session 切れ → `--reset-session` で再作成
 
 ## ベスプラ

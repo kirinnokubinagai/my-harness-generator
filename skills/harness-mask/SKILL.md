@@ -22,18 +22,18 @@ description: 機密値（API キー / メール / 電話 / URL認証 / カード
 
 ### stdin 経由
 ```bash
-echo "$user_response" | bash ~/my-harness-generator/scripts/mask-secrets.sh >> dev/docs/talk/01-problem.md
+echo "$user_response" | bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/mask-secrets.sh >> dev/docs/talk/01-problem.md
 ```
 
 ### ファイル経由
 ```bash
-bash ~/my-harness-generator/scripts/mask-secrets.sh /tmp/raw.md > dev/docs/spec/01-problem.md
+bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/mask-secrets.sh /tmp/raw.md > dev/docs/spec/01-problem.md
 ```
 
 ### 既存ファイルを上書きマスク
 ```bash
 TMP=$(mktemp)
-bash ~/my-harness-generator/scripts/mask-secrets.sh existing.md > "$TMP"
+bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/mask-secrets.sh existing.md > "$TMP"
 mv "$TMP" existing.md
 ```
 

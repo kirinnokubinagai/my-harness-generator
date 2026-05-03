@@ -33,7 +33,7 @@ done
 
 [ -f "$TRANSCRIPT_PATH" ] || exit 0
 
-HARNESS_GENERATOR_DIR="${HARNESS_GENERATOR_DIR:-$HOME/my-harness-generator}"
+HARNESS_GENERATOR_DIR="${CLAUDE_PLUGIN_ROOT:-${HARNESS_GENERATOR_DIR:-$HOME/my-harness-generator}}"
 MASK="$HARNESS_GENERATOR_DIR/scripts/mask-secrets.sh"
 
 # transcript jsonl から最後の assistant message のテキストを抽出

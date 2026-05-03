@@ -10,7 +10,7 @@ Codex CLI（`@openai/codex`）が使える状態かを判定する。`/my-harnes
 ## 呼び出し
 
 ```bash
-bash ~/my-harness-generator/scripts/check-codex-auth.sh
+bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/check-codex-auth.sh
 ```
 
 ## 結果

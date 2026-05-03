@@ -90,7 +90,7 @@ for (const name of requiredEnvVars) {
 
 会話 / ログに機密値が含まれそうなときは `mask-secrets.sh` を通す:
 ```bash
-echo "$content" | bash ~/my-harness-generator/scripts/mask-secrets.sh > docs/talk/01.md
+echo "$content" | bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/mask-secrets.sh > docs/talk/01.md
 ```
 
 ## チェック
