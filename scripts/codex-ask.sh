@@ -34,6 +34,9 @@ IMAGE_OUT=""
 SESSION_KEY=""
 SESSION_DIR="${CODEX_SESSION_DIR:-./.codex-sessions}"
 RESET_SESSION=0
+SET_ACTIVE_PROJECT=""
+CLEAR_ACTIVE=0
+ACTIVE_POINTER="${CODEX_ACTIVE_POINTER:-$HOME/.codex-active-session}"
 
 # ===== 引数パース =====
 PARSE_CONTEXT=0
@@ -54,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     --session)         SESSION_KEY="$2";   shift 2 ;;
     --session-dir)     SESSION_DIR="$2";   shift 2 ;;
     --reset-session)   RESET_SESSION=1;    shift ;;
+    --set-active)      SET_ACTIVE_PROJECT="$2"; shift 2 ;;
+    --clear-active)    CLEAR_ACTIVE=1;     shift ;;
     --help|-h)
       sed -n '1,/^set -euo pipefail/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -63,26 +68,70 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ===== プロジェクトの .harness-init/.config から session を自動解決 =====
-#       cwd（または親ディレクトリ）に .harness-init/.config があり、CODEX_SESSION が定義されていれば
-#       --session 未指定時に自動採用する。これで Claude が毎回 --session を書かなくても
-#       同じ session が resume され続ける。
+# ===== --set-active / --clear-active 単独（Codex CLI 不要、純粋なファイル操作）=====
+#       /my-harness-init などのスキルが、対話開始時に「現在アクティブなプロジェクト」を
+#       グローバルに登録する。以降 Claude がどこから codex-ask.sh を呼んでも、
+#       自動でこのプロジェクトの session を resume する。
+if [ "$CLEAR_ACTIVE" -eq 1 ]; then
+  rm -f "$ACTIVE_POINTER"
+  echo "[codex-ask] active session pointer を破棄: $ACTIVE_POINTER" >&2
+  exit 0
+fi
+if [ -n "$SET_ACTIVE_PROJECT" ]; then
+  ABS_PATH=$(cd "$SET_ACTIVE_PROJECT" 2>/dev/null && pwd) || {
+    echo "::error:: --set-active のパスが存在しません: $SET_ACTIVE_PROJECT" >&2
+    exit 1
+  }
+  if [ ! -f "$ABS_PATH/.harness-init/.config" ]; then
+    echo "::error:: $ABS_PATH/.harness-init/.config が見つかりません（先に bootstrap しましたか？）" >&2
+    exit 1
+  fi
+  printf '%s\n' "$ABS_PATH" > "$ACTIVE_POINTER"
+  echo "[codex-ask] active session を設定: $ABS_PATH" >&2
+  exit 0
+fi
+
+# ===== session 自動解決 =====
+#       優先順位:
+#       (1) --session が明示されている → それを使う（後方互換）
+#       (2) ~/.codex-active-session に書かれたプロジェクトの .harness-init/.config（グローバルポインタ）
+#       (3) cwd（および親ディレクトリ）の .harness-init/.config
+#       Claude は (2) によって、どこからでも自動で同じ session を resume できる。
+load_config_from() {
+  local project_root="$1"
+  local cfg="$project_root/.harness-init/.config"
+  [ -f "$cfg" ] || return 1
+  local cfg_session
+  cfg_session=$(grep -E "^CODEX_SESSION=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2-)
+  [ -n "$cfg_session" ] || return 1
+  if [ -z "$SESSION_KEY" ]; then
+    SESSION_KEY="$cfg_session"
+  fi
+  if [ "$SESSION_DIR" = "./.codex-sessions" ]; then
+    SESSION_DIR="$project_root/.harness-init/codex-sessions"
+  fi
+  return 0
+}
+
 auto_resolve_session() {
+  # (1) --session 明示 → そのまま使う（追加処理なし）
+  if [ -n "$SESSION_KEY" ]; then
+    return 0
+  fi
+  # (2) global pointer
+  if [ -f "$ACTIVE_POINTER" ]; then
+    local active_root
+    active_root=$(head -1 "$ACTIVE_POINTER" 2>/dev/null)
+    if [ -n "$active_root" ] && load_config_from "$active_root"; then
+      echo "[codex-ask] session を active pointer から自動解決: $SESSION_KEY (project: $active_root)" >&2
+      return 0
+    fi
+  fi
+  # (3) cwd traversal
   local current_dir="$PWD"
   while [ "$current_dir" != "/" ] && [ -n "$current_dir" ]; do
-    if [ -f "$current_dir/.harness-init/.config" ]; then
-      # shellcheck disable=SC1091
-      local cfg_session
-      cfg_session=$(grep -E "^CODEX_SESSION=" "$current_dir/.harness-init/.config" 2>/dev/null | head -1 | cut -d= -f2-)
-      if [ -n "$cfg_session" ]; then
-        if [ -z "$SESSION_KEY" ]; then
-          SESSION_KEY="$cfg_session"
-          echo "[codex-ask] session を .harness-init/.config から自動解決: $SESSION_KEY" >&2
-        fi
-        if [ "$SESSION_DIR" = "./.codex-sessions" ]; then
-          SESSION_DIR="$current_dir/.harness-init/codex-sessions"
-        fi
-      fi
+    if load_config_from "$current_dir"; then
+      echo "[codex-ask] session を cwd 配下から自動解決: $SESSION_KEY (project: $current_dir)" >&2
       return 0
     fi
     current_dir=$(dirname "$current_dir")
