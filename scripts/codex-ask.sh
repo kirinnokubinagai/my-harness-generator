@@ -63,13 +63,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ===== Codex CLI 存在確認 =====
-if ! command -v codex >/dev/null 2>&1; then
-  echo "::error:: codex CLI が見つかりません。インストール: npm i -g @openai/codex" >&2
-  exit 127
-fi
-
-# ===== --reset-session 単独 =====
+# ===== --reset-session 単独（Codex CLI 不要、純粋なファイル操作なので先に実行）=====
 if [ "$RESET_SESSION" -eq 1 ]; then
   if [ -z "$SESSION_KEY" ]; then
     echo "::error:: --reset-session には --session KEY が必須です" >&2
@@ -78,6 +72,12 @@ if [ "$RESET_SESSION" -eq 1 ]; then
   rm -f "$SESSION_DIR/$SESSION_KEY.id"
   echo "[codex-ask] session '$SESSION_KEY' を破棄しました" >&2
   exit 0
+fi
+
+# ===== Codex CLI 存在確認 =====
+if ! command -v codex >/dev/null 2>&1; then
+  echo "::error:: codex CLI が見つかりません。インストール: npm i -g @openai/codex" >&2
+  exit 127
 fi
 
 # ===== 画像生成モード =====
