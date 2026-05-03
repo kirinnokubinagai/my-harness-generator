@@ -68,9 +68,18 @@ merge_hook_into_settings() {
     --arg up "$user_prompt_hook" \
     --arg sp "$stop_hook" \
     '
+    def repair_legacy:
+      map(
+        if type == "object" and has("command") and (has("hooks") | not)
+          then {"hooks": [{"type": "command", "command": .command}]}
+          else .
+        end
+      );
     .hooks //= {} |
     .hooks.UserPromptSubmit //= [] |
     .hooks.Stop //= [] |
+    .hooks.UserPromptSubmit |= repair_legacy |
+    .hooks.Stop |= repair_legacy |
     if [.hooks.UserPromptSubmit[]?.hooks[]?.command] | index($up)
       then .
       else .hooks.UserPromptSubmit += [{"hooks": [{"type": "command", "command": $up}]}]
