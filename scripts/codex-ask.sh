@@ -233,7 +233,9 @@ if [ -n "$SESSION_KEY" ]; then
   if [ -f "$SESSION_FILE" ]; then
     SESSION_ID=$(cat "$SESSION_FILE")
     echo "[codex-ask] session '$SESSION_KEY' を resume (id=$SESSION_ID)" >&2
-    codex exec resume "$SESSION_ID" "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
+    # codex CLI syntax: `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`
+    # オプションを positional args より前に置かないと clap が誤解釈する可能性あり
+    codex exec resume "${COMMON_FLAGS[@]}" "$SESSION_ID" "$PROMPT_TEXT" \
       2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
   else
     echo "[codex-ask] session '$SESSION_KEY' を新規作成" >&2
