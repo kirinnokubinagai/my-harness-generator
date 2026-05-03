@@ -8,9 +8,15 @@
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
-# shellcheck disable=SC1091
-source "$ROOT/.harness-init/.config" 2>/dev/null || \
-  source "$ROOT/.harness/.bootstrap.env" 2>/dev/null || true
+# bootstrap.env をファイル存在チェック付きで読み込む
+# （set -e 下で `source 非存在` は ||  でも捕まえられないため、必ず先に [ -f ] で確認する）
+if [ -f "$ROOT/.harness-init/.config" ]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/.harness-init/.config"
+elif [ -f "$ROOT/.harness/.bootstrap.env" ]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/.harness/.bootstrap.env"
+fi
 
 USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
 
