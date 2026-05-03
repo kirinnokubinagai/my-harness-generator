@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-hooks",
+  "_comment": "ハーネスプロジェクト（cwd またはその親に .my-harness/.config がある）でのみ動作する。それ以外では即 exit 0。",
+  "UserPromptSubmit": [
+    {
+      "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-user-prompt.sh"
+    }
+  ],
+  "Stop": [
+    {
+      "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-claude-output.sh"
+    }
+  ]
+}
