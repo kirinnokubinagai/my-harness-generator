@@ -52,10 +52,9 @@ ios/xcuserdata/
 
 # Harness 内部の作業領域（spec / talk / design / task は docs/ 配下に置くので git 管理対象）
 # 一方で codex の session ID とローカル設定は機密扱いで除外する
-.harness-init/codex-sessions/
-.harness-init/codex-stage*.md
-.harness-init/codex.jsonl
-.harness-init/.config
+.my-harness/codex-sessions/
+.my-harness/codex-stage*.md
+.my-harness/codex.jsonl
 
 # Codex CLI のローカル session 情報
 .codex-sessions/

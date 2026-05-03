@@ -59,7 +59,6 @@ jobs:
               ? '✅ Playwright 完了。レポートは Actions の artifacts からダウンロードしてください。'
               : '❌ Playwright が走りきれませんでした。';
             await github.rest.issues.createComment({
-              ...context.repo,
               issue_number: context.payload.pull_request.number,
               body: `### Playwright 結果（${{ inputs.environment_name }}）\n\n${summary}\n\n- レポート: \`playwright-report-${{ inputs.environment_name }}\`\n- スクリーンショット: \`playwright-screenshots-${{ inputs.environment_name }}\`\n- ログ: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
             });
@@ -69,8 +68,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.issues.create({
-              ...context.repo,
+            const maybeCreateIssue = require('./.github/scripts/maybe-create-issue.js');
+            await maybeCreateIssue({ github, context, core }, {
               title: `[e2e:playwright] failed (${{ inputs.environment_name }})`,
               labels: ['e2e', 'priority/p1'],
               body: `Playwright が ${{ inputs.environment_name }} で失敗しました。\n\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
@@ -103,7 +102,6 @@ jobs:
         with:
           script: |
             await github.rest.issues.createComment({
-              ...context.repo,
               issue_number: context.payload.pull_request.number,
               body: `### Maestro 結果（${{ inputs.environment_name }}）\n\n- スクショ: \`maestro-screenshots-${{ inputs.environment_name }}\`\n- ログ: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,
             });
@@ -113,8 +111,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.issues.create({
-              ...context.repo,
+            const maybeCreateIssue = require('./.github/scripts/maybe-create-issue.js');
+            await maybeCreateIssue({ github, context, core }, {
               title: `[e2e:maestro] failed (${{ inputs.environment_name }})`,
               labels: ['e2e', 'priority/p1'],
               body: `Maestro が ${{ inputs.environment_name }} で失敗しました。\n\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,

@@ -75,8 +75,8 @@ if [ -n "$SET_ACTIVE_PROJECT" ]; then
     echo "::error:: --set-active のパスが存在しません: $SET_ACTIVE_PROJECT" >&2
     exit 1
   }
-  if [ ! -f "$ABS_PATH/.harness-init/.config" ]; then
-    echo "::error:: $ABS_PATH/.harness-init/.config が見つかりません（先に bootstrap しましたか？）" >&2
+  if [ ! -f "$ABS_PATH/.my-harness/.config" ]; then
+    echo "::error:: $ABS_PATH/.my-harness/.config が見つかりません（先に bootstrap しましたか？）" >&2
     exit 1
   fi
   printf '%s\n' "$ABS_PATH" > "$ACTIVE_POINTER"
@@ -87,11 +87,11 @@ fi
 # ===== session 自動解決 =====
 #       優先順位:
 #       (1) --session が明示されている → それを使う
-#       (2) ~/.codex-active-session に書かれたプロジェクトの .harness-init/.config（グローバルポインタ）
-#       (3) cwd（および親ディレクトリ）の .harness-init/.config
+#       (2) ~/.codex-active-session に書かれたプロジェクトの .my-harness/.config（グローバルポインタ）
+#       (3) cwd（および親ディレクトリ）の .my-harness/.config
 load_config_from() {
   local project_root="$1"
-  local cfg="$project_root/.harness-init/.config"
+  local cfg="$project_root/.my-harness/.config"
   [ -f "$cfg" ] || return 1
   local cfg_session
   cfg_session=$(grep -E "^CODEX_SESSION=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2-)
@@ -100,7 +100,7 @@ load_config_from() {
     SESSION_KEY="$cfg_session"
   fi
   if [ "$SESSION_DIR" = "./.codex-sessions" ]; then
-    SESSION_DIR="$project_root/.harness-init/codex-sessions"
+    SESSION_DIR="$project_root/.my-harness/codex-sessions"
   fi
   return 0
 }
@@ -129,7 +129,7 @@ auto_resolve_session
 # ===== --reset-session 単独 =====
 if [ "$RESET_SESSION" -eq 1 ]; then
   if [ -z "$SESSION_KEY" ]; then
-    echo "::error:: --reset-session には --session KEY が必須です（または .harness-init/.config が必要）" >&2
+    echo "::error:: --reset-session には --session KEY が必須です（または .my-harness/.config が必要）" >&2
     exit 1
   fi
   rm -f "$SESSION_DIR/$SESSION_KEY.id"

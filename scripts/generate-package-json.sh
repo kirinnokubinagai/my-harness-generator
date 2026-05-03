@@ -6,7 +6,7 @@ ROOT="${1:?root required}"
 
 # bootstrap.env は $ROOT/.harness/ に保存されている（dev/.harness/ にコピーされるのは後段）
 # shellcheck disable=SC1091
-source "$ROOT/.harness/.bootstrap.env"
+source "$ROOT/.my-harness/.config"
 
 cd "$ROOT/dev"
 

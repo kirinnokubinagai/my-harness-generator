@@ -5,12 +5,12 @@
 set -euo pipefail
 REPO="${1:?owner/repo required}"
 
-if [ ! -f .harness/.bootstrap.env ]; then
-  echo "::error:: .harness/.bootstrap.env が見つかりません。先に bootstrap.sh を実行してください"
+if [ ! -f .my-harness/.config ]; then
+  echo "::error:: .my-harness/.config が見つかりません。先に bootstrap.sh を実行してください"
   exit 1
 fi
 # shellcheck disable=SC1091
-source .harness/.bootstrap.env
+source .my-harness/.config
 
 ask_secret() {
   local name="$1"; local description="$2"

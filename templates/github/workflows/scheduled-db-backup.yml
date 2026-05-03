@@ -77,8 +77,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            await github.rest.issues.create({
-              ...context.repo,
+            const maybeCreateIssue = require('./.github/scripts/maybe-create-issue.js');
+            await maybeCreateIssue({ github, context, core }, {
               title: '[backup] D1 export 失敗',
               labels: ['ops', 'priority/p0'],
               body: `本番 D1 のエクスポートに失敗しました。\nrun: ${context.payload.repository.html_url}/actions/runs/${context.runId}`,

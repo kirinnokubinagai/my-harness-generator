@@ -6,7 +6,7 @@ ROOT="${1:?root required}"
 cd "$ROOT"
 
 # shellcheck disable=SC1091
-source .harness/.bootstrap.env
+source .my-harness/.config
 
 # Web
 if [ "$USE_WEB" = "yes" ]; then

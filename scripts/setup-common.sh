@@ -57,6 +57,10 @@ cp_if_missing "$HARNESS_DIR/templates/dotgitignore" dev/.gitignore
 mkdir -p dev/.github/workflows dev/.github/ISSUE_TEMPLATE
 cp_if_missing      "$HARNESS_DIR/templates/github/pull_request_template.md"     dev/.github/pull_request_template.md
 cp_glob_if_missing "$HARNESS_DIR/templates/github/workflows/*.yml"              dev/.github/workflows
+
+# GitHub Actions ヘルパー（USE_GITHUB_ISSUES 分岐用）
+mkdir -p dev/.github/scripts
+cp_if_missing "$HARNESS_DIR/templates/github/scripts/maybe-create-issue.js" dev/.github/scripts/maybe-create-issue.js
 cp_if_missing      "$HARNESS_DIR/templates/issues/parent.md"                    dev/.github/ISSUE_TEMPLATE/parent.md
 cp_if_missing      "$HARNESS_DIR/templates/issues/child.md"                     dev/.github/ISSUE_TEMPLATE/child.md
 cp_if_missing      "$HARNESS_DIR/templates/issues/hotfix.md"                    dev/.github/ISSUE_TEMPLATE/hotfix.md

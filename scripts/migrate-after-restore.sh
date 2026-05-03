@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # shellcheck disable=SC1091
-[ -f .harness/.bootstrap.env ] && source .harness/.bootstrap.env || true
+[ -f .my-harness/.config ] && source .my-harness/.config || true
 
 if [ "${DB_KIND:-none}" = "d1" ]; then
   echo "[migrate-after-restore] D1 stage に追加マイグレーションを再適用"
