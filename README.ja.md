@@ -25,7 +25,8 @@
 
 - **`/my-harness-init`** — 仕様書の生成と `bootstrap.sh` 実行までを一気通貫で行う対話インタビュー。
 - **Codex CLI 連携（任意）** — session resume による真のマルチターン対話。ロゴ・UI モックを `gpt-image-2` で生成。
-- **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Hono + Drizzle + Resend + Playwright + Maestro。任意で Web / iOS / Android / Desktop（Tauri or Electron）をターゲット指定可能。
+- **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Drizzle + Resend + Playwright + Maestro。
+- **プラットフォームごとに独立してフレームワーク選択可能** — Web（`nextjs` / `tanstack`）、iOS（`swift` / `expo` / `flutter`）、Android（`kotlin` / `expo` / `flutter`）、Desktop（`tauri` / `electron` + macOS/Windows/Linux）、バックエンド（`hono` / `gin` / `rust`）、DB（`d1` / `postgres` / `mysql` / `sqlite`）。1 つの選択が他のプラットフォームに波及しない。
 - **4 レーン並列開発** — `harness-team-lead` agent が issue を 4 レーンに振り分け、各レーンが analyst → engineer → e2e-reviewer → reviewer のフローで並列実装。
 - **自動機密マスキング** — `UserPromptSubmit` フックがユーザー入力を `mask-secrets.sh`（9 パターン）に通して `dev/docs/talk/<日付>.md` に記録。
 - **21 個の skill を lazy load** — TDD / Hono Clean Architecture / Drizzle migrate-only / Nix pure / デザイン規律 / JSDoc / Git 規律 / ハードコード機密検出 ほか。
@@ -248,13 +249,18 @@ team-lead 自身の context が重くなったら（issue 5〜10 個ごと）、
 ```bash
 PROJECT_NAME=todo-app
 USE_WEB=yes
+WEB_KIND=nextjs               # USE_WEB=yes のときのみ（nextjs | tanstack）
 USE_IOS=no
+IOS_KIND=swift                # USE_IOS=yes のときのみ（swift | expo | flutter）
 USE_ANDROID=no
-USE_DESKTOP=no                # Web フロントエンドを tauri / electron で包む
+ANDROID_KIND=kotlin           # USE_ANDROID=yes のときのみ（kotlin | expo | flutter）
+USE_DESKTOP=no
 DESKTOP_KIND=tauri            # USE_DESKTOP=yes のときのみ（tauri | electron）
 DESKTOP_OS=macos,windows,linux  # USE_DESKTOP=yes のときのみ
+USE_BACKEND=yes
+BACKEND_KIND=hono             # USE_BACKEND=yes のときのみ（hono | gin | rust）
 USE_DB=yes
-DB_KIND=d1                    # cloudflare d1（現状唯一の選択肢）
+DB_KIND=d1                    # USE_DB=yes のときのみ（d1 | postgres | mysql | sqlite）
 USE_EMAIL=yes                 # Resend + パスワードリセットフロー
 USE_PLAYWRIGHT=yes
 USE_MAESTRO=no

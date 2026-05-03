@@ -25,7 +25,8 @@ The result on disk is a project where:
 
 - **`/my-harness-init`** — guided interview that produces spec markdowns and runs the bootstrap automatically.
 - **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`.
-- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Hono + Drizzle + Resend + Playwright + Maestro. Optional Web / iOS / Android / Desktop (Tauri or Electron) targets.
+- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Drizzle + Resend + Playwright + Maestro.
+- **Per-platform framework choice** — Web (`nextjs` or `tanstack`), iOS (`swift` / `expo` / `flutter`), Android (`kotlin` / `expo` / `flutter`), Desktop (`tauri` or `electron` + macOS/Windows/Linux), Backend (`hono` / `gin` / `rust`), DB (`d1` / `postgres` / `mysql` / `sqlite`). Each platform's framework choice is independent.
 - **4-lane parallel development** — `harness-team-lead` agent assigns issues across 4 independent lanes (analyst → engineer → e2e-reviewer → reviewer per lane).
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
 - **21 skills, lazy-loaded** — TDD, Hono Clean Architecture, Drizzle migrate-only, Nix-pure execution, design discipline, JSDoc, git discipline, hardcoded-secret prevention, and more.
@@ -248,13 +249,18 @@ The interview produces `<root>/.my-harness/.config`:
 ```bash
 PROJECT_NAME=todo-app
 USE_WEB=yes
+WEB_KIND=nextjs               # only when USE_WEB=yes (nextjs | tanstack)
 USE_IOS=no
+IOS_KIND=swift                # only when USE_IOS=yes (swift | expo | flutter)
 USE_ANDROID=no
-USE_DESKTOP=no                # tauri or electron wrapping the Web frontend
+ANDROID_KIND=kotlin           # only when USE_ANDROID=yes (kotlin | expo | flutter)
+USE_DESKTOP=no
 DESKTOP_KIND=tauri            # only when USE_DESKTOP=yes (tauri | electron)
 DESKTOP_OS=macos,windows,linux  # only when USE_DESKTOP=yes
+USE_BACKEND=yes
+BACKEND_KIND=hono             # only when USE_BACKEND=yes (hono | gin | rust)
 USE_DB=yes
-DB_KIND=d1                    # cloudflare d1 (only option for now)
+DB_KIND=d1                    # only when USE_DB=yes (d1 | postgres | mysql | sqlite)
 USE_EMAIL=yes                 # Resend + password-reset flow
 USE_PLAYWRIGHT=yes
 USE_MAESTRO=no

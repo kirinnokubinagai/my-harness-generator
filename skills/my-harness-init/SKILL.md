@@ -123,61 +123,104 @@ USE_CODEX=yes なら末尾で Codex consult:
 
 ---
 
-### フェーズ 2: プラットフォーム
+### フェーズ 2: プラットフォーム + フレームワーク
 
-**固定質問**:
+**ターゲットごとに 2 段階で訊く**: まず y/n、y のときフレームワーク選択。**1 ターン 1 問厳守、まとめ聞き禁止**。
 
-1. **Web フロントエンド作る？** y/n（Next.js）
-2. **iOS アプリ作る？** y/n（Swift / SwiftUI）
-3. **Android アプリ作る？** y/n（Kotlin / Jetpack Compose）
-4. **デスクトップアプリ作る？** y/n（Web フロントエンドを再利用）
+#### 2.1 Web
 
-最低 1 つは y にする必要がある（全部 n なら聞き直し）。複数 y も可。
+1. **Web フロントエンド作る？** y/n
+2. y のとき: **どのフレームワーク？**（選択肢: `nextjs` / `tanstack`）
+   - `nextjs`: Next.js 16（App Router）
+   - `tanstack`: TanStack Start（SSR + TanStack Router）
 
-`デスクトップアプリ作る？` で y のとき追加で:
-- **どのフレームワーク？**（選択肢: tauri / electron）
-  - tauri: Rust ベース、軽量・小バンドル、ネイティブ寄り
-  - electron: Node.js ベース、エコシステム豊富、Slack / VSCode 等で実績
-- **対応 OS は？**（macOS / Windows / Linux 複数選択可、既定: 全部）
+#### 2.2 iOS
+
+1. **iOS アプリ作る？** y/n
+2. y のとき: **どの実装？**（選択肢: `swift` / `expo` / `flutter`）
+   - `swift`: Swift + SwiftUI ネイティブ
+   - `expo`: React Native (Expo)
+   - `flutter`: Flutter
+
+#### 2.3 Android
+
+1. **Android アプリ作る？** y/n
+2. y のとき: **どの実装？**（選択肢: `kotlin` / `expo` / `flutter`）
+   - `kotlin`: Kotlin + Jetpack Compose ネイティブ
+   - `expo`: React Native (Expo)
+   - `flutter`: Flutter
+
+#### 2.4 Desktop
+
+1. **デスクトップアプリ作る？** y/n
+2. y のとき: **どのフレームワーク？**（選択肢: `tauri` / `electron`）
+   - `tauri`: Rust シェル + Web フロントエンド、軽量
+   - `electron`: Node.js シェル + Web フロントエンド、エコシステム豊富
+3. y のとき: **対応 OS は？**（macOS / Windows / Linux 複数選択可、既定: 全部）
+
+#### バリデーション
+
+- 最低 1 つのプラットフォームが y であること（全部 n なら聞き直し）
+- iOS と Android 両方 y で、`expo` または `flutter` を両方選んだ場合 → **同一 codebase で共通化される旨を案内**（`mobile/` ディレクトリに 1 つ）
+- iOS と Android で `swift` + `kotlin` の組み合わせ → 別 codebase（`ios/` と `android/`）
+- iOS と Android で `expo` と `flutter` のように違うクロスプラットフォーム → 不整合を警告し、片方に揃えるか提案
 
 保存先: `dev/docs/spec/02-platform.md` / `dev/docs/talk/02-platform.md`
 
 `.my-harness/.config` に追記:
 ```bash
 USE_WEB=<yes|no>
+WEB_KIND=<nextjs|tanstack>          # USE_WEB=yes のときのみ
 USE_IOS=<yes|no>
+IOS_KIND=<swift|expo|flutter>       # USE_IOS=yes のときのみ
 USE_ANDROID=<yes|no>
+ANDROID_KIND=<kotlin|expo|flutter>  # USE_ANDROID=yes のときのみ
 USE_DESKTOP=<yes|no>
 DESKTOP_KIND=<tauri|electron>       # USE_DESKTOP=yes のときのみ
 DESKTOP_OS=macos,windows,linux      # USE_DESKTOP=yes のときのみ
 ```
 
+**重要（バグ防止）**: フレームワーク選択は **そのプラットフォームの y/n が yes のときに限り** 訊く。1 つのフレームワーク選択が他のプラットフォームに波及することは絶対にない（例: DESKTOP_KIND=tauri を選んだからといって IOS_KIND が tauri になることはない）。
+
 ---
 
 ### フェーズ 3: バックエンド構成
 
-**固定質問**:
+**固定質問（1 ターン 1 問）**:
 
-1. **DB 必要？** y/n（y → Cloudflare D1）
-2. **メール送信必要？** y/n（y → Resend、パスワードリセット等）
-3. **認証どこまで必要？**（選択肢: なし / メール+パスワード / OAuth）
-4. **E2E テストどこまで？**（選択肢: Web のみ Playwright / モバイル Maestro / Web + モバイル両方 / なし）
-5. **CI で Claude Code Action 使う？** y/n（PR レビュー自動化）
-   - y のとき認証方式: api / oauth
+1. **バックエンド作る？** y/n（純粋なフロントエンドのみ・サーバーレスで動作するなら no も可）
+2. y のとき: **どの言語/フレームワーク？**（選択肢: `hono` / `gin` / `rust`）
+   - `hono`: TypeScript + Hono on Cloudflare Workers（軽量・エッジ）
+   - `gin`: Go + Gin（高パフォーマンス・標準的）
+   - `rust`: Rust + axum（型安全・最高速）
+3. **DB 必要？** y/n
+4. y のとき: **どの DB？**（選択肢: `d1` / `postgres` / `mysql` / `sqlite`）
+   - 推奨: `hono` バックエンドなら `d1`、`gin` / `rust` バックエンドなら `postgres`
+5. **メール送信必要？** y/n（y → Resend、パスワードリセット等）
+6. **認証どこまで必要？**（選択肢: `none` / `password` / `oauth`）
+7. **E2E テストどこまで？**（選択肢: `web` / `mobile` / `both` / `none`）
+   - `web` → Playwright、`mobile` → Maestro、`both` → 両方、`none` → なし
+8. **CI で Claude Code Action 使う？** y/n（PR レビュー自動化）
+9. y のとき: **認証方式**（`api` / `oauth`）
 
 保存先: `dev/docs/spec/03-backend.md` / `dev/docs/talk/03-backend.md`
 
 `.my-harness/.config` に追記:
 ```bash
+USE_BACKEND=<yes|no>
+BACKEND_KIND=<hono|gin|rust>        # USE_BACKEND=yes のときのみ
 USE_DB=<yes|no>
-DB_KIND=d1                         # USE_DB=yes のときのみ
+DB_KIND=<d1|postgres|mysql|sqlite>  # USE_DB=yes のときのみ
 USE_EMAIL=<yes|no>
 AUTH_KIND=<none|password|oauth>
-USE_PLAYWRIGHT=<yes|no>
-USE_MAESTRO=<yes|no>
+E2E_SCOPE=<web|mobile|both|none>
+USE_PLAYWRIGHT=<yes|no>             # E2E_SCOPE が web|both なら yes
+USE_MAESTRO=<yes|no>                # E2E_SCOPE が mobile|both なら yes
 USE_CLAUDE_ACTION=<yes|no>
-CLAUDE_AUTH=<api|oauth>            # USE_CLAUDE_ACTION=yes のときのみ
+CLAUDE_AUTH=<api|oauth>             # USE_CLAUDE_ACTION=yes のときのみ
 ```
+
+**重要（バグ防止）**: BACKEND_KIND の選択が他の変数に波及することは絶対にない（例: BACKEND_KIND=rust を選んだからといって DESKTOP_KIND が rust 系の何かになることはない、それぞれ独立）。
 
 USE_CODEX=yes なら Codex に architect 観点で確認:
 ```bash
