@@ -83,6 +83,13 @@ if [ "$USE_CLAUDE_ACTION" = "yes" ]; then
   done
 fi
 
+# 7) Claude グローバル設定の引き継ぎ
+echo
+echo "Claude のグローバル設定（~/.claude/CLAUDE.md, skills, agents）の扱い:"
+echo "  y = グローバルを引き継ぐ（個人の好みがそのまま効く、推奨）"
+echo "  n = プロジェクト内に独立配置（dev/.claude/ にハーネス専用 CLAUDE.md と harness-* skills/agents だけコピー）"
+USE_GLOBAL_CLAUDE=$(ask_yn "Claude グローバル設定を引き継ぐ" "y")
+
 # 設定をファイルに保存（後続のスクリプトが参照）
 mkdir -p .harness
 cat > .harness/.bootstrap.env <<EOF
@@ -97,6 +104,7 @@ USE_PLAYWRIGHT=$USE_PLAYWRIGHT
 USE_MAESTRO=$USE_MAESTRO
 USE_CLAUDE_ACTION=$USE_CLAUDE_ACTION
 CLAUDE_AUTH=$CLAUDE_AUTH
+USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE
 EOF
 
 echo
@@ -166,6 +174,10 @@ bash "$HARNESS_DIR/scripts/setup-common.sh" "$ROOT"
 # 3. プラットフォーム / DB / メールに応じたテンプレ配布 + workflow / package.json の動的編集
 echo "[bootstrap] プラットフォーム別テンプレを配布"
 bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
+
+# 3.5. Claude グローバル設定の取り扱い（引き継ぎ / 独立配置）
+echo "[bootstrap] Claude 設定を配置 (USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE)"
+bash "$HARNESS_DIR/scripts/setup-claude.sh" "$ROOT"
 
 # 4. .harness 自体を dev/.harness にコピー（プロジェクト内で実行可能に）
 mkdir -p dev/.harness
