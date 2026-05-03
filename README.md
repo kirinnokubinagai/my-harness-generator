@@ -1,102 +1,161 @@
-# 汎用ハーネス（Generic Multi-Agent Harness）
+# my-harness-generator
 
-Issue ドリブン / 4 レーン並列 / dev → stage → main の 3 段階デプロイを備えた、
-**ワンコマンド対話セットアップ** の汎用開発ハーネス。
+> 汎用ハーネスジェネレータ Claude Code plugin。**`/my-harness-init`** で深掘りインタビュー → 仕様書生成 → bootstrap を一気通貫。
 
-Web / iOS / Android の任意組合せ、DB（Cloudflare D1）、メール（Resend）はすべて **対話で選択**。
-不要な機能は混入しない。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://code.claude.com)
 
-## 使い方（ワンコマンド）
+## 何ができる
 
-```bash
-# 任意のプロジェクトディレクトリで実行
-bash <この harness ディレクトリ>/scripts/bootstrap.sh /path/to/project
+- **対話で仕様を確定**: Claude が 7 段階の深掘り質問でプロダクト要件を引き出す
+- **Codex 連携（任意）**: 重要分岐で第二意見、ロゴ・OG 画像生成も
+- **ワンコマンド bootstrap**: bare git + dev/stage/main worktree + Husky + Biome + Nix flake + GitHub Actions + Hono + Drizzle + Resend + Playwright + Maestro
+- **4 レーン並列開発**: analyst → engineer → e2e-reviewer → reviewer の役割で 4 issue 並行
+- **機密マスキング**: ユーザー入力を hook で自動マスク → docs/talk に記録（9 パターン: API キー / AWS / メール / 電話 / カード / JWT / PEM / URL認証 / `KEY=value` 形式）
+- **TDD 強制 / Git 規律 / Hono Clean Arch / Drizzle migrate のみ / Nix pure** 等を skills で lazy load
+
+## インストール（Claude Code に）
+
+### 1. マーケットプレース追加
+```
+/plugin marketplace add https://github.com/kirinnokubinagai/my-harness-generator
 ```
 
-スクリプトが対話で訊くこと:
-
-| 質問 | 選択肢 |
-|------|--------|
-| プロジェクト名 | 自由入力（既定: ディレクトリ名） |
-| Web を含める？ | y / n |
-| iOS を含める？ | y / n |
-| Android (Kotlin) を含める？ | y / n |
-| DB を使う？ | y / n（y なら Cloudflare D1） |
-| メール（Resend）を使う？ | y / n |
-| Playwright を使う？ | y / n |
-| Maestro を使う？ | y / n |
-| Claude Code Action を使う？ | y / n |
-| Claude Code Action の認証 | api / oauth |
-
-回答は `.harness/.bootstrap.env` に保存され、後続スクリプトが参照します。
-
-## 完了後の流れ（5 行）
-
-```bash
-cd <project>/dev
-direnv allow                                        # Nix 環境を自動起動
-pnpm install && pnpm exec husky                     # 依存 + フック設定
-git remote add origin git@github.com:<owner>/<repo>.git && git push --all
-bash .harness/scripts/setup-branch-protection.sh <owner>/<repo>
-bash .harness/scripts/setup-secrets.sh <owner>/<repo>   # 必要 secrets だけ対話で
+### 2. プラグインインストール
+```
+/plugin install my-harness@my-harness-generator
 ```
 
-これで dev / stage / main の保護、auto-merge、必須 status check、CI 全部が稼働します。
+### 3. Claude Code を完全再起動
+skills と hooks を有効化するため、Claude Code を再起動するか `/clear` を実行。
 
-## 構成
+### 4. 動作確認
+```
+/my-harness-generator
+```
+最上位 skill が反応します。
+
+## 最初の使い方
+
+```
+/my-harness-init
+```
+
+7 段階の対話インタビューが始まり、最後に bootstrap が走って完全なプロジェクトが立ち上がります。
+
+## オプション: Codex CLI 連携
+
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+`/my-harness-init` 段階 0 で「Codex 連携を使う」を `y` にすると、各段階で Codex に第二意見を求められます。
+
+## 提供される skills
+
+### 最上位（2）
+| skill | 説明 |
+|-------|------|
+| `my-harness-generator` | 全体ハブ skill |
+| `my-harness-init` | 7 段階インタビュー → bootstrap |
+
+### 規約（10、lazy load）
+| skill | 発火条件 |
+|-------|---------|
+| `harness-tdd` | テスト / バグ修正 / リファクタ |
+| `harness-hono-clean-arch` | Hono / API 実装 |
+| `harness-drizzle-rules` | DB スキーマ変更 |
+| `harness-nix-pure` | コマンド実行 / 環境構築 |
+| `harness-design-rules` | UI / コンポーネント / 配色 |
+| `harness-jsdoc` | 関数 / 型 / コメント |
+| `harness-git-discipline` | git / コンフリクト |
+| `harness-no-hardcoded-secrets` | 環境変数 / 機密 |
+| `harness-mask` | 機密マスキング（明示的） |
+| `harness-codex-consult` | Codex 第二意見・画像生成 |
+
+### shell ラッパー（8）
+| skill | ラップする shell |
+|-------|------------------|
+| `harness-new-feature` | `new-feature.sh` |
+| `harness-new-hotfix` | `new-hotfix.sh` |
+| `harness-resolve-conflict` | `resolve-conflict.sh` |
+| `harness-sync-features` | `sync-features-with-dev.sh` |
+| `harness-check-codex-auth` | `check-codex-auth.sh` |
+| `harness-check-secrets` | `check-forbidden-patterns.sh` |
+| `harness-setup-secrets` | `setup-secrets.sh` |
+| `harness-branch-protection` | `setup-branch-protection.sh` |
+
+## アーキテクチャ
+
+```
+[ユーザー入力]
+    ↓
+[UserPromptSubmit hook] → mask-secrets.sh → dev/docs/talk/<日付>.md
+    ↓
+[Claude]
+    ↓ 必要に応じて lazy load
+[harness-* skill] (20 種から自動選択)
+    ↓ skill が指示
+[shell スクリプト]
+    ↓
+[実装]
+    ↓
+[Stop hook] → 応答抽出 → マスク → talk/ 追記
+    ↓
+[git pre-commit] → gitleaks + check-forbidden-patterns で二重防御
+    ↓
+[push]
+```
+
+## 生成されるプロジェクト構造
 
 ```
 <project>/
-├── .bare/                      ベアリポ（git は .git ファイル経由）
-├── dev/   stage/   main/       worktree（dev だけで作業）
-├── lanes/feat-<n>-<slug>/      feature 用 worktree（4 レーン並列）
-└── dev/.harness/               このハーネス自体（更新も可能）
+├── .bare/                              ベアリポ
+├── .git → .bare                        git ファイル
+├── .my-harness/.config                 設定（team-shared）
+├── .my-harness/codex-sessions/         Codex session ID（gitignore）
+├── dev/   stage/   main/               worktree（dev で作業）
+├── lanes/feat-<n>-<slug>/              feature worktree（4 レーン並列）
+└── dev/                                通常の作業 worktree
+    ├── .claude/                        USE_GLOBAL_CLAUDE=no で独立配置
+    ├── docs/{spec,design,talk,task}/   会話 / 仕様 / モック / タスク
+    ├── .my-harness/                    ハーネス本体のコピー
+    ├── flake.nix .envrc                Nix pure 環境
+    ├── biome.json package.json         開発設定
+    ├── .husky/                         pre-commit / pre-push / commit-msg
+    └── .github/workflows/              CI 9 本（quality / e2e / security / scheduled）
 ```
 
-## 主要スクリプト（全部シェル、エージェントは考えない）
+## ワークフロー
 
-| スクリプト | 役割 |
-|-----------|------|
-| `bootstrap.sh` | **エントリポイント**。対話で構成決定 → bare/worktree → テンプレ配布 |
-| `setup-common.sh` | Biome / Husky / Nix / gitleaks / GitHub テンプレ配布 |
-| `setup-platforms.sh` | bootstrap.env を読み web / ios / android / db / email を選択配布 |
-| `generate-package-json.sh` | 選択に応じた最小依存の package.json を jq で組み立て |
-| `configure-claude-action.sh` | Claude Code Action の認証分岐（API key / OAuth） |
-| `setup-branch-protection.sh` | force-push 禁止、必須レビュー / status checks、auto-merge 有効化 |
-| `setup-secrets.sh` | 選択された機能に必要な secrets / variables を対話で `gh` 登録 |
-| `new-feature.sh <issue> <slug>` | dev 起点の feature worktree を作成 |
-| `new-hotfix.sh <issue> <slug>` | main 起点の hotfix worktree を作成 |
-| `resolve-conflict.sh` | rebase / reset 禁止のマージコミット解消 |
-| `sync-features-with-dev.sh` | hotfix 逆流後に全 feature worktree を dev に同期 |
-| `migrate-after-restore.sh` | 本番 DB バックアップを stage に復元したあと、stage 追加マイグレーションを再適用 |
-| `check-migration-conflict.sh` | 同一親 issue 配下の複数子で migration が同時に走らないかチェック |
-| `check-forbidden-patterns.sh` | 環境変数キー直書き / URL 認証 / 平文 .env を検出（pre-commit + CI） |
-| `anonymize-pii.sh` | stage 復元前の PII マスキング（雛形） |
+### ブランチ規約
+| from → to | 許可条件 |
+|-----------|----------|
+| `feat/*` → `dev` | PR + format/lint/test/typecheck 合格 |
+| `dev` → `stage` | 人間承認 + OWASP ZAP + Playwright + Maestro + Semgrep + Trivy 合格 |
+| `stage` → `main` | 人間承認 + 全ゲート緑 + canary |
+| `hotfix/*` → `main` | 緊急承認 + 最小 test/lint/format（その後 stage / dev に逆流） |
 
-## 規約（要点）
-
-- **TDD 厳格**: 先にテストを書いて赤を確認、最小実装で緑、それからリファクタ。E2E も同様。
-- **Hono Clean Arch**: domain → application → infrastructure / interfaces。
-- **Drizzle のみ、`drizzle-kit migrate` のみ**（`push` 禁止）。
-- **Nix pure**: `direnv allow` で自動。Apple toolchain（Xcode / iOS Simulator）のみ例外。
-- **AI 風デザイン禁止**: Lucide Icons のみ、グラデーション・ネオン・絵文字禁止。
-- **JSDoc / TSDoc 必須、関数内コメント禁止、説明はすべて日本語**。
-- **Git**: rebase / reset --hard / push --force 禁止。コンフリクトはマージコミット。
-
-## 4 レーン並列フロー
-
+### 4 レーン並列
 team-lead が GitHub issue を 4 レーンに振り分け、各レーンで:
-
 ```
-analyst-N → engineer-N（TDD で実装）→ e2e-reviewer-N（必要なら）→ reviewer-N
-                ↑                                                    ↓
-                └─────────────── 修正フィードバック ─────────────────┘
+analyst-N → engineer-N（TDD 実装）→ e2e-reviewer-N → reviewer-N
+                ↑                                       ↓
+                └────── 修正フィードバック ─────────────┘
 ```
 
-修正 / 進捗 / コンフリクトは analyst-N 経由で team-lead に集約。
-team-lead はコードを書かず、配備とマージ承認に専念。
+### 必須遵守事項（skills が強制）
+- **TDD**: テスト先行、Red-Green-Refactor
+- **Hono Clean Arch**: domain → application → infrastructure / interfaces
+- **Drizzle のみ + `drizzle-kit migrate`**（`push` 禁止）
+- **Nix pure**: `direnv allow` で自動、impure 禁止
+- **AI 風デザイン禁止**: Lucide Icons のみ、グラデ・ネオン・絵文字禁止
+- **JSDoc / TSDoc 必須**、関数内コメント禁止、説明はすべて日本語
+- **Git**: `rebase` / `reset --hard` / `push --force` 禁止、コンフリクトはマージコミット
 
-## 詳細
+## 詳細ドキュメント
 
 - 作業フロー: [`docs/WORKFLOW.md`](./docs/WORKFLOW.md)
 - Hotfix: [`docs/HOTFIX.md`](./docs/HOTFIX.md)
@@ -105,3 +164,17 @@ team-lead はコードを書かず、配備とマージ承認に専念。
 - iOS DAST: [`docs/IOS_DAST.md`](./docs/IOS_DAST.md)
 - エンジニア規約: [`docs/ENGINEER_STANDARDS.md`](./docs/ENGINEER_STANDARDS.md)
 - セットアップ詳細: [`docs/SETUP.md`](./docs/SETUP.md)
+
+## 開発（plugin 自体に貢献）
+
+```bash
+git clone https://github.com/kirinnokubinagai/my-harness-generator
+cd my-harness-generator
+# ローカルマーケットプレースとして追加して動作確認
+/plugin marketplace add ./
+/plugin install my-harness@my-harness-generator
+```
+
+## License
+
+MIT (see [LICENSE](./LICENSE))
