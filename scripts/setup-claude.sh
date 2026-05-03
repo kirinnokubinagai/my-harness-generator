@@ -1,98 +1,135 @@
 #!/usr/bin/env bash
-# 概要: Claude グローバル設定の引き継ぎ / 独立配置を切り替える。
-#       USE_GLOBAL_CLAUDE=yes: 何もしない（~/.claude/* がそのまま効く）
-#       USE_GLOBAL_CLAUDE=no:
-#         - dev/.claude/CLAUDE.md にハーネス専用 instructions を配置
-#         - ~/.claude/skills/harness-* と ~/.claude/agents/harness-* を dev/.claude/ にコピー
-#         - dev/.claude/settings.json に最小設定（hooks 等は引き継がない）
+# 概要: ハーネス用の Claude 設定を整備する。
+#       常に行うこと:
+#         - ~/.claude/skills/harness-* をハーネステンプレから上書きインストール
+#         - ~/.claude/agents/harness-* も同様（既存はそのまま、無いものだけ追加）
+#         - ~/.claude/settings.json にユーザー入力ログ用フックを **マージ** 登録
+#       USE_GLOBAL_CLAUDE=no のとき追加で行うこと:
+#         - dev/.claude/CLAUDE.md にハーネス専用の薄い指示を配置
+#         - dev/.claude/settings.json にも hook を登録
+#         - dev/.claude/skills/, dev/.claude/agents/ にコピー（独立配置）
+
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
-# bootstrap.env をファイル存在チェック付きで読み込む
-# （set -e 下で `source 非存在` は ||  でも捕まえられないため、必ず先に [ -f ] で確認する）
+
 if [ -f "$ROOT/.my-harness/.config" ]; then
   # shellcheck disable=SC1091
   source "$ROOT/.my-harness/.config"
-elif [ -f "$ROOT/.my-harness/.config" ]; then
-  # shellcheck disable=SC1091
-  source "$ROOT/.my-harness/.config"
 fi
-
 USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
 
+# ===== 共通: ハーネス skills / agents をインストール =====
+install_harness_skills_into() {
+  local target_dir="$1"
+  local installed=0
+  mkdir -p "$target_dir"
+  if [ -d "$HARNESS_DIR/templates/skills" ]; then
+    for src_skill in "$HARNESS_DIR/templates/skills"/harness-*; do
+      [ -d "$src_skill" ] || continue
+      local skill_name
+      skill_name=$(basename "$src_skill")
+      mkdir -p "$target_dir/$skill_name"
+      cp "$src_skill/SKILL.md" "$target_dir/$skill_name/SKILL.md"
+      installed=$((installed + 1))
+    done
+  fi
+  echo "  → $target_dir に $installed 個の harness-* skill"
+}
+
+install_harness_agents_into() {
+  local target_dir="$1"
+  local installed=0
+  mkdir -p "$target_dir"
+  if [ -d "$HOME/.claude/agents" ]; then
+    for src_agent in "$HOME/.claude/agents"/harness-*.md; do
+      [ -f "$src_agent" ] || continue
+      cp "$src_agent" "$target_dir/$(basename "$src_agent")"
+      installed=$((installed + 1))
+    done
+  fi
+  echo "  → $target_dir に $installed 個の harness-* agent"
+}
+
+# settings.json に hook をマージ登録（既存設定は破壊しない）
+merge_hook_into_settings() {
+  local settings_path="$1"
+  mkdir -p "$(dirname "$settings_path")"
+  [ -f "$settings_path" ] || echo '{}' > "$settings_path"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  ::warning:: jq が無いため $settings_path に手動追記してください: hooks.UserPromptSubmit / Stop"
+    return 0
+  fi
+  local user_prompt_hook="bash $HARNESS_DIR/templates/hooks/log-user-prompt.sh"
+  local stop_hook="bash $HARNESS_DIR/templates/hooks/log-claude-output.sh"
+  local tmp
+  tmp=$(mktemp)
+  jq \
+    --arg up "$user_prompt_hook" \
+    --arg sp "$stop_hook" \
+    '
+    .hooks //= {} |
+    .hooks.UserPromptSubmit //= [] |
+    .hooks.Stop //= [] |
+    if any(.hooks.UserPromptSubmit[]; .command == $up) then . else .hooks.UserPromptSubmit += [{"command": $up}] end |
+    if any(.hooks.Stop[]; .command == $sp) then . else .hooks.Stop += [{"command": $sp}] end
+    ' "$settings_path" > "$tmp" && mv "$tmp" "$settings_path"
+  echo "  → $settings_path に hook を登録"
+}
+
+# ===== 1. グローバルに skills + hooks をインストール（USE_GLOBAL_CLAUDE 不問）=====
+echo "[setup-claude] グローバル ~/.claude/skills/ に harness-* skills をインストール"
+install_harness_skills_into "$HOME/.claude/skills"
+
+echo "[setup-claude] グローバル ~/.claude/settings.json に hook を登録"
+merge_hook_into_settings "$HOME/.claude/settings.json"
+
+# ===== 2. USE_GLOBAL_CLAUDE=yes ならここまで =====
 if [ "$USE_GLOBAL_CLAUDE" = "yes" ]; then
-  echo "[setup-claude] グローバル ~/.claude/* を引き継ぎます（何もしません）"
+  echo "[setup-claude] グローバル設定を引き継ぎます（dev/.claude/ への独立配置はスキップ）"
+  cat <<EOS
+
+==== Claude Code 再起動が必要 ====
+新しい harness-* skill と hooks を有効にするため、
+Claude Code を再起動するか、現在のセッションで /clear を実行してください。
+==================================
+EOS
   exit 0
 fi
 
+# ===== 3. USE_GLOBAL_CLAUDE=no: dev/.claude/ に独立配置 =====
 DEST="$ROOT/dev/.claude"
 mkdir -p "$DEST/skills" "$DEST/agents"
 
-# プロジェクト用 CLAUDE.md
+# 薄い CLAUDE.md（skill 中心の指示）
 if [ ! -f "$DEST/CLAUDE.md" ]; then
-  cat > "$DEST/CLAUDE.md" <<'EOF'
-# プロジェクト固有 Claude 設定
-
-このプロジェクトは個人のグローバル設定（`~/.claude/CLAUDE.md`）を **意図的に引き継いでいません**。
-チーム全員が同じ前提で作業するために、必要な指示はすべてこのファイルとプロジェクト内 `.claude/` 配下に置きます。
-
-## 必須遵守事項
-
-- **TDD**: 先にテストを書いて赤を確認、最小実装で緑、リファクタ。E2E も同様。
-- **Hono Clean Architecture**: domain → application → infrastructure / interfaces。
-- **Drizzle のみ + `drizzle-kit migrate` のみ**（`push` 禁止）。
-- **Nix pure**: `direnv allow` で自動。Apple toolchain（Xcode / iOS Simulator）のみ例外。
-- **AI 風デザイン禁止**: Lucide Icons のみ、グラデーション・ネオン・絵文字禁止。
-- **JSDoc / TSDoc 必須、関数内コメント禁止、説明はすべて日本語**。
-- **Git**: rebase / reset --hard / push --force 禁止。コンフリクトはマージコミット。
-
-## 利用可能スキル / エージェント（プロジェクトローカル）
-
-`.claude/skills/` と `.claude/agents/` 配下にハーネス系のものをコピー済み。
-チーム外からは見えないので、新メンバーもこれだけで作業可能。
-
-詳細は `.harness/docs/` を参照。
-EOF
+  cp "$HARNESS_DIR/templates/claude/CLAUDE.thin.md" "$DEST/CLAUDE.md"
+  echo "[setup-claude] dev/.claude/CLAUDE.md（薄い skill 指向版）を配置"
 fi
 
-# 最小限の settings.json（global の hooks を一旦無効化したい場合の足がかり）
-if [ ! -f "$DEST/settings.json" ]; then
-  cat > "$DEST/settings.json" <<'EOF'
-{
-  "$schema": "https://json.schemastore.org/claude-code-settings",
-  "_comment": "プロジェクト固有 Claude 設定。global の hooks は引き継がない方針なら hooks を空に保つこと。"
-}
-EOF
+# settings.json: hook をプロジェクトローカルにも登録（global と独立に動かしたい場合）
+[ -f "$DEST/settings.json" ] || echo '{}' > "$DEST/settings.json"
+merge_hook_into_settings "$DEST/settings.json"
+
+# skills / agents コピー
+install_harness_skills_into "$DEST/skills"
+install_harness_agents_into "$DEST/agents"
+
+# my-harness-init の skill もプロジェクトに同梱しておく（オフラインでも /my-harness-init が使える）
+if [ -d "$HOME/.claude/skills/my-harness-init" ]; then
+  mkdir -p "$DEST/skills/my-harness-init"
+  cp "$HOME/.claude/skills/my-harness-init/SKILL.md" "$DEST/skills/my-harness-init/SKILL.md" 2>/dev/null || true
 fi
 
-# harness 系 skills を dev/.claude/skills/ にコピー（globals に依存しない）
-copied_skill_count=0
-if [ -d "$HOME/.claude/skills" ]; then
-  for src_skill in "$HOME/.claude/skills"/harness-* "$HOME/.claude/skills"/my-harness-init; do
-    [ -d "$src_skill" ] || continue
-    skill_name=$(basename "$src_skill")
-    if [ ! -d "$DEST/skills/$skill_name" ]; then
-      cp -R "$src_skill" "$DEST/skills/$skill_name"
-      copied_skill_count=$((copied_skill_count + 1))
-    fi
-  done
-fi
-echo "[setup-claude] skills を $copied_skill_count 個コピー"
+cat <<EOS
 
-# harness 系 agents を dev/.claude/agents/ にコピー
-copied_agent_count=0
-if [ -d "$HOME/.claude/agents" ]; then
-  for src_agent in "$HOME/.claude/agents"/harness-*.md; do
-    [ -f "$src_agent" ] || continue
-    agent_name=$(basename "$src_agent")
-    if [ ! -f "$DEST/agents/$agent_name" ]; then
-      cp "$src_agent" "$DEST/agents/$agent_name"
-      copied_agent_count=$((copied_agent_count + 1))
-    fi
-  done
-fi
-echo "[setup-claude] agents を $copied_agent_count 個コピー"
+[setup-claude] 完了。
+  - グローバル ~/.claude/skills/ に harness-* と各種 hook 登録済み
+  - プロジェクト独立配置: $DEST 配下に CLAUDE.md / skills / agents / settings.json
+  - 個人の ~/.claude/* も Claude Code 仕様上マージされる点に注意
 
-echo "[setup-claude] dev/.claude/ にプロジェクト独立設定を配置完了"
-echo "[setup-claude]   個人の ~/.claude/* は依然として併用される（Claude Code のマージ仕様）"
-echo "[setup-claude]   完全 isolate したい場合は dev/.claude/CLAUDE.md に追加指示を書いてください"
+==== Claude Code 再起動が必要 ====
+新しい dev/.claude/CLAUDE.md と skills / hooks を完全に有効化するため、
+Claude Code を再起動するか /clear を実行してください。
+==================================
+EOS
