@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "汎用ハーネスジェネレータ。Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS の任意組み合わせを bootstrap。4 レーン並列開発、TDD 強制、Codex 連携、機密マスキング、Git 規律を skills として提供。",
   "author": {
-    "name": "anonymous",
+    "name": "kirinnokubinagai",
     "email": "removed@redacted.local"
   },
   "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",

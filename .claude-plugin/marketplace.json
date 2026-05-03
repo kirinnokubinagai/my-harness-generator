@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace",
   "name": "my-harness-generator",
   "owner": {
-    "name": "anonymous",
+    "name": "kirinnokubinagai",
     "email": "removed@redacted.local"
   },
   "description": "汎用ハーネスジェネレータ。/my-harness-init で深掘りインタビュー → 仕様書 → bootstrap を一気通貫。Hono + Cloudflare D1 + Resend + Playwright + Maestro 対応、4 レーン並列開発、TDD 強制、Codex 連携、機密マスキング、Git 規律。",
@@ -17,7 +17,7 @@
       "description": "ハーネスジェネレータ本体。20 個の skills（規約 + shell ラッパー）+ 5 個の agents（4 レーン並列）+ 2 個の hooks（talk 自動記録）。",
       "version": "1.0.0",
       "author": {
-        "name": "anonymous",
+        "name": "kirinnokubinagai",
         "email": "removed@redacted.local"
       },
       "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",
