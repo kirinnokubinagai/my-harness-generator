@@ -333,3 +333,27 @@ PRs welcome. The plugin enforces its own conventions on its own development:
 ## License
 
 MIT (see [LICENSE](./LICENSE))
+
+---
+
+## Six-phase project flow
+
+The end-to-end project lifecycle this plugin enforces:
+
+| Phase | What | How |
+|-------|------|-----|
+| 1 | **Spec creation** (problem, personas, features, stack, data model) | `/my-harness-init` stages 1–5 |
+| 2 | **Design mocks + logos + spec iteration** | `/my-harness-init` stage 6 — generates 3–5 UI screen mocks via Codex `gpt-image-2`; loops back to stages 1–5 if mocks reveal missing requirements |
+| 3 | **Issue / task creation** | `/my-harness-init` stage 7 — `gh issue create` (USE_GITHUB_ISSUES=yes) or local `dev/docs/task/{parent,child}/*.md` (=no) |
+| 4 | **Team implementation + close** | `/harness-new-feature <issue>`, 4-lane parallel via `harness-team-lead` agent; PR-merge closes the issue |
+| 5 | **Deploy setup (Terraform)** | `/harness-deploy-setup` — generates `infra/main.tf` (Cloudflare provider), wrangler bindings, GitHub secrets/vars, fastlane (iOS) |
+| 6 | **Deploy execution** | `/harness-deploy-execute` — dev → stage (auto + human label) → main (canary 10%→100%) |
+
+### Fresh-agent-per-issue principle
+
+Every issue is processed in **a brand-new subagent context**. `harness-team-lead` always spawns engineer / analyst / e2e-reviewer / reviewer via `Task(subagent_type=..., prompt=...)`, never via `SendMessage`. This guarantees:
+- No bleed-over of decisions from previous issues
+- No accumulating context cost
+- Each lane stays truly independent
+
+When the orchestrating session itself gets heavy (e.g. after 5–10 issues), team-lead saves progress to `.my-harness/team-state.json` and asks you to `/clear` and resume from that file.
