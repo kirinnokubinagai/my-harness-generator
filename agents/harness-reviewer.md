@@ -121,6 +121,19 @@ nix develop --command sh -c '
 
 ---
 
+## Codex モードのエラーハンドリング
+
+Codex 委譲モード で `codex-ask.sh` の **exit code が 100** だった場合、Codex の認証 / サブスク 障害。`<root>/.my-harness/codex-auth-rescue/` の rescue JSON を analyst 経由で team-lead に escalate:
+
+```
+[lane=N issue=#X phase=reviewer→analyst status=blocked-codex-auth mode=codex]
+exit_code: 100
+rescue_file: <root>/.my-harness/codex-auth-rescue/<timestamp>.json
+reason: <preflight-not-logged-in|login-expired|subscription-or-quota>
+```
+
+team-lead が codex login / サブスク更新の案内を出し、resume 指示を受けたら同 session で再呼び出しすることで、前ターンのレビュー指摘 context を保持したまま再開できる。
+
 ## 出力（両モード共通）
 
 合格:

@@ -144,6 +144,64 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 127
 fi
 
+# ===== ACTIVE_ROOT を捕捉（rescue state 保存先の特定用）=====
+ACTIVE_ROOT=""
+if [ -f "$ACTIVE_POINTER" ]; then
+  ACTIVE_ROOT=$(head -1 "$ACTIVE_POINTER" 2>/dev/null)
+fi
+
+# ===== Codex 認証エラー時の rescue state 保存 =====
+#       認証切れを検出したら、現在の依頼内容（session / role / prompt / context）を
+#       JSON + .prompt.txt として `<root>/.my-harness/codex-auth-rescue/` に保存し、
+#       team-lead が `codex login` 後に同 session で resume できるようにする。
+save_codex_auth_rescue() {
+  local reason="$1"
+  if [ -z "$ACTIVE_ROOT" ] || [ ! -d "$ACTIVE_ROOT/.my-harness" ]; then
+    echo "::warning:: rescue state を保存する root が不明です（--set-active 未実行?）" >&2
+    return
+  fi
+  local rescue_dir="$ACTIVE_ROOT/.my-harness/codex-auth-rescue"
+  mkdir -p "$rescue_dir"
+  local stamp
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)-$$
+  local rescue_json="$rescue_dir/$stamp.json"
+  local rescue_prompt="$rescue_dir/$stamp.prompt.txt"
+  if [ -f "$TMP_PROMPT" ]; then
+    cp "$TMP_PROMPT" "$rescue_prompt" 2>/dev/null || rescue_prompt=""
+  else
+    rescue_prompt=""
+  fi
+  # JSON はメタデータのみ（prompt 本文は別ファイル）
+  {
+    echo '{'
+    echo "  \"reason\": \"$reason\","
+    echo "  \"session_key\": \"${SESSION_KEY:-}\","
+    echo "  \"session_id\": \"${SESSION_ID:-}\","
+    echo "  \"role\": \"${ROLE:-}\","
+    echo "  \"out_file\": \"${OUT_FILE:-}\","
+    echo "  \"log_file\": \"${LOG_FILE:-}\","
+    echo "  \"prompt_path\": \"$rescue_prompt\","
+    echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+    echo '}'
+  } > "$rescue_json"
+  echo "::error:: Codex 認証エラー（$reason）。rescue state を保存しました:" >&2
+  echo "  $rescue_json" >&2
+  echo "  ユーザーは \`codex login\` 後に team-lead に「resume」と指示してください。" >&2
+}
+
+# ===== Pre-flight 認証チェック =====
+#       codex exec を呼ぶ前に check-codex-auth.sh で OAuth 状態を確認。
+#       not-logged-in なら rescue state を保存して exit 100。
+CHECK_AUTH="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/check-codex-auth.sh"
+if [ -x "$CHECK_AUTH" ]; then
+  AUTH_STATE=$("$CHECK_AUTH" 2>/dev/null || true)
+  if [ "$AUTH_STATE" != "logged-in" ]; then
+    : "${TMP_PROMPT:=}"  # rescue 関数で参照される変数を事前定義（保存内容は空でも OK）
+    save_codex_auth_rescue "preflight-$AUTH_STATE"
+    exit 100
+  fi
+fi
+
 # ===== プロンプト構築 =====
 TMP_PROMPT=$(mktemp)
 TMP_LOG=$(mktemp)
@@ -261,6 +319,25 @@ if [ -n "$SESSION_KEY" ]; then
 else
   codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
     2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+fi
+
+# ===== Post-exec 認証 / サブスク エラー検出 =====
+#       実行中に発生する 2 種類の障害を区別して拾う:
+#       (a) login-expired   : OAuth トークンが無効/期限切れ → codex login で復旧
+#       (b) subscription-or-quota : サブスク失効 / quota 超過 / billing → 別対応必要
+if [ -f "$TMP_LOG.err" ]; then
+  # サブスク / quota / billing を先に判定（login エラーより優先度高、誤分類防止）
+  if grep -iE "subscription.*(expired|required|cancel|inactive)|no active subscription|plan.*(required|expired|inactive)|quota.*(exceeded|reached)|billing.*(required|issue|past due|invalid)|insufficient.*(quota|credit|funds)|payment.*required|usage.*limit.*(exceeded|reached)" \
+       "$TMP_LOG.err" >/dev/null 2>&1; then
+    save_codex_auth_rescue "subscription-or-quota"
+    exit 100
+  fi
+  # 次に login / 認証トークン関連
+  if grep -iE "not logged in|please log in|please run.*codex login|authentication failed|api key.*(required|missing|invalid)|unauthorized|401 [^0-9]|expired.*(token|session|credential)|invalid_grant|oauth.*(failed|invalid)" \
+       "$TMP_LOG.err" >/dev/null 2>&1; then
+    save_codex_auth_rescue "login-expired"
+    exit 100
+  fi
 fi
 
 # ===== ログ保存 =====

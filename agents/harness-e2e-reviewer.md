@@ -104,6 +104,19 @@ iOS シミュレータが必要な場合は macOS ランナーで実行。
 
 ---
 
+## Codex モードのエラーハンドリング
+
+Codex 委譲モード で `codex-ask.sh` の **exit code が 100** だった場合、Codex の認証 / サブスク 障害。`<root>/.my-harness/codex-auth-rescue/` の rescue JSON を analyst 経由で team-lead に escalate:
+
+```
+[lane=N issue=#X phase=e2e→analyst status=blocked-codex-auth mode=codex]
+exit_code: 100
+rescue_file: <root>/.my-harness/codex-auth-rescue/<timestamp>.json
+reason: <preflight-not-logged-in|login-expired|subscription-or-quota>
+```
+
+team-lead が codex login / サブスク更新の案内を出し、resume 指示を受けたら同 session で再呼び出しすることで、前ターンの E2E 実行 context を保持したまま再開できる。
+
 ## 失敗時の対応（両モード共通）
 
 1. analyst に報告:

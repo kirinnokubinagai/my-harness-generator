@@ -60,6 +60,84 @@ context が重くなったので、Claude Code を /clear してから team-stat
 
 実装フェーズの長期セッションでは、これを issue 5〜10 個ごとに行うと健全。
 
+## Codex 認証 / サブスク 障害ハンドリング
+
+USE_CODEX=yes 環境では、`engineer` / `e2e-reviewer` / `reviewer` のいずれかが Codex に委譲される（USE_CODEX_<ROLE>=yes のとき）。Codex 側で認証 or サブスク に問題があると `codex-ask.sh` が **exit 100** で終了する。team-lead はこれを受けてユーザーへ適切に escalate する責務を持つ。
+
+### Pre-flight チェック（issue 振り分け前に毎回）
+
+USE_CODEX=yes のレーンを起動する直前に:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/check-codex-auth.sh"
+```
+
+戻り値:
+- `0` (logged-in) → そのまま並列起動
+- `1` (not-logged-in) → ユーザーに `codex login` を案内し待機
+- `127` (not-installed) → ユーザーに `npm i -g @openai/codex` を案内、または USE_CODEX を no に変更するか確認
+
+### 各レーンからの exit 100 escalation
+
+analyst / engineer / e2e-reviewer / reviewer のいずれかが「Codex から exit 100 を受領した」と報告したら、`<root>/.my-harness/codex-auth-rescue/` 配下の最新 JSON を Read で読む。`reason` フィールドに以下のいずれかが入っている:
+
+| reason | 意味 | ユーザーへの案内 |
+|--------|------|----------------|
+| `preflight-not-logged-in` | OAuth トークン未取得 / 期限切れ（pre-flight 検出） | `codex login` を実行してから「resume」と返信 |
+| `preflight-not-installed` | codex CLI 未インストール（pre-flight 検出） | `npm i -g @openai/codex` 後 `codex login`、または USE_CODEX=no に切替 |
+| `login-expired` | 実行中に OAuth トークン失効（mid-flight 検出） | 同上: `codex login` → 「resume」 |
+| `subscription-or-quota` | サブスク失効 / quota 超過 / billing 問題 | 3 つのいずれかをユーザーに選んでもらう（下記）|
+
+### サブスク失効時の 3 オプション
+
+`reason=subscription-or-quota` を検出したら、ユーザーに以下から選んでもらう:
+
+```
+⚠️ Codex のサブスクリプション / quota に問題があります
+  rescue: <root>/.my-harness/codex-auth-rescue/<latest>.json
+
+以下から選んでください:
+  (a) 課金状態を確認・更新する（ChatGPT 有料プランを再有効化）後「resume」
+  (b) OPENAI_API_KEY を環境変数にセットして pay-per-use に切替後「resume」
+      (export OPENAI_API_KEY=sk-... してから現セッションを再開)
+  (c) 該当 role を Claude フォールバックに切替（USE_CODEX_<ROLE>=no）して「resume」
+      (.my-harness/.config を編集すれば team-lead が次回の起動から Claude を使う)
+  (d) 中止 (abort)
+```
+
+ユーザーが (a) / (b) を選んだら、保留中の issue を `team-state.json` の `pending_codex_auth` に入れて待機。「resume」受領で再開。  
+ユーザーが (c) を選んだら、`.my-harness/.config` の該当 flag を `no` に書き換え、当該レーンを **Claude モードで** 再起動。  
+ユーザーが (d) を選んだら、保留 issue を `cancelled-by-user` 状態にして他レーンの結果を待つ。
+
+### resume プロトコル
+
+ユーザーが `codex login` 等を完了して「resume」と指示してきたら:
+
+1. `team-state.json` の `pending_codex_auth` を読む（lane / issue / role / rescue_file_path 含む）
+2. rescue JSON を読み、`session_key` / `session_id` / `prompt_path` を取得
+3. **同じ session を resume** する形で codex-ask.sh を再呼び出し:
+   ```bash
+   bash "$CHECK_AUTH"  # 念のため再 pre-flight
+   bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh" \
+     --role "<rescue.role>" \
+     --session "<rescue.session_key>" \
+     --out "<rescue.out_file>" \
+     "$(cat <rescue.prompt_path>)"
+   ```
+4. 成功したら rescue JSON / .prompt.txt を削除、`pending_codex_auth` を team-state から消す
+5. 当該レーンを次の phase に進ませる
+
+Codex 側の session_id は失効しないので、再 login 後でも前ターンの context を保持したまま再開できる（codex のサーバ側で session 履歴は残っている）。
+
+### `.my-harness/.config` の `ON_CODEX_AUTH_FAIL` 設定（任意）
+
+| 値 | 動作 |
+|----|------|
+| `pause`（既定） | 上記の通り保留 + ユーザー通知 + resume 待ち |
+| `fail` | 即座に該当レーンを `failed` にし、他レーンは継続。ユーザー再開無し |
+
+`fallback`（自動で Claude に切替）は **意図的に提供しない**（ユーザー意図と乖離するため）。手動で `(c)` を選ばせる。
+
 ## 出力フォーマット
 
 ユーザーには以下のサマリーで報告:
@@ -70,6 +148,7 @@ lanes:
   L1 #<issue> phase=<phase> status=<status>
   L2 ...
 gates: dev=<green|red>  stage=<...>  main=<...>
+codex_auth: <ok|paused-login|paused-subscription>
 next: <action>
 ```
 

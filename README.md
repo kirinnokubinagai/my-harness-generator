@@ -272,6 +272,7 @@ CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
 USE_CODEX_E2E_REVIEWER=yes    # delegate E2E test execution to Codex
 USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
+ON_CODEX_AUTH_FAIL=pause      # default: pause + user notify + resume after re-login. "fail" → immediate fail
 ```
 
 You can re-run bootstrap non-interactively:
@@ -287,6 +288,8 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 | Skill doesn't fire | Restart Claude Code or `/clear` |
 | Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` and `Stop` hooks; run `/doctor` to validate the schema |
 | Codex returns auth error | `/harness-check-codex-auth`, then `codex login` |
+| Codex subagent paused with `blocked-codex-auth` (login expired mid-flight) | Run `codex login`, then tell team-lead "resume". The same Codex session is preserved on the server. |
+| Codex subagent paused with `subscription-or-quota` reason | Either renew your ChatGPT subscription, set `OPENAI_API_KEY` for pay-per-use, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
 | Conflict during hotfix back-merge | `/harness-resolve-conflict` (never rebase) |
 | Accidentally ran `drizzle-kit push` | Revert, then `drizzle-kit generate --name <descriptive>` followed by `wrangler d1 migrations apply` |
 | Update plugin | `/plugin marketplace update`, then `/plugin install my-harness@my-harness-generator` |

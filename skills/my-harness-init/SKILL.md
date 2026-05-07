@@ -100,6 +100,7 @@ CODEX_SESSION=<session>            # USE_CODEX=yes のときのみ
 USE_CODEX_ENGINEER=<yes|no>        # USE_CODEX=yes のときのみ意味あり、no なら Claude が実装
 USE_CODEX_E2E_REVIEWER=<yes|no>    # USE_CODEX=yes のときのみ意味あり、no なら Claude が E2E 実行
 USE_CODEX_REVIEWER=<yes|no>        # USE_CODEX=yes のときのみ意味あり、no なら Claude が規約レビュー
+ON_CODEX_AUTH_FAIL=pause           # 既定 pause: 認証/サブスク切れ時にユーザー通知 + 待機。fail なら即失敗
 USE_GITHUB_ISSUES=<yes|no>
 USE_GLOBAL_CLAUDE=<yes|no>
 EOF

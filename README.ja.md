@@ -272,6 +272,7 @@ CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # engineer subagent を Codex に委譲（USE_CODEX=yes のときのみ意味あり）
 USE_CODEX_E2E_REVIEWER=yes    # E2E テスト実行を Codex に委譲
 USE_CODEX_REVIEWER=yes        # 規約レビューを Codex に委譲
+ON_CODEX_AUTH_FAIL=pause      # 既定: 認証/サブスク切れ時にユーザー通知＋待機、re-login 後 resume。fail なら即失敗
 ```
 
 非対話で再実行:
@@ -287,6 +288,8 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 | skill が発火しない | Claude Code を完全再起動 / `/clear` |
 | hook が `dev/docs/talk/` に書かない | `~/.claude/settings.json` にプラグインの `UserPromptSubmit` / `Stop` hook が登録されているか確認。`/doctor` でスキーマ検証 |
 | Codex 認証エラー | `/harness-check-codex-auth` → `codex login` |
+| Codex subagent が `blocked-codex-auth`（実行中に login 切れ）で停止 | `codex login` を実行 → team-lead に「resume」と返信。同じ Codex session がサーバー側で保持されているため、前ターンの context を保ったまま再開できる |
+| Codex subagent が `subscription-or-quota` 理由で停止 | (a) ChatGPT サブスクを再有効化、(b) `OPENAI_API_KEY` を export して pay-per-use に切替、(c) `.my-harness/.config` で `USE_CODEX_<ROLE>=no` にして Claude フォールバック の 3 つから選んで「resume」 |
 | hotfix 逆流でコンフリクト | `/harness-resolve-conflict` を使う（rebase 禁止） |
 | 誤って `drizzle-kit push` してしまった | revert → `drizzle-kit generate --name <具体名>` → `wrangler d1 migrations apply` |
 | プラグインを更新したい | `/plugin marketplace update` → `/plugin install my-harness@my-harness-generator` |
