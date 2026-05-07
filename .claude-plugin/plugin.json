@@ -9,8 +9,5 @@
   },
   "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",
   "repository": "https://github.com/kirinnokubinagai/my-harness-generator",
-  "license": "MIT",
-  "skills": "skills",
-  "agents": "agents",
-  "hooks": "hooks/hooks.json"
+  "license": "MIT"
 }
