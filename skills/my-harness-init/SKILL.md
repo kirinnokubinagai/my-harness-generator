@@ -182,7 +182,14 @@ If not found: proceed to Phase 0 below as a new init.
 - `en`: All output in English (TSDoc, commit messages, error messages, docs — all in English)
 - `ja`: All output in Japanese (TSDoc, commit messages, error messages, docs — all in Japanese)
 
-From this point, all conversation, all generated docs, JSDoc text, error messages, and issue templates use the chosen language.
+From this point, all conversation, all generated docs, JSDoc text, error messages, and issue templates use the chosen language. **Every prompt in Phase 1 and beyond must be delivered in the language chosen here.**
+
+**Acknowledgment after Phase 0 (language-aware — pick the matching variant):**
+
+- If `LANG=en`:
+  > "Got it — I'll continue in English from here. Let's move on to the setup questions."
+- If `LANG=ja`:
+  > "はい、ここから先は日本語で進めます。では、セットアップの質問に移ります。"
 
 Save to `.my-harness/.config` (first entry, before all other keys):
 ```bash
@@ -211,29 +218,156 @@ EOF
 
 ### Setup phase (startup + selections, new init only)
 
-Confirm each of the following **one question at a time**:
+Confirm each of the following **one question at a time**. For each question, use the **`LANG=en`** block when `LANG=en`, and the **`LANG=ja`** block when `LANG=ja`.
 
-1. Project root directory (default: `~/<project-name>`)
-2. Project name (slug: lowercase letters + hyphens)
-3. Use Codex integration? (y / n)
-   - y: Codex consulted at the end of each phase; image generation during the visual phase
-   - n: Claude proceeds alone
-4. If y: Verify Codex login status:
-   ```bash
-   bash ~/my-harness-generator/scripts/check-codex-auth.sh
-   ```
-   - `not-installed` → Guide user to `npm i -g @openai/codex`; re-ask the question
-   - `not-logged-in` → Ask user to run `codex login`. After 3 failures, automatically set to n
-   - `logged-in` → Continue
-5. If y: Session name (default: `my-harness-init`)
-6. **If y: Which subagents should be delegated to Codex?** (one question per turn, default is all y)
-   - **Delegate engineer (implementation) to Codex?** y/n (default: y — Codex is strong at code generation)
-   - **Delegate e2e-reviewer to Codex?** y/n (default: y — Codex can run tests from the CLI)
-   - **Delegate reviewer (convention review) to Codex?** y/n (default: y — Codex is strong at code review)
-7. Task management: GitHub Issues or local `docs/task/`
-8. Inherit global `~/.claude/CLAUDE.md`? y/n
+---
 
-When USE_CODEX=no, all three options in step 6 are automatically set to `no` (master switch takes precedence).
+#### Setup Q1: Project root directory
+
+**LANG=en prompt:**
+> "Where should the project live? (default: `~/projects/<project-name>` once you set a name, or `~/projects/my-project` as a placeholder)"
+>
+> **What this controls:** This becomes the parent directory on disk. All source code, git worktrees, and spec files are created inside it. The `dev/` worktree where you do day-to-day work lives at `<root>/dev`. If the directory does not exist it will be created automatically. Default is `~/projects/<name>` — a sensible choice for most setups.
+
+**LANG=ja prompt:**
+> "プロジェクトをどこに作成しますか？（デフォルト: `~/projects/<プロジェクト名>`）"
+>
+> **この設定が影響する箇所:** ディスク上の親ディレクトリになります。ソースコード・gitワークツリー・spec ファイルはすべてここに作成されます。日常作業は `<root>/dev` ワークツリーで行います。ディレクトリが存在しない場合は自動作成されます。
+
+---
+
+#### Setup Q2: Project name
+
+**LANG=en prompt:**
+> "What is the project name? (optional — press Enter to use `harness-project-<random6>`)"
+>
+> **What this controls:**
+> - Becomes the **directory name** under your chosen root (e.g., `~/projects/todo-app`).
+> - Becomes the **`name` field in `package.json`** of the generated project.
+> - Used as the **display name** in the auto-generated `dev/README.md` and `dev/CLAUDE.md`.
+> - The lowercase-hyphen form is used as the **git branch namespace** (`feat/<name>-<n>`, `hotfix/<name>-<n>`) and as the **default Codex session name** when Codex consultations happen.
+>
+> Providing a name is **strongly recommended** for real projects. If omitted, the fallback `harness-project-<random6>` is fine for throwaway tests but produces ugly branch names and directory paths.
+
+**LANG=ja prompt:**
+> "プロジェクト名を入力してください（省略すると `harness-project-<ランダム6文字>` が使われます）"
+>
+> **この設定が影響する箇所:**
+> - 選択したルートパス直下の **ディレクトリ名** になります（例: `~/projects/todo-app`）。
+> - 生成プロジェクトの **`package.json` の `name` フィールド** になります。
+> - 自動生成される `dev/README.md` と `dev/CLAUDE.md` の **表示名** として使われます。
+> - 小文字ハイフン形式が **git ブランチ名前空間**（`feat/<name>-<n>`）と **Codex セッション名** に使われます。
+>
+> 実際のプロジェクトには名前の設定を**強く推奨**します。省略時の `harness-project-<ランダム6文字>` はテスト用途には十分ですが、ブランチ名やパスが分かりにくくなります。
+
+**Internal slug derivation (never shown to user):** After the user answers, derive `PROJECT_SLUG` automatically:
+```bash
+# lowercase, spaces→hyphens, strip non-alnum except hyphens
+PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g')
+```
+Do **not** show the word "slug" anywhere in the conversation.
+
+---
+
+#### Setup Q3: Codex integration
+
+**LANG=en prompt:**
+> "Use Codex for AI-assisted design and code review? (y/n, default: n)"
+>
+> **What this controls:** Codex (OpenAI's CLI) can be called at the end of each phase to get a second opinion, and is used during Phase 5 to generate logo and UI mock images via `gpt-image-2`.
+>
+> **Codex is completely optional.** If you say `n`, the plugin still works end-to-end:
+> - The interview proceeds in Claude alone.
+> - Logo and UI mock generation are skipped (you can supply your own images later).
+> - Engineer / e2e-reviewer / reviewer subagents run in Claude — no Codex delegation.
+> - All bootstrap, branch protection, CI, hooks, and 4-lane parallel features work unchanged.
+> - You can always re-enable Codex later by editing `.my-harness/.config` and setting `USE_CODEX=yes`.
+
+**LANG=ja prompt:**
+> "Codex（OpenAI CLI）を使ったAI支援デザイン・コードレビューを有効にしますか？ (y/n、デフォルト: n)"
+>
+> **この設定が影響する箇所:** 各フェーズ終了時にセカンドオピニオンとして Codex を呼び出せます。フェーズ5ではロゴや UI モック画像を `gpt-image-2` で生成します。
+>
+> **Codex は完全にオプションです。** `n` を選んでもプラグインはすべて動作します:
+> - インタビューは Claude だけで進みます。
+> - ロゴ・UI モックの自動生成はスキップされます（後から自分で用意できます）。
+> - エンジニア / e2e-reviewer / reviewer サブエージェントは Claude で実行されます。
+> - ブートストラップ・ブランチ保護・CI・フック・4レーン並列実装はすべて変わらず動作します。
+> - 後から `.my-harness/.config` で `USE_CODEX=yes` に変更すれば有効化できます。
+
+**If USE_CODEX=no:** Skip Q3a, Q3b, Q3c, Q3d entirely. Set all three `USE_CODEX_*` flags to `no` automatically.
+
+**If USE_CODEX=yes:** Proceed to Q3a through Q3d below.
+
+---
+
+#### Setup Q3a: Codex auth check (only when USE_CODEX=yes)
+
+Run immediately after the user answers `y` to Q3:
+```bash
+bash ~/my-harness-generator/scripts/check-codex-auth.sh
+```
+- `not-installed` → Guide user to `npm i -g @openai/codex`; re-ask Q3
+- `not-logged-in` → Ask user to run `codex login`. After 3 failures, automatically set USE_CODEX=no and continue
+- `logged-in` → Confirm to the user (language-aware):
+  - **LANG=en:** "Codex is ready. I'll resume Codex conversations in session `<PROJECT_SLUG>-init` so multi-turn dialog persists."
+  - **LANG=ja:** "Codex の認証を確認しました。マルチターン対話が維持されるよう、セッション `<PROJECT_SLUG>-init` で Codex との会話を継続します。"
+
+`CODEX_SESSION` is derived automatically as `<PROJECT_SLUG>-init`. This is never asked as a question.
+
+---
+
+#### Setup Q3b: Delegate engineer to Codex? (only when USE_CODEX=yes)
+
+**LANG=en:** "Delegate the engineer (implementation) subagent to Codex? (y/n, default: y — Codex is strong at code generation)"
+
+**LANG=ja:** "エンジニア（実装）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコード生成が得意です)"
+
+---
+
+#### Setup Q3c: Delegate e2e-reviewer to Codex? (only when USE_CODEX=yes)
+
+**LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: y — Codex can run tests from the CLI)"
+
+**LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex は CLI からテストを実行できます)"
+
+---
+
+#### Setup Q3d: Delegate reviewer to Codex? (only when USE_CODEX=yes)
+
+**LANG=en:** "Delegate the reviewer (convention review) subagent to Codex? (y/n, default: y — Codex is strong at code review)"
+
+**LANG=ja:** "reviewer（規約レビュー）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコードレビューが得意です)"
+
+---
+
+#### Setup Q4: Task management
+
+**LANG=en prompt:**
+> "How should tasks be tracked? (`issues` = GitHub Issues, `local` = markdown files in `dev/docs/task/`, default: `local`)"
+>
+> **What this controls:** With `issues`, tasks are created as GitHub Issues with lane assignments and you need a GitHub repo. With `local`, tasks are markdown files with front matter stored in the repo — no GitHub dependency, works offline, and the files are git-tracked alongside your spec.
+
+**LANG=ja prompt:**
+> "タスク管理の方法を選んでください。(`issues` = GitHub Issues、`local` = `dev/docs/task/` のマークダウン、デフォルト: `local`)"
+>
+> **この設定が影響する箇所:** `issues` を選ぶと GitHub Issues にレーン割り当てつきで作成されます（GitHub リポジトリが必要）。`local` を選ぶとフロントマター付きマークダウンとしてリポジトリ内に保存されます。オフラインで動き、spec と一緒に git 管理されます。
+
+---
+
+#### Setup Q5: Inherit global CLAUDE.md
+
+**LANG=en prompt:**
+> "Inherit `~/.claude/CLAUDE.md` into the project's `dev/CLAUDE.md`? (y/n, default: y)"
+>
+> **What this controls:** When `y`, the contents of your global `~/.claude/CLAUDE.md` (coding standards, preferences, rules) are prepended to the project-level `dev/CLAUDE.md`. This means every Claude session inside `dev/` automatically sees your global conventions. When `n`, `dev/CLAUDE.md` is project-specific only.
+
+**LANG=ja prompt:**
+> "グローバルの `~/.claude/CLAUDE.md` をプロジェクトの `dev/CLAUDE.md` に継承しますか？ (y/n、デフォルト: y)"
+>
+> **この設定が影響する箇所:** `y` を選ぶと、グローバルの `~/.claude/CLAUDE.md`（コーディング規約・設定・ルール）がプロジェクトの `dev/CLAUDE.md` の先頭に追記されます。`dev/` 内のすべての Claude セッションでグローバル規約が自動的に有効になります。`n` を選ぶとプロジェクト固有の設定のみになります。
+
+---
 
 Save the answers:
 
@@ -242,10 +376,11 @@ mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/d
 
 cat > <root>/.my-harness/.config <<EOF
 LANG=<en|ja>
-PROJECT_NAME=<slug>
+PROJECT_NAME=<name as entered by user>
+PROJECT_SLUG=<derived lowercase-hyphen form, never shown to user>
 ROOT=<root>
 USE_CODEX=<yes|no>
-CODEX_SESSION=<session>            # Only when USE_CODEX=yes
+CODEX_SESSION=<PROJECT_SLUG>-init  # Only written when USE_CODEX=yes
 USE_CODEX_ENGINEER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude implements
 USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; if no, Claude runs E2E
 USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
@@ -264,10 +399,15 @@ When USE_CODEX=yes, register the active session pointer:
 
 ### Phase 1: What to build
 
-**Fixed questions (one per turn — never improvise)**:
+**Fixed questions (one per turn — never improvise). Use the LANG=en variant when `LANG=en`, and the LANG=ja variant when `LANG=ja`.**
 
-1. **"In one sentence, what are you building?"** (e.g. task management app / inventory SaaS / blog site / internal tool)
-2. **"List 3–7 features required for the MVP"** (numbered)
+**Question 1:**
+- **LANG=en:** "In one sentence, what are you building?" (e.g. task management app / inventory SaaS / blog site / internal tool)
+- **LANG=ja:** "一文で教えてください。何を作りますか？" （例: タスク管理アプリ / 在庫管理SaaS / ブログサイト / 社内ツール）
+
+**Question 2:**
+- **LANG=en:** "List 3–7 features required for the MVP." (numbered)
+- **LANG=ja:** "MVP に必要な機能を 3〜7 個、番号付きでリストアップしてください。"
 
 That's it. Do **not** ask "who uses it / personas / why existing services don't work / what success looks like in 5 years". Who uses it will surface naturally in Phase 3 (authentication) and Phase 5 (visual impression) as concrete choices — asking abstractly adds no value.
 
@@ -284,38 +424,37 @@ If USE_CODEX=yes, run a Codex consult at the end:
 
 ### Phase 2: Platform + framework
 
-**Ask in two steps per target**: first y/n, then the framework choice if y. **Strictly one question per turn — no batch questions.**
+**Ask in two steps per target**: first y/n, then the framework choice if y. **Strictly one question per turn — no batch questions.** Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.
 
 #### 2.1 Web
 
-1. **Build a web frontend?** y/n
-2. If y: **Which framework?** (choices: `nextjs` / `tanstack`)
-   - `nextjs`: Next.js 16 (App Router)
-   - `tanstack`: TanStack Start (SSR + TanStack Router)
+1. **LANG=en:** "Build a web frontend? (y/n)"
+   **LANG=ja:** "Web フロントエンドを作りますか？ (y/n)"
+2. If y — **LANG=en:** "Which web framework? (`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
+   If y — **LANG=ja:** "Web フレームワークを選んでください。(`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
 
 #### 2.2 iOS
 
-1. **Build an iOS app?** y/n
-2. If y: **Which implementation?** (choices: `swift` / `expo` / `flutter`)
-   - `swift`: Swift + SwiftUI native
-   - `expo`: React Native (Expo)
-   - `flutter`: Flutter
+1. **LANG=en:** "Build an iOS app? (y/n)"
+   **LANG=ja:** "iOS アプリを作りますか？ (y/n)"
+2. If y — **LANG=en:** "Which iOS implementation? (`swift` = Swift + SwiftUI native / `expo` = React Native Expo / `flutter` = Flutter)"
+   If y — **LANG=ja:** "iOS の実装方法を選んでください。(`swift` = Swift + SwiftUI ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
 
 #### 2.3 Android
 
-1. **Build an Android app?** y/n
-2. If y: **Which implementation?** (choices: `kotlin` / `expo` / `flutter`)
-   - `kotlin`: Kotlin + Jetpack Compose native
-   - `expo`: React Native (Expo)
-   - `flutter`: Flutter
+1. **LANG=en:** "Build an Android app? (y/n)"
+   **LANG=ja:** "Android アプリを作りますか？ (y/n)"
+2. If y — **LANG=en:** "Which Android implementation? (`kotlin` = Kotlin + Jetpack Compose native / `expo` = React Native Expo / `flutter` = Flutter)"
+   If y — **LANG=ja:** "Android の実装方法を選んでください。(`kotlin` = Kotlin + Jetpack Compose ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
 
 #### 2.4 Desktop
 
-1. **Build a desktop app?** y/n
-2. If y: **Which framework?** (choices: `tauri` / `electron`)
-   - `tauri`: Rust shell + web frontend, lightweight
-   - `electron`: Node.js shell + web frontend, rich ecosystem
-3. If y: **Which OS targets?** (macOS / Windows / Linux, multiple selections allowed, default: all)
+1. **LANG=en:** "Build a desktop app? (y/n)"
+   **LANG=ja:** "デスクトップアプリを作りますか？ (y/n)"
+2. If y — **LANG=en:** "Which desktop framework? (`tauri` = Rust shell + web frontend, lightweight / `electron` = Node.js shell + web frontend, rich ecosystem)"
+   If y — **LANG=ja:** "デスクトップフレームワークを選んでください。(`tauri` = Rust シェル + Web フロントエンド、軽量 / `electron` = Node.js シェル + Web フロントエンド、エコシステム豊富)"
+3. If y — **LANG=en:** "Which OS targets? (macOS / Windows / Linux — multiple allowed, default: all)"
+   If y — **LANG=ja:** "対象 OS を選んでください。(macOS / Windows / Linux — 複数選択可、デフォルト: すべて)"
 
 #### Validation
 
@@ -345,22 +484,34 @@ DESKTOP_OS=macos,windows,linux      # Only when USE_DESKTOP=yes
 
 ### Phase 3: Backend configuration
 
-**Fixed questions (one per turn)**:
+**Fixed questions (one per turn). Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.**
 
-1. **Build a backend?** y/n (frontend-only or serverless-only projects can answer no)
-2. If y: **Which language/framework?** (choices: `hono` / `gin` / `rust`)
-   - `hono`: TypeScript + Hono on Cloudflare Workers (lightweight, edge)
-   - `gin`: Go + Gin (high performance, conventional)
-   - `rust`: Rust + axum (type-safe, maximum speed)
-3. **Need a database?** y/n
-4. If y: **Which DB?** (choices: `d1` / `postgres` / `mysql` / `sqlite`)
-   - Recommendation: `d1` for `hono` backends; `postgres` for `gin` / `rust` backends
-5. **Need email sending?** y/n (y → Resend, for password reset, etc.)
-6. **How much authentication do you need?** (choices: `none` / `password` / `oauth`)
-7. **How much E2E testing?** (choices: `web` / `mobile` / `both` / `none`)
-   - `web` → Playwright, `mobile` → Maestro, `both` → both, `none` → none
-8. **Use Claude Code Action in CI?** y/n (automated PR review)
-9. If y: **Authentication method** (`api` / `oauth`)
+1. **LANG=en:** "Build a backend? (y/n — frontend-only or serverless-only projects can answer no)"
+   **LANG=ja:** "バックエンドを作りますか？ (y/n — フロントエンドのみ、またはサーバーレスのみのプロジェクトは no でも構いません)"
+
+2. If y — **LANG=en:** "Which backend language/framework? (`hono` = TypeScript + Hono on Cloudflare Workers / `gin` = Go + Gin / `rust` = Rust + axum)"
+   If y — **LANG=ja:** "バックエンドの言語・フレームワークを選んでください。(`hono` = TypeScript + Hono on Cloudflare Workers / `gin` = Go + Gin / `rust` = Rust + axum)"
+
+3. **LANG=en:** "Need a database? (y/n)"
+   **LANG=ja:** "データベースは必要ですか？ (y/n)"
+
+4. If y — **LANG=en:** "Which database? (`d1` = Cloudflare D1 / `postgres` = PostgreSQL / `mysql` = MySQL / `sqlite` = SQLite — recommended: `d1` for hono, `postgres` for gin/rust)"
+   If y — **LANG=ja:** "データベースを選んでください。(`d1` = Cloudflare D1 / `postgres` = PostgreSQL / `mysql` = MySQL / `sqlite` = SQLite — 推奨: hono には `d1`、gin/rust には `postgres`)"
+
+5. **LANG=en:** "Need email sending? (y/n — yes sets up Resend for password reset etc.)"
+   **LANG=ja:** "メール送信機能は必要ですか？ (y/n — yes を選ぶとパスワードリセット等のために Resend をセットアップします)"
+
+6. **LANG=en:** "How much authentication do you need? (`none` / `password` / `oauth`)"
+   **LANG=ja:** "認証の種類を選んでください。(`none` = なし / `password` = パスワード認証 / `oauth` = OAuth)"
+
+7. **LANG=en:** "How much E2E testing? (`web` = Playwright / `mobile` = Maestro / `both` / `none`)"
+   **LANG=ja:** "E2E テストの範囲を選んでください。(`web` = Playwright / `mobile` = Maestro / `both` = 両方 / `none` = なし)"
+
+8. **LANG=en:** "Use Claude Code Action in CI for automated PR review? (y/n)"
+   **LANG=ja:** "CI で Claude Code Action を使った自動 PR レビューを有効にしますか？ (y/n)"
+
+9. If y — **LANG=en:** "Authentication method for Claude Code Action? (`api` = API key / `oauth` = OAuth app)"
+   If y — **LANG=ja:** "Claude Code Action の認証方法を選んでください。(`api` = API キー / `oauth` = OAuth アプリ)"
 
 Save to: `dev/docs/spec/03-backend.md` / `dev/docs/talk/03-backend.md`
 
@@ -392,12 +543,19 @@ If USE_CODEX=yes, verify from an architect perspective:
 
 ### Phase 4: Data model (only when USE_DB=yes; skip if no)
 
-**Fixed questions**:
+**Fixed questions (use the variant matching `LANG`)**:
 
-1. **List 3–7 entities** (e.g. User / Task / Comment)
-2. **Bullet out the main fields for each entity**
-3. **Describe relationships between entities in mermaid ER style** (e.g. User 1—N Task)
-4. **Which fields contain PII?** (email, phone, address, etc.)
+1. **LANG=en:** "List 3–7 entities for your data model." (e.g. User / Task / Comment)
+   **LANG=ja:** "データモデルのエンティティを 3〜7 個リストアップしてください。"（例: User / Task / Comment）
+
+2. **LANG=en:** "Bullet out the main fields for each entity."
+   **LANG=ja:** "各エンティティの主なフィールドを箇条書きで教えてください。"
+
+3. **LANG=en:** "Describe relationships between entities in mermaid ER style." (e.g. User 1—N Task)
+   **LANG=ja:** "エンティティ間のリレーションシップを mermaid ER スタイルで説明してください。"（例: User 1—N Task）
+
+4. **LANG=en:** "Which fields contain PII?" (email, phone, address, etc.)
+   **LANG=ja:** "個人情報（PII）を含むフィールドはどれですか？"（メール・電話番号・住所など）
 
 Claude assembles a mermaid ER diagram from the answers and saves it to `dev/docs/spec/04-data-model.md`.
 
@@ -429,10 +587,13 @@ Do write:
 - That the format is PNG, the save path, and the resolution (e.g. 1024×1024)
 - Assume Codex will read the context (spec files)
 
-**Fixed questions** (one per turn, minimal):
+**Fixed questions** (one per turn, minimal — use the variant matching `LANG`):
 
-1. **Any color hint?** (optional, e.g. `#14b8a6` / "blue tones" / "no preference")
-2. **List 3–5 screens you want mocked** (e.g. Login / Home / Detail / Settings)
+1. **LANG=en:** "Any color hint for the design? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
+   **LANG=ja:** "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
+
+2. **LANG=en:** "List 3–5 screens you want mocked." (e.g. Login / Home / Detail / Settings)
+   **LANG=ja:** "UI モックを作成したい画面を 3〜5 個リストアップしてください。"（例: ログイン / ホーム / 詳細 / 設定）
 
 That's it. Do **not** ask about logo direction, impression, or tone. Codex reads `dev/docs/spec/*.md` and decides on its own.
 
