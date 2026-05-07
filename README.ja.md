@@ -328,15 +328,16 @@ A: `cd ~/.claude/plugins/cache/.../my-harness && git pull` ではなく、Claude
 
 ## 開発に貢献する
 
-PR 歓迎。プラグインは自分自身の規約を自分の開発にも適用しています:
+PR 歓迎。**プラグインを使うために `git clone` してはいけません** — インストールは `/plugin marketplace add <github-url>` で行い、更新は `/plugin marketplace update` で受け取る設計です。clone するとそのリビジョンに固定されて古くなり続けます。
 
-```bash
-git clone https://github.com/kirinnokubinagai/my-harness-generator
-cd my-harness-generator
-# ローカルマーケットプレースとして追加して動作確認
-/plugin marketplace add ./
-/plugin install my-harness@my-harness-generator
-```
+変更を提案するには:
+
+1. GitHub 上でこのリポジトリを Fork する。
+2. Claude Code 内で自分の fork をローカルマーケットプレースとして登録: `/plugin marketplace add https://github.com/<自分のユーザー名>/my-harness-generator` → `/plugin install my-harness@my-harness-generator`。
+3. fork 側を編集 → push → Claude Code で `/plugin marketplace update` を実行して動作確認。
+4. このリポジトリへ PR を出す。
+
+プラグイン自身のコードに適用される規約:
 
 - shell スクリプトは `bash -n`（構文チェック）を通ること必須。
 - 全 `SKILL.md` は frontmatter `name` + `description` 必須。

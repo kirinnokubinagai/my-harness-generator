@@ -328,15 +328,16 @@ Yes (private repo recommended). `mask-secrets.sh` redacts secrets, but the conve
 
 ## Contributing
 
-PRs welcome. The plugin enforces its own conventions on its own development:
+PRs welcome. **Do not `git clone` this repo to use the plugin** — installation is via `/plugin marketplace add <github-url>` so updates flow through `/plugin marketplace update`. Cloning freezes you to that revision.
 
-```bash
-git clone https://github.com/kirinnokubinagai/my-harness-generator
-cd my-harness-generator
-# Add as a local marketplace to test changes
-/plugin marketplace add ./
-/plugin install my-harness@my-harness-generator
-```
+To contribute changes:
+
+1. Fork on GitHub.
+2. Add your fork as a local marketplace from inside Claude Code: `/plugin marketplace add https://github.com/<your-user>/my-harness-generator` and `/plugin install my-harness@my-harness-generator`.
+3. Edit your fork directly on GitHub (or via your usual workflow), push, then `/plugin marketplace update` in Claude Code to test.
+4. Open a PR back to this repo.
+
+Conventions enforced on the plugin's own code:
 
 - All shell scripts must pass `bash -n` (syntax check).
 - Every `SKILL.md` requires a front-matter `name` and `description`.
