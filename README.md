@@ -67,10 +67,10 @@ The first question of `/my-harness-init` asks whether to use English or Japanese
 
 | Phase | What you decide |
 |-------|-----------------|
-| **Setup** | Project root path, slug, Codex y/n, task management mode (GitHub Issues or local files), whether to inherit your global `~/.claude/CLAUDE.md` |
+| **Setup** | Project root path, slug, Codex y/n, task management mode (GitHub Issues or local files) |
 | **Problem** | Who has what pain, why existing tools fall short, success criteria |
 | **Personas** | User types, contexts, technical literacy |
-| **Features** | MVP boundary and priorities for 5–10 core capabilities |
+| **Features** | Complete v1 feature list — everything needed before you'd call it done |
 | **Stack** | Web / iOS / Android, database, email provider, E2E choices |
 | **Data model** | Entities, relationships, PII handling (mermaid ER diagram) |
 | **Visual** | Logo (3 variants) and 3–5 UI mocks via Codex `gpt-image-2`; loop back to earlier phases if a mock reveals missing requirements |
@@ -185,7 +185,7 @@ Plus 19 convention skills that load automatically when relevant (TDD, JSDoc, Hon
 ├── dev/   stage/   main/               worktrees (you only work in dev)
 ├── lanes/feat-<n>-<slug>/              feature worktrees (up to 4 in parallel)
 └── lanes/hotfix-<n>-<slug>/            main-based hotfix worktrees
-    ├── .claude/                        only if USE_GLOBAL_CLAUDE=no
+    ├── .claude/CLAUDE.md               always written; project conventions go here. Note that the global ~/.claude/CLAUDE.md still loads (Claude Code limitation); local conventions augment, not replace, the global instructions.
     ├── docs/{spec,design,talk,task}/   spec / mocks / Q&A logs / tasks
     ├── .my-harness/                    plugin runtime files (copied)
     ├── flake.nix .envrc                Nix-pure environment
@@ -252,7 +252,6 @@ USE_PLAYWRIGHT=yes
 USE_MAESTRO=no
 USE_CLAUDE_ACTION=yes         # PR review via Claude Code Action
 CLAUDE_AUTH=oauth             # or "api"
-USE_GLOBAL_CLAUDE=yes         # inherit ~/.claude/CLAUDE.md, or isolate
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
 CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
@@ -289,9 +288,6 @@ Possible but not recommended. `/my-harness-init` assumes a fresh start. To retro
 
 **Is Codex CLI required?**
 No. Pick `n` at the Setup phase and Claude will run all phases solo (only image generation is skipped).
-
-**How do team members avoid drifting in personal config?**
-Pick `USE_GLOBAL_CLAUDE=no` at Setup. The plugin then writes `dev/.claude/CLAUDE.md` with project-only instructions and skips your personal `~/.claude/CLAUDE.md`. Note: Claude Code does not allow 100% isolation — this just minimizes the surface.
 
 **What does "4-lane parallel" actually do?**
 `harness-team-lead` partitions issues across `lane/1` through `lane/4` based on file ownership (no two lanes touch the same files). Each lane runs analyst → engineer → e2e-reviewer → reviewer in its own worktree. See [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).

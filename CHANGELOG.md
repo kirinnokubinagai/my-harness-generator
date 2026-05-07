@@ -27,7 +27,7 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 - bootstrap `--config <file>` non-interactive mode (for calling from `/my-harness-init`)
 - True multi-turn dialogue via Codex CLI session resume
 - USE_GITHUB_ISSUES=no support (`docs/task/auto/<id>.md` fallback)
-- USE_GLOBAL_CLAUDE toggle (inherit personal global / isolated project placement)
+- `dev/.claude/CLAUDE.md` always generated with project conventions (global `~/.claude/CLAUDE.md` still loads per Claude Code design; local conventions augment it)
 - iOS / Android templates, Cloudflare D1 + Drizzle, Resend, Playwright + Maestro
 
 ### Architecture

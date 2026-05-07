@@ -373,20 +373,6 @@ Note: during implementation (after `/harness-team-lead`), each subagent spawn ge
 
 ---
 
-#### Setup Q5: Inherit global CLAUDE.md
-
-**LANG=en prompt:**
-> "Inherit `~/.claude/CLAUDE.md` into the project's `dev/CLAUDE.md`? (y/n, default: y)"
->
-> **What this controls:** When `y`, the contents of your global `~/.claude/CLAUDE.md` (coding standards, preferences, rules) are prepended to the project-level `dev/CLAUDE.md`. This means every Claude session inside `dev/` automatically sees your global conventions. When `n`, `dev/CLAUDE.md` is project-specific only.
-
-**LANG=ja prompt:**
-> "グローバルの `~/.claude/CLAUDE.md` をプロジェクトの `dev/CLAUDE.md` に継承しますか？ (y/n、デフォルト: y)"
->
-> **この設定が影響する箇所:** `y` を選ぶと、グローバルの `~/.claude/CLAUDE.md`（コーディング規約・設定・ルール）がプロジェクトの `dev/CLAUDE.md` の先頭に追記されます。`dev/` 内のすべての Claude セッションでグローバル規約が自動的に有効になります。`n` を選ぶとプロジェクト固有の設定のみになります。
-
----
-
 Save the answers:
 
 ```bash
@@ -404,7 +390,6 @@ USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; default
 USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
 ON_CODEX_AUTH_FAIL=pause           # Default pause: notify user and wait on auth/subscription failure; fail = immediate error
 USE_GITHUB_ISSUES=<yes|no>
-USE_GLOBAL_CLAUDE=<yes|no>
 EOF
 ```
 
@@ -424,8 +409,15 @@ When USE_CODEX=yes, register the active session pointer:
 - **LANG=ja:** "一文で教えてください。何を作りますか？" （例: タスク管理アプリ / 在庫管理SaaS / ブログサイト / 社内ツール）
 
 **Question 2:**
-- **LANG=en:** "List 3–7 features required for the MVP." (numbered)
-- **LANG=ja:** "MVP に必要な機能を 3〜7 個、番号付きでリストアップしてください。"
+
+- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue listing until you have nothing more to add."
+- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
+
+**What this controls (en + ja):**
+
+> Each feature listed here becomes one or more issues / task files in your project. You're not committing to specific implementation order — that comes at /harness-team-lead time. The list is just the truth about what v1 means to you. Take your time.
+>
+> ここで挙げた機能はそれぞれ 1 つ以上の issue / task ファイルになります。実装順序を今決める必要はありません — それは `/harness-team-lead` のタイミングで行います。このリストは「v1 として何が必要か」という事実を記録するためのものです。じっくり考えてください。
 
 That's it. Do **not** ask "who uses it / personas / why existing services don't work / what success looks like in 5 years". Who uses it will surface naturally in Phase 3 (authentication) and Phase 5 (visual impression) as concrete choices — asking abstractly adds no value.
 
@@ -435,49 +427,72 @@ If USE_CODEX=yes, run a Codex consult at the end:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase1.md \
-  "Project summary: <one sentence>. MVP feature list: <enumerated>. Point out any logical contradictions, ambiguities, or missing items."
+  "Project summary: <one sentence>. v1 feature list: <enumerated>. Point out any logical contradictions, ambiguities, or missing items."
 ```
 
 ---
 
 ### Phase 2: Platform + framework
 
-**Ask in two steps per target**: first y/n, then the framework choice if y. **Strictly one question per turn — no batch questions.** Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.
+**Ask as a single multi-select, then follow up per selected platform.** Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.
 
-#### 2.1 Web
+#### 2.0 Platform selection (single question)
 
-1. **LANG=en:** "Build a web frontend? (y/n)"
-   **LANG=ja:** "Web フロントエンドを作りますか？ (y/n)"
-2. If y — **LANG=en:** "Which web framework? (`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
-   If y — **LANG=ja:** "Web フレームワークを選んでください。(`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
+**LANG=en prompt:**
+> "Which platforms? Select one or more (comma-separated): `web`, `desktop`, `mobile`"
+>
+> **What this controls:** Each selected platform creates its own subdirectory in the generated project (e.g., `dev/web/`, `dev/ios/`, `dev/android/`, `dev/desktop/`) with its own framework setup, CI workflow, and lane assignment. You can combine any subset — web-only is fine, web+mobile is fine, desktop+mobile without web is fine.
 
-#### 2.2 iOS
+**LANG=ja prompt:**
+> "対応プラットフォームをすべて選んでください（カンマ区切り）: `web`, `desktop`, `mobile`"
+>
+> **この設定が影響する箇所:** 選択したプラットフォームごとに専用のサブディレクトリ（例: `dev/web/`、`dev/ios/`、`dev/android/`、`dev/desktop/`）が生成され、それぞれ独自のフレームワーク設定・CI ワークフロー・レーン割当が行われます。任意の組み合わせが可能です。web のみ、web+mobile、desktop+mobile（web なし）なども問題ありません。
 
-1. **LANG=en:** "Build an iOS app? (y/n)"
-   **LANG=ja:** "iOS アプリを作りますか？ (y/n)"
-2. If y — **LANG=en:** "Which iOS implementation? (`swift` = Swift + SwiftUI native / `expo` = React Native Expo / `flutter` = Flutter)"
-   If y — **LANG=ja:** "iOS の実装方法を選んでください。(`swift` = Swift + SwiftUI ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
+After the user answers, render a checklist preview (Claude outputs this, not a prompt):
 
-#### 2.3 Android
+```
+Selected:
+[x] Web        (if chosen)
+[x] Desktop    (if chosen)
+[x] Mobile     (if chosen — iOS and/or Android will be clarified next)
+```
 
-1. **LANG=en:** "Build an Android app? (y/n)"
-   **LANG=ja:** "Android アプリを作りますか？ (y/n)"
-2. If y — **LANG=en:** "Which Android implementation? (`kotlin` = Kotlin + Jetpack Compose native / `expo` = React Native Expo / `flutter` = Flutter)"
-   If y — **LANG=ja:** "Android の実装方法を選んでください。(`kotlin` = Kotlin + Jetpack Compose ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
+Then proceed with **only the follow-up questions for selected platforms**, in the order: Web → Desktop → Mobile. Skip any platform not selected entirely.
 
-#### 2.4 Desktop
+#### 2.1 Web framework (only when web was selected)
 
-1. **LANG=en:** "Build a desktop app? (y/n)"
-   **LANG=ja:** "デスクトップアプリを作りますか？ (y/n)"
-2. If y — **LANG=en:** "Which desktop framework? (`tauri` = Rust shell + web frontend, lightweight / `electron` = Node.js shell + web frontend, rich ecosystem)"
-   If y — **LANG=ja:** "デスクトップフレームワークを選んでください。(`tauri` = Rust シェル + Web フロントエンド、軽量 / `electron` = Node.js シェル + Web フロントエンド、エコシステム豊富)"
-3. If y — **LANG=en:** "Which OS targets? (macOS / Windows / Linux — multiple allowed, default: all)"
-   If y — **LANG=ja:** "対象 OS を選んでください。(macOS / Windows / Linux — 複数選択可、デフォルト: すべて)"
+**LANG=en:** "Which web framework? (`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
+
+**LANG=ja:** "Web フレームワークを選んでください。(`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
+
+#### 2.2 Desktop framework + OS (only when desktop was selected)
+
+**LANG=en step 1:** "Which desktop framework? (`tauri` = Rust shell + web frontend, lightweight / `electron` = Node.js shell + web frontend, rich ecosystem)"
+
+**LANG=ja step 1:** "デスクトップフレームワークを選んでください。(`tauri` = Rust シェル + Web フロントエンド、軽量 / `electron` = Node.js シェル + Web フロントエンド、エコシステム豊富)"
+
+**LANG=en step 2:** "Which OS targets? Select one or more (comma-separated): `macos`, `windows`, `linux` (default: all)"
+
+**LANG=ja step 2:** "対象 OS を選んでください（カンマ区切り）: `macos`, `windows`, `linux`（デフォルト: すべて）"
+
+#### 2.3 Mobile: iOS / Android split (only when mobile was selected)
+
+**LANG=en step 1:** "Which mobile platforms? Select one or more (comma-separated): `ios`, `android`"
+
+**LANG=ja step 1:** "対応するモバイルプラットフォームを選んでください（カンマ区切り）: `ios`, `android`"
+
+**LANG=en step 2 (only when ios selected):** "Which iOS implementation? (`swift` = Swift + SwiftUI native / `expo` = React Native Expo / `flutter` = Flutter)"
+
+**LANG=ja step 2 (only when ios selected):** "iOS の実装方法を選んでください。(`swift` = Swift + SwiftUI ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
+
+**LANG=en step 3 (only when android selected):** "Which Android implementation? (`kotlin` = Kotlin + Jetpack Compose native / `expo` = React Native Expo / `flutter` = Flutter)"
+
+**LANG=ja step 3 (only when android selected):** "Android の実装方法を選んでください。(`kotlin` = Kotlin + Jetpack Compose ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
 
 #### Validation
 
-- At least one platform must be y (re-ask if all are n)
-- If both iOS and Android are y and both choose `expo` or both choose `flutter` → **inform the user they share a single codebase** (one directory under `mobile/`)
+- At least one platform must be selected (re-ask if none)
+- If both iOS and Android are selected and both choose `expo` or both choose `flutter` → **inform the user they share a single codebase** (one directory under `mobile/`)
 - iOS `swift` + Android `kotlin` combination → separate codebases (`ios/` and `android/`)
 - iOS and Android choosing different cross-platform frameworks (e.g. `expo` vs `flutter`) → warn about the inconsistency and suggest aligning to one
 
@@ -796,7 +811,7 @@ Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually crea
 
 ## Features
 
-<MVP feature list from spec/01-what.md as bullet points, each with `[ ] not implemented / [x] done` checkbox>
+<v1 feature list from spec/01-what.md as bullet points, each with `[ ] not implemented / [x] done` checkbox>
 
 ## Tech stack
 
@@ -882,7 +897,7 @@ The harness auto-firing skills enforce:
 
 ## Current feature status
 
-<Initialize the MVP feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
+<Initialize the v1 feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
 ```
 
 After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree. Write the commit message in `$LANG`:
