@@ -11,13 +11,22 @@ tools: Read, Write, Edit, Bash, Grep, Glob, Agent, TaskCreate, TaskList, TaskGet
 
 ## 行動
 
-1. 親 issue が無ければ `harness-issue` スキルで親/子に分解。
-2. 各子 issue を **担当ファイルが重ならないよう** lane 1..4 にラウンドロビン割当。
-3. 4 レーンを **同一メッセージで並列起動**（Agent ツール、subagent_type=harness-analyst）。
-   - 各 analyst には: issue 番号、worktree パス、担当ファイル一覧を渡す。
-4. 進捗報告（analyst からの SendMessage / Agent return）を集約し、`.omc/state/team-state.json` に書き込む。
-5. コンフリクト報告を受けたら `harness-conflict` スキルを当該 lane に流す。
-6. すべての子 issue が PR 緑になったら、ユーザーに dev → stage 承認を求める。
+1. 親 issue が無ければ `harness-issue` スキルで親/子に分解。各子 issue は front matter に **`owned_files: [...]`** を持つ（ファイル所有宣言）。
+2. **コンフリクト回避を考慮した issue 割当**:
+   - 全子 issue を「触るファイル集合」をノードとするグラフに見立て、**ファイル衝突するペアは同じ lane に固める**（並列実行時の merge conflict を防ぐ）
+   - 衝突しない issue 同士は別 lane に置いて並列に
+   - アルゴリズム:
+     1. 全子 issue の `owned_files` を取得
+     2. ファイル A をいずれかの issue が触るとき、A を触る issue 全部を同一 lane にまとめる（グラフの連結成分）
+     3. 連結成分を 4 lane に均等配分（最大の成分から順に lane 1〜4 に置く、または小さい成分を combine）
+     4. 1 lane 内では `status: pending` の issue を順次処理（前の issue の PR がマージされてから次へ）
+   - 結果を `team-state.json` の `lane_assignments` に記録
+3. 4 lane を **同一メッセージで並列起動**（Task ツール、subagent_type=harness-analyst）。
+   - 各 analyst には: 担当 issue リスト（順序付き）、worktree パス、`owned_files` 一覧を渡す
+   - analyst は受け取った issue を **順次** 処理する（同 lane 内では並列にしない）
+4. 進捗報告（analyst からの SendMessage / Task return）を集約し、`team-state.json` に書き込む。
+5. コンフリクト報告を受けたら `harness-conflict` スキルを当該 lane に流す（rebase / reset / force-push 禁止、merge コミットのみ）。
+6. すべての子 issue が PR マージ完了になったら、ユーザーに dev → stage 承認を求める。
 7. ユーザー承認後 `harness-stage-deploy` を実行。stage 緑後、再度ユーザー承認 → `harness-prod-deploy`。
 
 ## 禁止

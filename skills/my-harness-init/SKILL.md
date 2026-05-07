@@ -494,6 +494,120 @@ bootstrap が dev worktree に scaffold を作り初期コミット → `docs/sp
 ~/my-harness-generator/scripts/codex-ask.sh --clear-active
 ```
 
+#### 6.5 dev/README.md と dev/CLAUDE.md を初回生成
+
+`dev/docs/spec/*.md` と `.my-harness/.config` を Read で読み、以下 2 ファイルを Claude が **手動で作成**（spec の内容を反映）:
+
+##### `<root>/dev/README.md` の構造
+
+```markdown
+# <PROJECT_NAME>
+
+<spec/01-what.md の「一言で何作る」を 1〜2 行で>
+
+## 機能
+
+<spec/01-what.md の MVP 機能リストを箇条書き、各項目は `[ ] 未実装 / [x] 実装済` のチェックボックス付き>
+
+## 技術スタック
+
+- フロント: <USE_WEB なら WEB_KIND>, <USE_IOS なら IOS_KIND>, ...
+- バックエンド: <USE_BACKEND なら BACKEND_KIND>
+- DB: <USE_DB なら DB_KIND>
+- 認証: <AUTH_KIND>
+- E2E: <E2E_SCOPE>
+
+## セットアップ
+
+\`\`\`bash
+cd dev
+direnv allow
+nix develop --command pnpm install
+nix develop --command pnpm exec husky
+\`\`\`
+
+## 開発フロー
+
+ハーネス（my-harness-generator）が orchestrate:
+- `/harness-team-lead` — 4 lane 並列で全 issue 一気に進める
+- `/harness-new-feature <issue#>` — 個別 issue 着手
+- `/harness-resume` — 中断からの再開
+
+## 環境変数
+
+<未定。実装が進むにつれ engineer が追記>
+
+## ライセンス
+
+<未定>
+```
+
+##### `<root>/dev/CLAUDE.md` の構造
+
+```markdown
+# <PROJECT_NAME> — Claude Code への指示
+
+このプロジェクトは my-harness-generator で生成されたハーネス上で動作する。
+
+## プロジェクトの目的
+
+<spec/01-what.md から>
+
+## アーキテクチャ
+
+- 4 層 Clean Architecture (domain / application / infrastructure / interfaces)
+- DB: <DB_KIND> + Drizzle ORM (USE_DB=yes のとき)
+- 認証: <AUTH_KIND>
+
+## データモデル
+
+<spec/04-data-model.md の mermaid ER 図をコピー（DB ありの時のみ）>
+
+## 主要画面 / API
+
+<spec/05-visual.md の主要画面リストと、想定される API エンドポイント>
+
+## 規約
+
+ハーネスの auto-firing skill が以下を強制:
+- harness-tdd（t-wada / Kent Beck スタイル TDD）
+- harness-hono-clean-arch
+- harness-drizzle-rules（migrate-only）
+- harness-nix-pure
+- harness-design-rules（Lucide Icons のみ、AI 風禁止）
+- harness-jsdoc（全 export に JSDoc/TSDoc 必須）
+- harness-git-discipline（rebase / reset / force-push 禁止）
+- harness-no-hardcoded-secrets
+
+## エージェント分担（4 lane 並列実装）
+
+- team-lead: issue 割当（ファイル衝突回避）、進捗集約、user 承認のリレー
+- analyst: lane 内 orchestration、git add / commit / push / gh pr create
+- engineer: 実装のみ（git 操作禁止、README/CLAUDE.md も実装と同時に更新）
+- e2e-reviewer: Playwright/Maestro 実行
+- reviewer: 規約 + docs 整合性レビュー
+
+## 主要ファイル
+
+<未記入。engineer が機能実装のたびに追記する>
+
+## 現在の機能ステータス
+
+<spec/01-what.md の MVP 機能リストを `pending` で初期化、issue 完了に応じて `done` に更新>
+```
+
+これら 2 ファイルを Claude が `dev/` に書き出した後、dev worktree で git add → commit する:
+
+```bash
+cd "<root>/dev"
+git add README.md CLAUDE.md
+git -c user.name="harness-bot" -c user.email="harness@local" \
+  commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
+```
+
+以降、機能追加のたびに engineer がこれらを更新し、reviewer が整合性を確認する。
+
+
 #### 6.5 init-state.json 更新 + 停止 + dev 移動案内（重要）
 
 issue / task 生成が完了したら、`<root>/.my-harness/init-state.json` を **`current_phase: "completed"`** に更新する:
