@@ -1,46 +1,46 @@
 ---
 name: harness-sync-features
-description: 全 feature worktree に dev の最新コミットを取り込む（hotfix 逆流後の同期、定期同期）。`sync-features-with-dev.sh` をラップ。「dev を取り込む」「sync」「back-merge」等の文脈で発火。
+description: Pulls the latest dev commits into all feature worktrees (post-hotfix back-merge sync, periodic sync). Wraps `sync-features-with-dev.sh`. Fires when the user says "pull in dev", "sync", "back-merge", or similar.
 ---
 
 # harness-sync-features
 
-`<root>/lanes/feat-*` 配下の **全 feature worktree** に対し、`origin/dev` を `git merge --no-ff` で取り込む。hotfix 逆流後や定期メンテで実行。
+Merges `origin/dev` into **all feature worktrees** under `<root>/lanes/feat-*` using `git merge --no-ff`. Run after hotfix back-merges or during periodic maintenance.
 
-## 呼び出し
+## Invocation
 
 ```bash
 cd <root>
 bash .my-harness/scripts/sync-features-with-dev.sh
 ```
 
-## 動作
+## What it does
 
 1. `git fetch origin dev`
-2. `lanes/feat-*` を順に走査
-3. 各 worktree で `git merge --no-ff origin/dev -m "merge: sync with origin/dev (no rebase)"`
-4. 衝突があれば warning で報告（自動解消はしない、engineer が `harness-resolve-conflict` で解く）
+2. Iterates through each `lanes/feat-*` directory
+3. Runs `git merge --no-ff origin/dev -m "merge: sync with origin/dev (no rebase)"` in each worktree
+4. Reports conflicts as warnings (does not auto-resolve — engineers handle conflicts with `harness-resolve-conflict`)
 
-## 使うタイミング
+## When to run
 
-- hotfix が main にマージされ、main → stage → dev に逆流された **直後**（dev に新コミットが入ったので）
-- 長期作業中の feature ブランチが dev から離れすぎたとき（週 1 程度）
-- リリース（dev → stage）の前
+- Immediately **after** a hotfix has merged to main and been back-merged through main → stage → dev (dev now has new commits)
+- When a long-running feature branch has drifted far from dev (roughly weekly)
+- Before a release (dev → stage)
 
-## 衝突発生時の手順
+## Steps when a conflict occurs
 
-スクリプトは衝突時 exit code 2 を返す:
+The script returns exit code 2 on conflict:
 ```bash
 bash .my-harness/scripts/sync-features-with-dev.sh
 if [ $? -eq 2 ]; then
-  echo "衝突したレーンがある。各レーンで harness-resolve-conflict を使って解消"
+  echo "One or more lanes have conflicts. Use harness-resolve-conflict in each affected lane."
 fi
 ```
 
-衝突したレーンに移動 → `harness-resolve-conflict` skill を使う。
+Move into the conflicting lane → use the `harness-resolve-conflict` skill.
 
-## 関連
+## Related
 
-- コンフリクト解消: `harness-resolve-conflict`
-- hotfix back-merge: `harness-new-hotfix`
-- Git 規律: `harness-git-discipline`
+- Conflict resolution: `harness-resolve-conflict`
+- Hotfix back-merge: `harness-new-hotfix`
+- Git discipline: `harness-git-discipline`

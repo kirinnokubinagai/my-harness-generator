@@ -1,68 +1,112 @@
 ---
 name: my-harness-init
-description: 新規プロジェクトのインタビュー → 仕様書生成 → ハーネス自動構築までを一気通貫で行う。Claude が最小限の直接質問だけ進め、必要なら Codex に第二意見を求め、ロゴ・UI モックを Codex 経由で gpt-image-2 生成し、最後に bootstrap.sh を非対話モードで実行してプロジェクトを起動する。
+description: Runs the full new-project pipeline end-to-end: interview → spec generation → harness auto-setup. Claude asks only the minimum direct questions, optionally consults Codex for a second opinion, generates logos and UI mocks via Codex using gpt-image-2, then runs bootstrap.sh in non-interactive mode to launch the project. Fires when the user runs /my-harness-init or wants to start a new project from scratch.
 ---
 
 # /my-harness-init
 
-「何を作るか曖昧」な状態から **システム構築に必要な情報だけ** を対話で確定し、その仕様で **そのままハーネスを構築** するスラッシュコマンド。
+## Installation & Quick start
 
-## 設計原則
+### Prerequisites
 
-- **聞くのはシステム判断に直結する情報のみ**。マーケティング・ブランド戦略・将来ビジョン等は聞かない。
-- **質問は具体的に**。抽象的な質問（「ブランドの世界観」「トーン」「デバイス中心」等）を Claude が improvise すると会話が無駄に長くなるので、SKILL.md で質問文を固定する。
-- **1 ターン 1 問**。まとめ聞き禁止。
-- **答えやすい選択肢を提示**。自由記述より y/n や列挙肢を優先。
+- **Claude Code** (latest) — the agent that runs this plugin
+- **git**, **bash**, **jq** — standard Unix tools, must be on `PATH`
+- **direnv** — for automatic Nix shell activation (`brew install direnv` or `nix profile install nixpkgs#direnv`)
+- **Optional:** Codex CLI for AI-assisted design and second-opinion reviews:
+  ```bash
+  npm install -g @openai/codex
+  codex login
+  ```
 
-## このスキルの実行主体
+### Install the plugin
 
-このスキルは **Claude（あなた）** が実行する手順書。Codex は外部の補助 LLM として、**Claude が Bash で `codex-ask.sh` を起動して** 質問を投げ、回答を読み取って取り込む形で連携する。Codex は Claude の代わりにユーザーと直接対話しない。
+Inside Claude Code, run:
 
-## 必須前提
+```
+/plugin marketplace add https://github.com/kirinnokubinagai/my-harness-generator
+/plugin install my-harness@my-harness-generator
+```
 
-- `~/my-harness-generator/scripts/bootstrap.sh` が存在する
-- Codex 連携時のみ: `~/my-harness-generator/scripts/codex-ask.sh` と `check-codex-auth.sh` が存在し実行権限あり
+### Activate the new skills
 
-## 永続成果物の配置（プロジェクトルート配下）
+Restart Claude Code (or run `/clear` in the current session) so that the newly registered skills and hooks are loaded.
 
-| ディレクトリ | 用途 | git 管理 |
-|--------------|------|----------|
-| `<root>/dev/docs/spec/` | 仕様書 | あり |
-| `<root>/dev/docs/design/` | ロゴ / OG 画像 / UI モック | あり |
-| `<root>/dev/docs/talk/` | 会話ログ（マスク済） | あり |
-| `<root>/dev/docs/task/` | タスク（USE_GITHUB_ISSUES=no のとき） | あり |
-| `<root>/.my-harness/` | 内部作業（codex session id 等） | gitignore 除外 |
+### Start a new project
 
-## 機密マスキング（厳守）
+```
+/my-harness-init
+```
 
-ユーザーの会話に以下が含まれたらファイル書き出し前に必ずマスク:
+Claude will guide you through the interview phase one question at a time. If `.my-harness/init-state.json` already exists in the current directory (or a parent), the skill auto-detects it and offers to resume from where you left off.
 
-| 種類 | マスク後 |
-|------|----------|
-| API キー / トークン（`sk-...`, `sk-ant-...`, `ghp_...`, `xoxb-...` 等） | `<MASKED:api-key>` |
-| AWS アクセスキー（`AKIA...`） | `<MASKED:aws-key>` |
-| パスワード | `<MASKED:password>` |
-| メールアドレス（個人特定可能なもの） | `<MASKED:email>` |
-| URL に埋め込まれた認証情報（`https://user:pass@...`） | `<MASKED:url-cred>` |
-| 電話番号 | `<MASKED:phone>` |
-| クレジットカード番号 | `<MASKED:cc>` |
-| PEM 形式秘密鍵 | `<MASKED:private-key>` |
-| JWT 三段ドット文字列 | `<MASKED:jwt>` |
+### Keeping the plugin up to date
 
-`docs/talk/` `docs/spec/` への書き込み前に適用。判断に迷うときはユーザーに確認。git pre-commit の `gitleaks` + `check-forbidden-patterns.sh` でも二重に弾く。
+```
+/plugin marketplace update
+```
 
-## フロー（5 フェーズ）
+> **Never `git clone` this repository to use the plugin.** Cloning freezes you to a single revision and bypasses the plugin update mechanism. Always install and update through the Claude Code plugin commands above.
 
-各フェーズで:
-1. ユーザーに **下記の固定質問だけ** を 1 ターン 1 問
-2. 回答を **マスク後** で `docs/spec/<phase>.md` と `docs/talk/<phase>.md` に追記
-3. USE_CODEX=yes かつフェーズ末尾なら Codex consult を 1 回だけ流す（必須ではない）
-4. フェーズ末でユーザーに「次へ進む？」を確認
-5. **`<root>/.my-harness/init-state.json` を更新**（中断・再開のため）
+---
 
-### init-state.json の管理（中断・再開用）
+A slash command that starts from "I have a vague idea of what to build" and, through conversation, locks in **only the information needed to set up the system**, then **immediately builds the harness** from that spec.
 
-各フェーズの完了時に必ず以下を書き出す。`current_phase` は **次に進む** フェーズ名、`phases_completed` は **完了済み** フェーズ名のリスト:
+## Design principles
+
+- **Only ask about things that directly determine system decisions.** Marketing, brand strategy, and long-term vision are off-limits.
+- **Keep questions concrete.** If Claude improvises abstract questions ("brand world-view", "tone", "device focus", etc.), conversations balloon unnecessarily. The SKILL.md fixes the exact question wording.
+- **One question per turn.** Batch questions are prohibited.
+- **Offer easy-to-answer choices.** Prefer y/n or enumerated options over free-text answers.
+
+## Who executes this skill
+
+This skill is a procedure that **Claude (you)** executes. Codex is an external supplementary LLM — Claude calls it by **launching `codex-ask.sh` via Bash**, reads the response, and incorporates it. Codex does not interact with the user directly on Claude's behalf.
+
+## Prerequisites
+
+- `~/my-harness-generator/scripts/bootstrap.sh` exists
+- For Codex integration only: `~/my-harness-generator/scripts/codex-ask.sh` and `check-codex-auth.sh` exist and are executable
+
+## Persistent artifact layout (under the project root)
+
+| Directory | Purpose | Git-tracked |
+|-----------|---------|-------------|
+| `<root>/dev/docs/spec/` | Spec documents | Yes |
+| `<root>/dev/docs/design/` | Logos / OG images / UI mocks | Yes |
+| `<root>/dev/docs/talk/` | Conversation logs (masked) | Yes |
+| `<root>/dev/docs/task/` | Tasks (when USE_GITHUB_ISSUES=no) | Yes |
+| `<root>/.my-harness/` | Internal work files (Codex session IDs, etc.) | Excluded via gitignore |
+
+## Secret masking (strictly enforced)
+
+If any of the following appear in user conversation, they must be masked before writing to any file:
+
+| Type | Masked as |
+|------|-----------|
+| API keys / tokens (`sk-...`, `sk-ant-...`, `ghp_...`, `xoxb-...`, etc.) | `<MASKED:api-key>` |
+| AWS access keys (`AKIA...`) | `<MASKED:aws-key>` |
+| Passwords | `<MASKED:password>` |
+| Email addresses (personally identifiable) | `<MASKED:email>` |
+| Credentials embedded in URLs (`https://user:pass@...`) | `<MASKED:url-cred>` |
+| Phone numbers | `<MASKED:phone>` |
+| Credit card numbers | `<MASKED:cc>` |
+| PEM private keys | `<MASKED:private-key>` |
+| JWT three-part dot strings | `<MASKED:jwt>` |
+
+Apply before writing to `docs/talk/` or `docs/spec/`. When in doubt, confirm with the user. The git pre-commit hook with `gitleaks` + `check-forbidden-patterns.sh` provides a second layer of defense.
+
+## Flow (5 phases)
+
+For each phase:
+1. Ask the user **only the fixed questions below**, one per turn
+2. Append the response (after masking) to both `docs/spec/<phase>.md` and `docs/talk/<phase>.md`
+3. If USE_CODEX=yes and at the end of the phase, run one Codex consult (optional, not mandatory)
+4. At the end of the phase, confirm with the user: "Ready to continue?"
+5. **Update `<root>/.my-harness/init-state.json`** (for pause/resume support)
+
+### Managing init-state.json (for pause/resume)
+
+At the completion of each phase, always write the following. `current_phase` is the **next** phase name to advance to; `phases_completed` is the list of **already finished** phase names:
 
 ```bash
 # 例: フェーズ 2 (platform) 完了時 → 次は backend
@@ -84,25 +128,25 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 EOF
 ```
 
-フェーズ名（順序）:
+Phase names (in order):
 - `setup` → `what` → `platform` → `backend` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
 
-`data-model` は USE_DB=no のときスキップ。bootstrap は bootstrap.sh が自動で書き出す（`current_phase: "bootstrap-completed"`）。
+`data-model` is skipped when USE_DB=no. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
 
-### 中断・再開対応
+### Pause/resume support
 
-ユーザーが「ちょっと中断」「やめる」等を言ったら:
-- 現在のフェーズ末で `init-state.json` を最新化、保存先と再開コマンドを案内、停止
+When the user says "pause for a bit", "stop", or similar:
+- Update `init-state.json` to the latest state at the current phase boundary, tell the user where it was saved and what command to resume with, then stop.
 
-ユーザーが再開してきたら（再度 `/my-harness-init` を実行など）:
-- `<root>/.my-harness/init-state.json` を Read で読み、`current_phase` を確認
-- そのフェーズの最初の質問から再開（既存の docs/spec / docs/talk は引き継ぐ）
+When the user comes back (e.g. runs `/my-harness-init` again):
+- Read `<root>/.my-harness/init-state.json` and check `current_phase`
+- Resume from the first question of that phase (existing docs/spec and docs/talk are carried forward)
 
 ---
 
-### 起動時: init-state.json の自動検出
+### At startup: auto-detecting init-state.json
 
-`/my-harness-init` が呼ばれたら、**最初に** ユーザーの cwd または 親ディレクトリに `.my-harness/init-state.json` が存在しないか確認する:
+When `/my-harness-init` is called, **first** check whether `.my-harness/init-state.json` exists in the user's cwd or any parent directory:
 
 ```bash
 find_existing_state() {
@@ -118,43 +162,43 @@ find_existing_state() {
 }
 ```
 
-見つかった場合:
-1. `current_phase` を Read で読む
-2. ユーザーに「前回 `<current_phase>` フェーズで中断されています。続きから再開しますか？ (y/n)」
-3. y → 該当フェーズの最初の質問から再開（既存の `docs/spec/` `docs/talk/` を継続）
-4. n → ユーザーに確認（破棄して新規 init するか、別ディレクトリ指定するか）
+If found:
+1. Read `current_phase`
+2. Ask the user: "You were last at the `<current_phase>` phase. Resume from where you left off? (y/n)"
+3. y → Resume from the first question of that phase (continue using existing `docs/spec/` and `docs/talk/`)
+4. n → Confirm with the user (discard and start fresh, or specify a different directory)
 
-見つからない場合: 新規 init として下記 Setup フェーズへ進む。
+If not found: proceed to the Setup phase below as a new init.
 
 ---
 
-### Setup フェーズ（起動 + 各種選択、新規 init 時のみ）
+### Setup phase (startup + selections, new init only)
 
-以下を **1 問ずつ** 確認する:
+Confirm each of the following **one question at a time**:
 
-1. プロジェクトのルートディレクトリ（既定: `~/<project-name>`）
-2. プロジェクト名（slug、英小文字 + ハイフン）
-3. Codex 連携を使う？（y / n）
-   - y: 各フェーズ末で Codex に第二意見、デザインフェーズで画像生成
-   - n: Claude 単独で進める
-4. y のとき: Codex ログイン状態確認:
+1. Project root directory (default: `~/<project-name>`)
+2. Project name (slug: lowercase letters + hyphens)
+3. Use Codex integration? (y / n)
+   - y: Codex consulted at the end of each phase; image generation during the visual phase
+   - n: Claude proceeds alone
+4. If y: Verify Codex login status:
    ```bash
    bash ~/my-harness-generator/scripts/check-codex-auth.sh
    ```
-   - `not-installed` → `npm i -g @openai/codex` を案内、再選択
-   - `not-logged-in` → `codex login` を実行してもらう。3 回失敗で自動 n
-   - `logged-in` → 続行
-5. y のとき: session 名（既定: `my-harness-init`）
-6. **y のとき: subagent をどこまで Codex に任せる？**（1 ターン 1 問、既定はすべて y）
-   - **engineer（実装）を Codex に任せる？** y/n（既定: y、Codex はコード生成が得意）
-   - **e2e-reviewer を Codex に任せる？** y/n（既定: y、Codex は CLI でテスト実行できる）
-   - **reviewer（規約レビュー）を Codex に任せる？** y/n（既定: y、Codex は code-review が得意）
-7. タスク管理方式: GitHub Issue or ローカル `docs/task/`
-8. グローバル `~/.claude/CLAUDE.md` 引き継ぎ y/n
+   - `not-installed` → Guide user to `npm i -g @openai/codex`; re-ask the question
+   - `not-logged-in` → Ask user to run `codex login`. After 3 failures, automatically set to n
+   - `logged-in` → Continue
+5. If y: Session name (default: `my-harness-init`)
+6. **If y: Which subagents should be delegated to Codex?** (one question per turn, default is all y)
+   - **Delegate engineer (implementation) to Codex?** y/n (default: y — Codex is strong at code generation)
+   - **Delegate e2e-reviewer to Codex?** y/n (default: y — Codex can run tests from the CLI)
+   - **Delegate reviewer (convention review) to Codex?** y/n (default: y — Codex is strong at code review)
+7. Task management: GitHub Issues or local `docs/task/`
+8. Inherit global `~/.claude/CLAUDE.md`? y/n
 
-USE_CODEX=no のとき、上記 6 の 3 つは自動で `no`（master switch 優先）。
+When USE_CODEX=no, all three options in step 6 are automatically set to `no` (master switch takes precedence).
 
-回答を保存:
+Save the answers:
 
 ```bash
 mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/dev/docs/talk <root>/dev/docs/task
@@ -163,222 +207,222 @@ cat > <root>/.my-harness/.config <<EOF
 PROJECT_NAME=<slug>
 ROOT=<root>
 USE_CODEX=<yes|no>
-CODEX_SESSION=<session>            # USE_CODEX=yes のときのみ
-USE_CODEX_ENGINEER=<yes|no>        # USE_CODEX=yes のときのみ意味あり、no なら Claude が実装
-USE_CODEX_E2E_REVIEWER=<yes|no>    # USE_CODEX=yes のときのみ意味あり、no なら Claude が E2E 実行
-USE_CODEX_REVIEWER=<yes|no>        # USE_CODEX=yes のときのみ意味あり、no なら Claude が規約レビュー
-ON_CODEX_AUTH_FAIL=pause           # 既定 pause: 認証/サブスク切れ時にユーザー通知 + 待機。fail なら即失敗
+CODEX_SESSION=<session>            # Only when USE_CODEX=yes
+USE_CODEX_ENGINEER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude implements
+USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; if no, Claude runs E2E
+USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
+ON_CODEX_AUTH_FAIL=pause           # Default pause: notify user and wait on auth/subscription failure; fail = immediate error
 USE_GITHUB_ISSUES=<yes|no>
 USE_GLOBAL_CLAUDE=<yes|no>
 EOF
 ```
 
-USE_CODEX=yes のとき active session pointer を登録:
+When USE_CODEX=yes, register the active session pointer:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --set-active <root>
 ```
 
 ---
 
-### フェーズ 1: 何を作るか
+### Phase 1: What to build
 
-**固定質問（1 ターン 1 問、絶対に improvise しない）**:
+**Fixed questions (one per turn — never improvise)**:
 
-1. **「一言で何を作りますか？」**（例: タスク管理アプリ / 在庫管理 SaaS / ブログサイト / 社内ツール）
-2. **「MVP に必要な機能を 3〜7 個リストアップしてください」**（番号付き）
+1. **"In one sentence, what are you building?"** (e.g. task management app / inventory SaaS / blog site / internal tool)
+2. **"List 3–7 features required for the MVP"** (numbered)
 
-これだけ。「誰が使うか / ペルソナ / 既存サービスではダメな理由 / 5 年後の成功状態」等は **聞かない**。誰が使うかは、後続の Phase 3（認証）・Phase 5（印象）で直接的な選択肢として現れるため、抽象的に聞く意味がない。
+That's it. Do **not** ask "who uses it / personas / why existing services don't work / what success looks like in 5 years". Who uses it will surface naturally in Phase 3 (authentication) and Phase 5 (visual impression) as concrete choices — asking abstractly adds no value.
 
-保存先: `dev/docs/spec/01-what.md` / `dev/docs/talk/01-what.md`
+Save to: `dev/docs/spec/01-what.md` / `dev/docs/talk/01-what.md`
 
-USE_CODEX=yes なら末尾で Codex consult:
+If USE_CODEX=yes, run a Codex consult at the end:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase1.md \
-  "プロジェクト概要: <一言>。MVP 機能リスト: <列挙>。論理矛盾・曖昧さ・抜け漏れを指摘してください。"
+  "Project summary: <one sentence>. MVP feature list: <enumerated>. Point out any logical contradictions, ambiguities, or missing items."
 ```
 
 ---
 
-### フェーズ 2: プラットフォーム + フレームワーク
+### Phase 2: Platform + framework
 
-**ターゲットごとに 2 段階で訊く**: まず y/n、y のときフレームワーク選択。**1 ターン 1 問厳守、まとめ聞き禁止**。
+**Ask in two steps per target**: first y/n, then the framework choice if y. **Strictly one question per turn — no batch questions.**
 
 #### 2.1 Web
 
-1. **Web フロントエンド作る？** y/n
-2. y のとき: **どのフレームワーク？**（選択肢: `nextjs` / `tanstack`）
-   - `nextjs`: Next.js 16（App Router）
-   - `tanstack`: TanStack Start（SSR + TanStack Router）
+1. **Build a web frontend?** y/n
+2. If y: **Which framework?** (choices: `nextjs` / `tanstack`)
+   - `nextjs`: Next.js 16 (App Router)
+   - `tanstack`: TanStack Start (SSR + TanStack Router)
 
 #### 2.2 iOS
 
-1. **iOS アプリ作る？** y/n
-2. y のとき: **どの実装？**（選択肢: `swift` / `expo` / `flutter`）
-   - `swift`: Swift + SwiftUI ネイティブ
+1. **Build an iOS app?** y/n
+2. If y: **Which implementation?** (choices: `swift` / `expo` / `flutter`)
+   - `swift`: Swift + SwiftUI native
    - `expo`: React Native (Expo)
    - `flutter`: Flutter
 
 #### 2.3 Android
 
-1. **Android アプリ作る？** y/n
-2. y のとき: **どの実装？**（選択肢: `kotlin` / `expo` / `flutter`）
-   - `kotlin`: Kotlin + Jetpack Compose ネイティブ
+1. **Build an Android app?** y/n
+2. If y: **Which implementation?** (choices: `kotlin` / `expo` / `flutter`)
+   - `kotlin`: Kotlin + Jetpack Compose native
    - `expo`: React Native (Expo)
    - `flutter`: Flutter
 
 #### 2.4 Desktop
 
-1. **デスクトップアプリ作る？** y/n
-2. y のとき: **どのフレームワーク？**（選択肢: `tauri` / `electron`）
-   - `tauri`: Rust シェル + Web フロントエンド、軽量
-   - `electron`: Node.js シェル + Web フロントエンド、エコシステム豊富
-3. y のとき: **対応 OS は？**（macOS / Windows / Linux 複数選択可、既定: 全部）
+1. **Build a desktop app?** y/n
+2. If y: **Which framework?** (choices: `tauri` / `electron`)
+   - `tauri`: Rust shell + web frontend, lightweight
+   - `electron`: Node.js shell + web frontend, rich ecosystem
+3. If y: **Which OS targets?** (macOS / Windows / Linux, multiple selections allowed, default: all)
 
-#### バリデーション
+#### Validation
 
-- 最低 1 つのプラットフォームが y であること（全部 n なら聞き直し）
-- iOS と Android 両方 y で、`expo` または `flutter` を両方選んだ場合 → **同一 codebase で共通化される旨を案内**（`mobile/` ディレクトリに 1 つ）
-- iOS と Android で `swift` + `kotlin` の組み合わせ → 別 codebase（`ios/` と `android/`）
-- iOS と Android で `expo` と `flutter` のように違うクロスプラットフォーム → 不整合を警告し、片方に揃えるか提案
+- At least one platform must be y (re-ask if all are n)
+- If both iOS and Android are y and both choose `expo` or both choose `flutter` → **inform the user they share a single codebase** (one directory under `mobile/`)
+- iOS `swift` + Android `kotlin` combination → separate codebases (`ios/` and `android/`)
+- iOS and Android choosing different cross-platform frameworks (e.g. `expo` vs `flutter`) → warn about the inconsistency and suggest aligning to one
 
-保存先: `dev/docs/spec/02-platform.md` / `dev/docs/talk/02-platform.md`
+Save to: `dev/docs/spec/02-platform.md` / `dev/docs/talk/02-platform.md`
 
-`.my-harness/.config` に追記:
+Append to `.my-harness/.config`:
 ```bash
 USE_WEB=<yes|no>
-WEB_KIND=<nextjs|tanstack>          # USE_WEB=yes のときのみ
+WEB_KIND=<nextjs|tanstack>          # Only when USE_WEB=yes
 USE_IOS=<yes|no>
-IOS_KIND=<swift|expo|flutter>       # USE_IOS=yes のときのみ
+IOS_KIND=<swift|expo|flutter>       # Only when USE_IOS=yes
 USE_ANDROID=<yes|no>
-ANDROID_KIND=<kotlin|expo|flutter>  # USE_ANDROID=yes のときのみ
+ANDROID_KIND=<kotlin|expo|flutter>  # Only when USE_ANDROID=yes
 USE_DESKTOP=<yes|no>
-DESKTOP_KIND=<tauri|electron>       # USE_DESKTOP=yes のときのみ
-DESKTOP_OS=macos,windows,linux      # USE_DESKTOP=yes のときのみ
+DESKTOP_KIND=<tauri|electron>       # Only when USE_DESKTOP=yes
+DESKTOP_OS=macos,windows,linux      # Only when USE_DESKTOP=yes
 ```
 
-**重要（バグ防止）**: フレームワーク選択は **そのプラットフォームの y/n が yes のときに限り** 訊く。1 つのフレームワーク選択が他のプラットフォームに波及することは絶対にない（例: DESKTOP_KIND=tauri を選んだからといって IOS_KIND が tauri になることはない）。
+**Important (bug prevention)**: A framework choice is **only asked when that platform's y/n is yes**. A choice for one platform must never bleed into another (e.g. choosing DESKTOP_KIND=tauri does not set IOS_KIND to anything).
 
 ---
 
-### フェーズ 3: バックエンド構成
+### Phase 3: Backend configuration
 
-**固定質問（1 ターン 1 問）**:
+**Fixed questions (one per turn)**:
 
-1. **バックエンド作る？** y/n（純粋なフロントエンドのみ・サーバーレスで動作するなら no も可）
-2. y のとき: **どの言語/フレームワーク？**（選択肢: `hono` / `gin` / `rust`）
-   - `hono`: TypeScript + Hono on Cloudflare Workers（軽量・エッジ）
-   - `gin`: Go + Gin（高パフォーマンス・標準的）
-   - `rust`: Rust + axum（型安全・最高速）
-3. **DB 必要？** y/n
-4. y のとき: **どの DB？**（選択肢: `d1` / `postgres` / `mysql` / `sqlite`）
-   - 推奨: `hono` バックエンドなら `d1`、`gin` / `rust` バックエンドなら `postgres`
-5. **メール送信必要？** y/n（y → Resend、パスワードリセット等）
-6. **認証どこまで必要？**（選択肢: `none` / `password` / `oauth`）
-7. **E2E テストどこまで？**（選択肢: `web` / `mobile` / `both` / `none`）
-   - `web` → Playwright、`mobile` → Maestro、`both` → 両方、`none` → なし
-8. **CI で Claude Code Action 使う？** y/n（PR レビュー自動化）
-9. y のとき: **認証方式**（`api` / `oauth`）
+1. **Build a backend?** y/n (frontend-only or serverless-only projects can answer no)
+2. If y: **Which language/framework?** (choices: `hono` / `gin` / `rust`)
+   - `hono`: TypeScript + Hono on Cloudflare Workers (lightweight, edge)
+   - `gin`: Go + Gin (high performance, conventional)
+   - `rust`: Rust + axum (type-safe, maximum speed)
+3. **Need a database?** y/n
+4. If y: **Which DB?** (choices: `d1` / `postgres` / `mysql` / `sqlite`)
+   - Recommendation: `d1` for `hono` backends; `postgres` for `gin` / `rust` backends
+5. **Need email sending?** y/n (y → Resend, for password reset, etc.)
+6. **How much authentication do you need?** (choices: `none` / `password` / `oauth`)
+7. **How much E2E testing?** (choices: `web` / `mobile` / `both` / `none`)
+   - `web` → Playwright, `mobile` → Maestro, `both` → both, `none` → none
+8. **Use Claude Code Action in CI?** y/n (automated PR review)
+9. If y: **Authentication method** (`api` / `oauth`)
 
-保存先: `dev/docs/spec/03-backend.md` / `dev/docs/talk/03-backend.md`
+Save to: `dev/docs/spec/03-backend.md` / `dev/docs/talk/03-backend.md`
 
-`.my-harness/.config` に追記:
+Append to `.my-harness/.config`:
 ```bash
 USE_BACKEND=<yes|no>
-BACKEND_KIND=<hono|gin|rust>        # USE_BACKEND=yes のときのみ
+BACKEND_KIND=<hono|gin|rust>        # Only when USE_BACKEND=yes
 USE_DB=<yes|no>
-DB_KIND=<d1|postgres|mysql|sqlite>  # USE_DB=yes のときのみ
+DB_KIND=<d1|postgres|mysql|sqlite>  # Only when USE_DB=yes
 USE_EMAIL=<yes|no>
 AUTH_KIND=<none|password|oauth>
 E2E_SCOPE=<web|mobile|both|none>
-USE_PLAYWRIGHT=<yes|no>             # E2E_SCOPE が web|both なら yes
-USE_MAESTRO=<yes|no>                # E2E_SCOPE が mobile|both なら yes
+USE_PLAYWRIGHT=<yes|no>             # yes when E2E_SCOPE is web|both
+USE_MAESTRO=<yes|no>                # yes when E2E_SCOPE is mobile|both
 USE_CLAUDE_ACTION=<yes|no>
-CLAUDE_AUTH=<api|oauth>             # USE_CLAUDE_ACTION=yes のときのみ
+CLAUDE_AUTH=<api|oauth>             # Only when USE_CLAUDE_ACTION=yes
 ```
 
-**重要（バグ防止）**: BACKEND_KIND の選択が他の変数に波及することは絶対にない（例: BACKEND_KIND=rust を選んだからといって DESKTOP_KIND が rust 系の何かになることはない、それぞれ独立）。
+**Important (bug prevention)**: A BACKEND_KIND choice must never bleed into other variables (e.g. choosing BACKEND_KIND=rust does not affect DESKTOP_KIND — they are fully independent).
 
-USE_CODEX=yes なら Codex に architect 観点で確認:
+If USE_CODEX=yes, verify from an architect perspective:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
   --out <root>/.my-harness/codex-phase3.md \
-  "プラットフォーム: <Web/iOS/Android/Desktop>。バックエンド: <DB/Email/Auth/E2E>。設計妥当性とトレードオフを指摘してください。"
+  "Platform: <Web/iOS/Android/Desktop>. Backend: <DB/Email/Auth/E2E>. Point out design validity and tradeoffs."
 ```
 
 ---
 
-### フェーズ 4: データモデル（USE_DB=yes のときのみ。no ならスキップ）
+### Phase 4: Data model (only when USE_DB=yes; skip if no)
 
-**固定質問**:
+**Fixed questions**:
 
-1. **エンティティを 3〜7 個リストアップしてください**（例: User / Task / Comment）
-2. **各エンティティの主要フィールドを箇条書きで**
-3. **エンティティ間の関係を mermaid ER 風に**（例: User 1—N Task）
-4. **PII を含むフィールドはどれですか？**（メアド・電話・住所等）
+1. **List 3–7 entities** (e.g. User / Task / Comment)
+2. **Bullet out the main fields for each entity**
+3. **Describe relationships between entities in mermaid ER style** (e.g. User 1—N Task)
+4. **Which fields contain PII?** (email, phone, address, etc.)
 
-Claude が回答から mermaid ER 図を組み立てて `dev/docs/spec/04-data-model.md` に保存。
+Claude assembles a mermaid ER diagram from the answers and saves it to `dev/docs/spec/04-data-model.md`.
 
-USE_CODEX=yes なら architect で正規化チェック。
+If USE_CODEX=yes, run an architect normalization check.
 
 ---
 
-### フェーズ 5: ビジュアル（ロゴ + 主要画面 UI モック）
+### Phase 5: Visual (logo + key screen UI mocks)
 
-**画像形式の絶対ルール**:
-- **PNG のみ**。SVG は **禁止**（生成する画像形式として）。透過 PNG（背景アルファ）は許可。
-- 解像度: ロゴ最低 1024×1024、UI モックは下記指定の解像度を厳守
-- 生成後は **必ず `open` コマンドで自動オープン**（macOS）してユーザーが即座に確認できるようにする
+**Absolute image format rules**:
+- **PNG only**. SVG is **prohibited** as a generated image format. Transparent PNG (alpha background) is allowed.
+- Resolution: logos at minimum 1024×1024; UI mocks at the resolution specified below
+- After generation, **always auto-open with the `open` command** (macOS) so the user can review immediately:
   - macOS: `open <path>`
   - Linux: `xdg-open <path>`
   - Windows: `start "" <path>`
-  - Claude は `uname` で OS を判定して適切なコマンドを選ぶ
+  - Claude detects the OS with `uname` and chooses the appropriate command
 
-**プロンプトの方針**: Codex のデザイナー能力を信頼し、**ざっくり依頼して任せる**。
+**Prompting strategy**: Trust Codex's designer capability — **give a high-level request and let it decide**.
 
-Claude が細かく specify せず、`--context dev/docs/spec/*.md` で仕様書を Codex に渡し、「ロゴ 3 案を PNG で生成して、保存先は ...」程度の短い依頼にする。色・形・レイアウトの判断は Codex 任せ。
+Claude does not over-specify. Pass the spec files via `--context dev/docs/spec/*.md` and keep the request brief: "Generate 3 logo concepts as PNG, save to ...". Color, shape, and layout decisions are left to Codex.
 
-絶対に書かない:
-- コード風指示（座標、ピクセル指定、CSS プロパティ、Tailwind クラス、SVG パス、HTML タグ）
-- 「こうしろ」と細部まで指定すること
+Never write:
+- Code-style instructions (coordinates, pixel values, CSS properties, Tailwind classes, SVG paths, HTML tags)
+- Over-specification of visual details
 
-書くこと:
-- 何を作るか（ロゴ / 画面名）と何案
-- PNG であること、保存パス、解像度（1024×1024 など）
-- Codex が context（spec ファイル）を読んでくれる前提
+Do write:
+- What to create (logo / screen name) and how many concepts
+- That the format is PNG, the save path, and the resolution (e.g. 1024×1024)
+- Assume Codex will read the context (spec files)
 
-**固定質問**（1 ターン 1 問、最小限）:
+**Fixed questions** (one per turn, minimal):
 
-1. **主色のヒントは？**（任意、例: `#14b8a6` / 「青系」 / 「未指定で OK」）
-2. **モックを作りたい画面を 3〜5 個挙げてください**（例: ログイン / ホーム / 詳細 / 設定）
+1. **Any color hint?** (optional, e.g. `#14b8a6` / "blue tones" / "no preference")
+2. **List 3–5 screens you want mocked** (e.g. Login / Home / Detail / Settings)
 
-これだけ。ロゴの方向性・印象・トーン等は **聞かない**。Codex が `dev/docs/spec/*.md` を読んで判断する。
+That's it. Do **not** ask about logo direction, impression, or tone. Codex reads `dev/docs/spec/*.md` and decides on its own.
 
-#### ロゴ生成（USE_CODEX=yes のとき）
+#### Logo generation (when USE_CODEX=yes)
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md \
   --out <root>/.my-harness/codex-logo.md \
-  "\$imagegen $PROJECT_NAME のロゴを 3 案生成してください。
+  "\$imagegen Please generate 3 logo concepts for $PROJECT_NAME.
 
-**必ず image_gen ツール（gpt-image-2）で PNG を直接生成してください**。HTML/CSS を書いて screenshot する方法、SVG を書く方法、コード経由は禁止です。
+**You must use the image_gen tool (gpt-image-2) to generate PNG files directly**. Writing HTML/CSS and taking a screenshot, writing SVG, or going through code are all prohibited.
 
-仕様書を読んでプロジェクトに合うデザインを Codex の判断で作ってください。<主色ヒントがあれば: 主色は <ヒント>>
+Read the spec files and design something that fits the project — your judgment. <If a color hint was given: Primary color: <hint>>
 
-仕様:
-- 形式: PNG（透過背景）
-- 解像度: 1024x1024 以上
-- 各案ごとに image_gen を別コール（合計 3 回）
+Specs:
+- Format: PNG (transparent background)
+- Resolution: 1024x1024 or larger
+- Call image_gen separately for each concept (3 calls total)
 
-保存先:
+Save to:
 - <root>/dev/docs/design/logo-1.png
 - <root>/dev/docs/design/logo-2.png
 - <root>/dev/docs/design/logo-3.png"
 ```
 
-生成完了後、3 案を即座にオープン（macOS の例）:
+After generation, immediately open all 3 concepts (macOS example):
 
 ```bash
 open <root>/dev/docs/design/logo-1.png \
@@ -386,166 +430,166 @@ open <root>/dev/docs/design/logo-1.png \
      <root>/dev/docs/design/logo-3.png
 ```
 
-Linux なら `xdg-open` を 3 回、Windows なら `start "" <path>` を 3 回。`uname -s` で分岐。
+On Linux use `xdg-open` 3 times; on Windows use `start "" <path>` 3 times. Branch with `uname -s`.
 
-**ファイル形式の検証**（生成直後に必ず実行）:
+**File format verification** (run immediately after generation):
 ```bash
 file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
 ```
-PNG 以外（SVG / JPEG など）が混じっていたら Codex に再生成依頼。SVG が生成された場合は削除して PNG で再生成。
+If anything other than PNG (SVG / JPEG, etc.) appears, ask Codex to regenerate. If SVG was generated, delete it and regenerate as PNG.
 
-ユーザーが 1 案選定 → `<root>/dev/docs/design/logo-final.png` に copy（symlink ではなく実体 copy、git 管理しやすくするため）。
+User selects one concept → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not a symlink, for clean git management).
 
-#### 対話的 refine（重要）
+#### Interactive refinement (important)
 
-ユーザーが「**案 1 をもっと青く**」「**案 2 のテキストを大きく**」のように修正指示を出したら、**同じ session を resume して codex-ask.sh を再度呼ぶ**:
+When the user gives refinement instructions like "**make concept 1 bluer**" or "**make the text in concept 2 larger**", **resume the same session and call codex-ask.sh again**:
 
 ```bash
-# 同じ session に対して追加プロンプト（codex-ask.sh は自動 resume）
+# Additional prompt to the same session (codex-ask.sh auto-resumes)
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --out <root>/.my-harness/codex-logo-r1.md \
-  "案 1 をもう少し青みを強く、シンプルに。同じパスに上書きで再生成してください。"
+  "Make concept 1 a bit more blue and simpler. Regenerate and overwrite the same path."
 ```
 
-ポイント:
-- **`--reset-session` を絶対に付けない**（session が破棄され前ターンが失われる）
-- **`--context` で spec を再添付しない**（既に session に context がある）
-- Codex は前ターンの「案 1 はこういう絵」を覚えているので、差分指示だけで refine できる
-- 生成後にまた `open` で確認
+Key points:
+- **Never add `--reset-session`** (that destroys the session and loses prior context)
+- **Never re-attach `--context` with the spec** (it is already in the session)
+- Codex remembers what concept 1 looked like, so a delta instruction is enough to refine
+- Open the result again with `open` after each generation
 
-これを N 回繰り返して **対話的に詰めていく**。最終 OK が出たら採用案を `logo-final.png` に copy。
+Repeat this N times to **iteratively refine**. Once the user approves, copy the chosen concept to `logo-final.png`.
 
-#### UI モック生成（主要画面ごと）
+#### UI mock generation (per screen)
 
-各画面について:
+For each screen:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
-  --out <root>/.my-harness/codex-mock-<画面>.md \
-  "\$imagegen $PROJECT_NAME の <画面名> 画面のモックを 2 案生成してください。
+  --out <root>/.my-harness/codex-mock-<screen>.md \
+  "\$imagegen Please generate 2 mock concepts for the <screen name> screen of $PROJECT_NAME.
 
-**必ず image_gen ツール（gpt-image-2）で PNG を直接生成してください**。
-- HTML/CSS を書いて Playwright/Puppeteer で screenshot する方法は **絶対に禁止**
-- SVG を書く方法、\`<canvas>\` でラスタライズする方法も **禁止**
-- コードを書くのではなく、**画像生成 AI に視覚的に描かせる**
+**You must use the image_gen tool (gpt-image-2) to generate PNG files directly.**
+- Writing HTML/CSS and using Playwright/Puppeteer to screenshot is **absolutely prohibited**
+- Writing SVG or rasterizing via \`<canvas>\` is also **prohibited**
+- Do not write code — **have the image generation AI draw it visually**
 
-仕様書とロゴ採用案を踏まえて、Codex の判断でデザインしてください。Lucide Icons 風のアイコン使用、AI 風グラデーション禁止。
+Read the spec and the chosen logo, then design using your own judgment. Use Lucide Icons-style icons; no AI-style gradients.
 
-仕様:
-- 形式: PNG
-- 解像度: <Web/Desktop なら 1280x800、モバイルなら 375x812>
-- 各案ごとに image_gen を別コール（合計 2 回）
+Specs:
+- Format: PNG
+- Resolution: <1280x800 for Web/Desktop; 375x812 for mobile>
+- Call image_gen separately for each concept (2 calls total)
 
-保存先:
-- <root>/dev/docs/design/mock-<画面>-1.png
-- <root>/dev/docs/design/mock-<画面>-2.png"
+Save to:
+- <root>/dev/docs/design/mock-<screen>-1.png
+- <root>/dev/docs/design/mock-<screen>-2.png"
 ```
 
-生成完了後、2 案を即座にオープン:
+After generation, immediately open both concepts:
 ```bash
-open <root>/dev/docs/design/mock-<画面>-{1,2}.png
+open <root>/dev/docs/design/mock-<screen>-{1,2}.png
 ```
 
-PNG 検証も同様に `file` コマンドで実施。各画面 2 案 → ユーザー選定。OG 画像 / favicon も同方式（**全部 PNG**）。
+Run the same `file` command PNG verification. 2 concepts per screen → user selects one. OG image / favicon follow the same approach (**all PNG**).
 
-#### モックの対話的 refine
+#### Interactive refinement for mocks
 
-ロゴと同じ。「**ホーム画面の検索バーを上に**」「**詳細画面のボタンを丸く**」等の修正指示が来たら、**同じ session を resume して再度呼ぶ**:
+Same as logos. When the user gives instructions like "**move the search bar to the top on the home screen**" or "**make the button on the detail screen round**", **resume the same session and call again**:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --out <root>/.my-harness/codex-mock-home-r1.md \
-  "ホーム画面案 1 の検索バーを上部に移動して再生成してください。同じパスに上書き。"
+  "Move the search bar in home screen concept 1 to the top and regenerate. Overwrite the same path."
 ```
 
-`--reset-session` 禁止、`--context` 再添付禁止（session が前ターンを覚えている）。N 回繰り返して詰める。
+`--reset-session` prohibited; re-attaching `--context` prohibited (the session remembers prior turns). Repeat N times to finalize.
 
-#### iteration（重要）
+#### Iteration (important)
 
-モックを見て要件が変わったら **フェーズ 1〜4 のどれかに戻って仕様修正**。修正後にこのフェーズに戻ってモック更新（差分のみ再生成可）。**最大 3 回まで**。
+If the mocks reveal that requirements have changed, **go back to one of phases 1–4 to update the spec**. Return to this phase afterward and regenerate only the affected mocks. **Maximum 3 iteration cycles.**
 
-USE_CODEX=no のときはモック生成はスキップし、`dev/docs/design/brand.md` に方針（主色・印象・各画面のレイアウト方針）をテキストで記録。後でユーザーが Figma 等で手作業。
+When USE_CODEX=no, skip mock generation and record the visual direction (primary color, impression, layout approach per screen) as text in `dev/docs/design/brand.md`. The user handles design manually later with Figma or similar.
 
-#### 完了基準
+#### Completion criteria
 
-- [ ] ロゴ採用案 1 個確定
-- [ ] 主要画面 3〜5 個のモック選定済（USE_CODEX=yes のみ）
-- [ ] OG 画像 / favicon 生成済
-- [ ] iteration で仕様変わったなら `docs/spec/*.md` も最新
+- [ ] One logo concept finalized
+- [ ] Mocks selected for 3–5 key screens (USE_CODEX=yes only)
+- [ ] OG image / favicon generated
+- [ ] If spec changed during iteration, `docs/spec/*.md` is up to date
 
-保存先: `dev/docs/spec/05-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`
+Save to: `dev/docs/spec/05-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`
 
 ---
 
-### フェーズ 6: 仕様確定 + bootstrap + issue/task 生成
+### Phase 6: Spec finalization + bootstrap + issue/task generation
 
-#### 6.1 仕様の最終確認
+#### 6.1 Final spec review
 
-`dev/docs/spec/0[1-5]-*.md` を Read で全部読み、概観をユーザーに提示し承認を得る。
+Read all of `dev/docs/spec/0[1-5]-*.md` and present a summary to the user for approval.
 
-USE_CODEX=yes なら Codex code-reviewer に最終 cross-check:
+If USE_CODEX=yes, run a final cross-check with Codex code-reviewer:
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh --role code-reviewer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/*.png -- \
-  "仕様 / モック / 技術スタックの整合性、論理矛盾、機能漏れを指摘してください。"
+  "Point out any inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality."
 ```
 
-修正があればフェーズ 1〜5 のどこかに戻ってから再度ここに来る。
+If there are corrections, go back to one of phases 1–5 and then return here.
 
-#### 6.2 bootstrap 実行（非対話）
+#### 6.2 Bootstrap execution (non-interactive)
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/bootstrap.sh "<root>" --config "<root>/.my-harness/.config"
 ```
 
-bootstrap が dev worktree に scaffold を作り初期コミット → `docs/spec/`, `docs/design/`, `docs/talk/` も含まれて git 管理される。
+bootstrap scaffolds the dev worktree and creates the initial commit → `docs/spec/`, `docs/design/`, and `docs/talk/` are all included in git.
 
-#### 6.3 issue / task 生成（USE_GITHUB_ISSUES に応じ分岐）
+#### 6.3 Issue / task generation (branching on USE_GITHUB_ISSUES)
 
-フェーズ 1 の機能リストから **300 行以内の子 issue** に分割し、ファイル衝突防止のためファイル所有を宣言。
+Split the feature list from phase 1 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
 
-- **USE_GITHUB_ISSUES=yes**: `gh issue create` で親 + 子 issue を起票（4 レーン割当含む）
-- **USE_GITHUB_ISSUES=no**: 親/子をファイルで:
+- **USE_GITHUB_ISSUES=yes**: Create parent + child issues with `gh issue create` (including 4-lane assignments)
+- **USE_GITHUB_ISSUES=no**: Represent parent/child as files:
   ```
   <root>/dev/docs/task/parent/0001-<slug>.md
   <root>/dev/docs/task/child/0001-<feature>.md
   ```
-  各ファイルは front matter で `parent: 0001` / `lane: 1〜4` / `status: pending` を表現。
+  Each file uses front matter to express `parent: 0001` / `lane: 1–4` / `status: pending`.
 
-#### 6.4 active session pointer を破棄（USE_CODEX=yes だった場合）
+#### 6.4 Clear the active session pointer (if USE_CODEX=yes was set)
 
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --clear-active
 ```
 
-#### 6.5 dev/README.md と dev/CLAUDE.md を初回生成
+#### 6.5 Generate dev/README.md and dev/CLAUDE.md for the first time
 
-`dev/docs/spec/*.md` と `.my-harness/.config` を Read で読み、以下 2 ファイルを Claude が **手動で作成**（spec の内容を反映）:
+Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually creates** the following 2 files (reflecting the spec content):
 
-##### `<root>/dev/README.md` の構造
+##### Structure of `<root>/dev/README.md`
 
 ```markdown
 # <PROJECT_NAME>
 
-<spec/01-what.md の「一言で何作る」を 1〜2 行で>
+<1–2 line summary from spec/01-what.md>
 
-## 機能
+## Features
 
-<spec/01-what.md の MVP 機能リストを箇条書き、各項目は `[ ] 未実装 / [x] 実装済` のチェックボックス付き>
+<MVP feature list from spec/01-what.md as bullet points, each with `[ ] not implemented / [x] done` checkbox>
 
-## 技術スタック
+## Tech stack
 
-- フロント: <USE_WEB なら WEB_KIND>, <USE_IOS なら IOS_KIND>, ...
-- バックエンド: <USE_BACKEND なら BACKEND_KIND>
-- DB: <USE_DB なら DB_KIND>
-- 認証: <AUTH_KIND>
+- Frontend: <WEB_KIND if USE_WEB>, <IOS_KIND if USE_IOS>, ...
+- Backend: <BACKEND_KIND if USE_BACKEND>
+- DB: <DB_KIND if USE_DB>
+- Auth: <AUTH_KIND>
 - E2E: <E2E_SCOPE>
 
-## セットアップ
+## Setup
 
 \`\`\`bash
 cd dev
@@ -554,77 +598,77 @@ nix develop --command pnpm install
 nix develop --command pnpm exec husky
 \`\`\`
 
-## 開発フロー
+## Development flow
 
-ハーネス（my-harness-generator）が orchestrate:
-- `/harness-team-lead` — 4 lane 並列で全 issue 一気に進める
-- `/harness-new-feature <issue#>` — 個別 issue 着手
-- `/my-harness-init` を再実行 — 中断からの再開（`init-state.json` を自動検出）
+The harness (my-harness-generator) orchestrates:
+- `/harness-team-lead` — drive all issues in parallel across 4 lanes at once
+- `/harness-new-feature <issue#>` — start a specific issue
+- Re-run `/my-harness-init` — resume from where you left off (`init-state.json` is auto-detected)
 
-## 環境変数
+## Environment variables
 
-<未定。実装が進むにつれ engineer が追記>
+<TBD — engineers append to this as implementation progresses>
 
-## ライセンス
+## License
 
-<未定>
+<TBD>
 ```
 
-##### `<root>/dev/CLAUDE.md` の構造
+##### Structure of `<root>/dev/CLAUDE.md`
 
 ```markdown
-# <PROJECT_NAME> — Claude Code への指示
+# <PROJECT_NAME> — Instructions for Claude Code
 
-このプロジェクトは my-harness-generator で生成されたハーネス上で動作する。
+This project runs on a harness generated by my-harness-generator.
 
-## プロジェクトの目的
+## Project purpose
 
-<spec/01-what.md から>
+<From spec/01-what.md>
 
-## アーキテクチャ
+## Architecture
 
-- 4 層 Clean Architecture (domain / application / infrastructure / interfaces)
-- DB: <DB_KIND> + Drizzle ORM (USE_DB=yes のとき)
-- 認証: <AUTH_KIND>
+- 4-layer Clean Architecture (domain / application / infrastructure / interfaces)
+- DB: <DB_KIND> + Drizzle ORM (when USE_DB=yes)
+- Auth: <AUTH_KIND>
 
-## データモデル
+## Data model
 
-<spec/04-data-model.md の mermaid ER 図をコピー（DB ありの時のみ）>
+<Copy the mermaid ER diagram from spec/04-data-model.md (only when DB is used)>
 
-## 主要画面 / API
+## Key screens / API
 
-<spec/05-visual.md の主要画面リストと、想定される API エンドポイント>
+<Key screen list from spec/05-visual.md and expected API endpoints>
 
-## 規約
+## Conventions
 
-ハーネスの auto-firing skill が以下を強制:
-- harness-tdd（t-wada / Kent Beck スタイル TDD）
+The harness auto-firing skills enforce:
+- harness-tdd (t-wada / Kent Beck style TDD)
 - harness-hono-clean-arch
-- harness-drizzle-rules（migrate-only）
+- harness-drizzle-rules (migrate-only)
 - harness-nix-pure
-- harness-design-rules（Lucide Icons のみ、AI 風禁止）
-- harness-jsdoc（全 export に JSDoc/TSDoc 必須）
-- harness-git-discipline（rebase / reset / force-push 禁止）
+- harness-design-rules (Lucide Icons only, no AI-style design)
+- harness-jsdoc (JSDoc/TSDoc required on all exports)
+- harness-git-discipline (no rebase / reset / force-push)
 - harness-no-hardcoded-secrets
 
-## エージェント分担（4 lane 並列実装）
+## Agent responsibilities (4-lane parallel implementation)
 
-- team-lead: issue 割当（ファイル衝突回避）、進捗集約、user 承認のリレー
-- analyst: lane 内 orchestration、git add / commit / push / gh pr create
-- engineer: 実装のみ（git 操作禁止、README/CLAUDE.md も実装と同時に更新）
-- e2e-reviewer: Playwright/Maestro 実行
-- reviewer: 規約 + docs 整合性レビュー
+- team-lead: issue assignment (avoiding file conflicts), progress aggregation, user approval relay
+- analyst: in-lane orchestration, git add / commit / push / gh pr create
+- engineer: implementation only (no git operations; updates README/CLAUDE.md alongside implementation)
+- e2e-reviewer: runs Playwright/Maestro
+- reviewer: convention + docs consistency review
 
-## 主要ファイル
+## Key files
 
-<未記入。engineer が機能実装のたびに追記する>
+<Empty — engineers append to this whenever a feature is implemented>
 
-## 現在の機能ステータス
+## Current feature status
 
-<spec/01-what.md の MVP 機能リストを `pending` で初期化、issue 完了に応じて `done` に更新>
+<Initialize the MVP feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
 ```
 
-これら 2 ファイルを Claude が `dev/` に書き出した後、dev worktree で git add → commit する:
+After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree:
 
 ```bash
 cd "<root>/dev"
@@ -633,16 +677,18 @@ git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
 ```
 
-以降、機能追加のたびに engineer がこれらを更新し、reviewer が整合性を確認する。
+(Note: the commit message is in Japanese — this is the generated project's default language convention.)
+
+From this point on, engineers update these files with each feature addition and the reviewer checks consistency.
 
 
-#### 6.5 init-state.json 更新 + 停止 + dev 移動案内（重要）
+#### 6.5 Update init-state.json + stop + guide user to dev (important)
 
-issue / task 生成が完了したら、`<root>/.my-harness/init-state.json` を **`current_phase: "completed"`** に更新する:
+Once issue / task generation is complete, update `<root>/.my-harness/init-state.json` to **`current_phase: "completed"`**:
 
 ```bash
 ROOT=<root>
-ISSUE_COUNT=<生成した子 issue 数>
+ISSUE_COUNT=<number of child issues generated>
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
@@ -652,7 +698,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
   "current_phase": "completed",
   "phases_completed": ["setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],
   "next_action": "implementation",
-  "next_action_command": "/harness-team-lead （または /harness-new-feature <issue#>）",
+  "next_action_command": "/harness-team-lead (or /harness-new-feature <issue#>)",
   "working_directory": "$ROOT/dev",
   "issue_count": $ISSUE_COUNT,
   "lanes_assigned": true,
@@ -661,88 +707,88 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 EOF
 ```
 
-そしてユーザーに **以下のメッセージを提示して、ここで自動的に停止する**（追加の作業はしない）:
+Then **present the following message to the user and stop automatically** (do not proceed with any further work):
 
 ```
-✅ /my-harness-init 完了
+/my-harness-init complete
 
-仕様:    <root>/dev/docs/spec/
-モック:  <root>/dev/docs/design/
-タスク:  <root>/dev/docs/task/  または GitHub Issue
-状態:    <root>/.my-harness/init-state.json (current_phase=completed)
+Spec:    <root>/dev/docs/spec/
+Mocks:   <root>/dev/docs/design/
+Tasks:   <root>/dev/docs/task/  or GitHub Issues
+State:   <root>/.my-harness/init-state.json (current_phase=completed)
 
-ここから先は dev worktree で作業します。手順:
+From here, work happens in the dev worktree. Steps:
 
-1) ターミナルで:
+1) In your terminal:
      cd <root>/dev
      direnv allow
      pnpm install
      pnpm exec husky
 
-2) GitHub に push（任意のタイミング）:
+2) Push to GitHub (whenever you're ready):
      git remote add origin git@github.com:<owner>/<repo>.git
      git push --all origin
-     # 続けて branch protection / GitHub Secrets 設定:
+     # Then set up branch protection and GitHub Secrets:
      bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
      bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 
-3) このセッションを終了し、ターミナルで `cd <root>/dev` してから
-   Claude Code を再起動。新セッションで以下のいずれかを実行:
+3) End this session, run `cd <root>/dev` in your terminal,
+   then restart Claude Code. In the new session, run one of:
 
-     /harness-team-lead               # 4 レーン並列で全 issue を一気に進める（推奨）
-     /harness-new-feature <issue#>    # 個別に feature 着手
-     /my-harness-init                 # 中断からの再開（init-state.json を自動検出）
+     /harness-team-lead               # Drive all issues in parallel across 4 lanes (recommended)
+     /harness-new-feature <issue#>    # Start a specific feature
+     /my-harness-init                 # Resume from where you left off (auto-detects init-state.json)
 ```
 
-**Claude（あなた）はここで停止する**。ユーザーが dev/ で新セッションを起こすまで、追加の作業を勝手に進めない。
+**Claude (you) stops here.** Do not proceed with any further work until the user starts a new session in dev/.
 
 ---
 
-## Codex 役割の使い分け（任意）
+## Codex role selection (reference)
 
-| 状況 | role |
-|------|------|
-| 要件のあいまい・矛盾検出 | analyst |
-| 設計妥当性・トレードオフ | architect |
-| デザイン提案 / 画像生成 | designer |
-| 仕様書の論理レビュー | code-reviewer |
-| セキュリティ観点 | security-reviewer |
+| Situation | role |
+|-----------|------|
+| Detect ambiguity or contradictions in requirements | analyst |
+| Validate design, analyze tradeoffs | architect |
+| Design proposals / image generation | designer |
+| Logic review of spec documents | code-reviewer |
+| Security perspective | security-reviewer |
 
-**critic / planner は使わない**（製品戦略寄りで、システム判断に直結しないため）。
+**Do not use `critic` or `planner`** — they are product-strategy oriented and not directly tied to system decisions.
 
-## 失敗時のフォールバック
+## Failure fallbacks
 
-- `codex` 未インストール → USE_CODEX を自動で no、Claude 単独続行
-- `codex login` 未実行 → 案内、3 回失敗で no に倒す
-- `bootstrap.sh` 実行失敗 → stderr 表示してユーザー判断
-- 既存ファイル衝突 → 続行 / 中止 / 別ディレクトリ選択をユーザーに確認
+- `codex` not installed → automatically set USE_CODEX to no and continue with Claude alone
+- `codex login` not run → guide user; after 3 failures, fall back to no
+- `bootstrap.sh` fails → display stderr and let the user decide
+- Existing file conflict → ask user whether to continue / abort / specify a different directory
 
-## 成果物まとめ
+## Artifact layout summary
 
 ```
 <root>/
-├── .my-harness/                       内部作業（gitignore）
-│   ├── .config                          選択肢（USE_DESKTOP 等含む）
-│   ├── codex-sessions/<KEY>.id          (gitignore)
-│   ├── codex-phase*.md                  (gitignore)
-│   └── codex.jsonl                      (gitignore)
-├── dev/                                 bootstrap が作る通常構成
+├── .my-harness/                       Internal work files (gitignored)
+│   ├── .config                          Selections (including USE_DESKTOP, etc.)
+│   ├── codex-sessions/<KEY>.id          (gitignored)
+│   ├── codex-phase*.md                  (gitignored)
+│   └── codex.jsonl                      (gitignored)
+├── dev/                                 Standard structure created by bootstrap
 │   └── docs/
-│       ├── spec/01-what.md ...          マスク済要件（5 ファイル）
-│       ├── design/logo-*.png ...        生成画像
-│       ├── talk/01-*.md ...             マスク済 Q&A 全文
-│       └── task/                        USE_GITHUB_ISSUES=no のとき
+│       ├── spec/01-what.md ...          Masked requirements (5 files)
+│       ├── design/logo-*.png ...        Generated images
+│       ├── talk/01-*.md ...             Masked Q&A full text
+│       └── task/                        When USE_GITHUB_ISSUES=no
 │           ├── parent/0001-*.md
 │           └── child/0001-*.md
-├── stage/  main/  lanes/                通常の worktree
-└── .bare/                               bare git
+├── stage/  main/  lanes/                Standard worktrees
+└── .bare/                               Bare git repo
 ```
 
-## 対話の進め方（Claude の振る舞い）
+## How to conduct the conversation (Claude's behavior)
 
-- **本 SKILL.md に書かれた質問文だけを読む**。derivative 質問（「使うデバイスは？」「ブランドの世界観は？」「5 年後は？」等）を勝手に作らない。
-- 1 ターン 1 問。まとめ聞き禁止。
-- 回答受領 → マスク → ファイル追記、の順を毎ターン守る。
-- 機密に該当しそうな文字列を見たら、書き出す前に「これマスクしますね」と一言。
-- フェーズ末で要約を提示し「次へ進む？」を確認。
-- ユーザーが「やめる」と言ったら現在の状態を保存して停止。
+- **Read only the question text written in this SKILL.md.** Do not improvise derivative questions ("Which device do you focus on?", "What's your brand's world view?", "What does success look like in 5 years?", etc.).
+- One question per turn. Batch questions prohibited.
+- Every turn: receive answer → mask → append to file. Always in this order.
+- If a string looks like it could be sensitive, say "I'll mask this" before writing it out.
+- At the end of each phase, present a summary and ask "Ready to continue?".
+- If the user says "stop", save the current state and halt.

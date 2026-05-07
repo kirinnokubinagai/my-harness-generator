@@ -1,20 +1,20 @@
 ---
 name: harness-deploy-execute
-description: dev → stage → main の段階デプロイを実行する。stage は OWASP ZAP / Playwright / Maestro 必須、main は人間承認 + canary 10% → 100%。「デプロイする」「リリース」「stage に上げる」「本番に出す」等の文脈で発火。
+description: Executes the staged deployment pipeline: dev → stage → main. Stage requires OWASP ZAP / Playwright / Maestro; main requires human approval + canary 10% → 100%. Fires when the user says "deploy", "release", "promote to stage", "push to production", or similar.
 ---
 
 # harness-deploy-execute
 
-実装と `harness-deploy-setup` 完了後、各環境への段階リリースを進める skill。
+The skill for carrying out staged releases to each environment after implementation and `harness-deploy-setup` are complete.
 
-## 前提
+## Prerequisites
 
-- `harness-deploy-setup` 完了済（`infra/` で `terraform apply` 済、`.my-harness/.config` に `DEPLOY_READY=yes`）
-- すべての feature が dev にマージ済 / 全 CI green
+- `harness-deploy-setup` is done (`terraform apply` in `infra/`, `DEPLOY_READY=yes` in `.my-harness/.config`)
+- All features are merged to dev / all CI is green
 
-## デプロイの 3 段階
+## The 3 deployment stages
 
-### A. dev → stage（自動化されているがユーザー承認必須）
+### A. dev → stage (automated but requires human approval)
 
 ```bash
 git checkout stage
@@ -22,32 +22,32 @@ git fetch origin
 gh pr create --base stage --head dev --title "release: dev → stage <date>"
 ```
 
-`pr-to-stage.yml` が走り:
-- quality（biome / vitest / tsc）
-- e2e（Playwright + Maestro）
-- security（OWASP ZAP + MobSF + 履歴 gitleaks）
-- 全 green でも **`approved-for-stage` ラベル必須**（人間承認）
+`pr-to-stage.yml` runs:
+- quality (biome / vitest / tsc)
+- e2e (Playwright + Maestro)
+- security (OWASP ZAP + MobSF + history gitleaks)
+- Even if all green, **`approved-for-stage` label is required** (human approval)
 
-CI 失敗時は `maybe-create-issue.js` が自動で issue（または `docs/task/auto/`）を作成。
+On CI failure, `maybe-create-issue.js` automatically creates an issue (or a file in `docs/task/auto/`).
 
-ユーザーが承認:
+Human approval:
 ```bash
 gh pr review <pr-number> --approve
 gh pr edit <pr-number> --add-label approved-for-stage
 gh pr merge <pr-number> --auto --merge
 ```
 
-stage マージ後、自動で stage 環境へデプロイ:
-- Cloudflare Pages がブランチ stage を pickup
-- D1 stage への migration（`wrangler d1 migrations apply DB --env staging --remote`）
-- R2 から本番バックアップを復元（`scheduled-db-backup.yml` の restore-to-stage ジョブ）
-- TestFlight ビルドアップロード（USE_IOS=yes のとき）
+After the stage merge, the stage environment deploys automatically:
+- Cloudflare Pages picks up the stage branch
+- D1 stage migration (`wrangler d1 migrations apply DB --env staging --remote`)
+- Restore production backup from R2 (`restore-to-stage` job in `scheduled-db-backup.yml`)
+- TestFlight build upload (when USE_IOS=yes)
 
-### B. stage → main（24h 以上 stage で安定後）
+### B. stage → main (after 24+ hours of stable operation on stage)
 
-stage の最新コミットが **24 時間以上** ステージング環境で安定していることを確認:
-- メトリクス（p95 / エラー率 / 認証失敗）異常なし
-- ZAP / E2E が緑のまま（再走 OK）
+Verify that the latest stage commit has been running stably in the staging environment for **at least 24 hours**:
+- Metrics (p95 / error rate / auth failures) show no anomalies
+- ZAP / E2E remain green (re-run is fine)
 
 ```bash
 gh release create vX.Y.Z --draft --generate-notes --target stage
@@ -58,77 +58,77 @@ gh pr edit <pr-number> --add-label approved-for-prod
 gh pr merge <pr-number> --auto --merge
 ```
 
-`pr-to-main.yml` が再度全ゲート（pr-to-stage を再利用）+ `approved-for-prod` ラベル確認。
+`pr-to-main.yml` re-runs all gates (reusing pr-to-stage) and verifies the `approved-for-prod` label.
 
-### C. canary 10% → 100%
+### C. Canary 10% → 100%
 
-main マージ後の本番デプロイは段階的:
+Production deployment after the main merge is gradual:
 
 ```bash
-# Cloudflare Pages のトラフィック分割（または Workers の versioned deployment）
+# Cloudflare Pages traffic splitting (or Workers versioned deployment)
 nix develop --command pnpm exec wrangler deployments deploy --env production --percent 10
 ```
 
-10% で 30 分 → メトリクス確認:
+30 minutes at 10% → check metrics:
 ```bash
 nix develop --command bash .my-harness/scripts/check-canary-health.sh
 ```
 
-問題なければ:
+If healthy:
 ```bash
 nix develop --command pnpm exec wrangler deployments deploy --env production --percent 100
 ```
 
-GitHub Release を draft → published に:
+Publish the GitHub Release:
 ```bash
 gh release edit vX.Y.Z --draft=false
 ```
 
-## ロールバック
+## Rollback
 
-問題発生時は `git revert` ベース（rebase / reset 禁止、`harness-git-discipline` 準拠）:
+On problems, use `git revert` (rebase / reset prohibited per `harness-git-discipline`):
 
 ```bash
 git checkout main
-git revert -m 1 <merge-sha>     # マージコミットを revert
+git revert -m 1 <merge-sha>     # Revert the merge commit
 git push origin main
 ```
 
-または canary を 100% → 0% に戻して旧バージョンに切替:
+Or roll the canary back from 100% to the previous deployment:
 ```bash
 nix develop --command pnpm exec wrangler rollback <previous-deployment-id>
 ```
 
-## hotfix のときは `harness-new-hotfix` を使う
+## Emergency fixes use `harness-new-hotfix`
 
-通常デプロイのフローを飛ばす緊急修正は本 skill ではなく `harness-new-hotfix` を使う（`docs/HOTFIX.md` 参照）。
+For urgent fixes that bypass the normal deploy flow, use `harness-new-hotfix` (not this skill). See `docs/HOTFIX.md`.
 
-## チェックリスト
+## Checklist
 
 ### dev → stage
-- [ ] dev のすべての CI が green
-- [ ] PR `--base stage --head dev` 作成
-- [ ] OWASP ZAP / Playwright / Maestro 緑
-- [ ] `approved-for-stage` ラベル付与（人間承認）
-- [ ] auto-merge で stage 反映
+- [ ] All CI on dev is green
+- [ ] PR created with `--base stage --head dev`
+- [ ] OWASP ZAP / Playwright / Maestro green
+- [ ] `approved-for-stage` label applied (human approval)
+- [ ] Stage updated via auto-merge
 
 ### stage → main
-- [ ] stage 環境で 24h 以上稼働
-- [ ] メトリクス異常なし
-- [ ] `gh release create --draft`
-- [ ] `approved-for-prod` ラベル付与
-- [ ] auto-merge で main 反映
+- [ ] Stage environment running for 24+ hours
+- [ ] Metrics show no anomalies
+- [ ] `gh release create --draft` done
+- [ ] `approved-for-prod` label applied
+- [ ] Main updated via auto-merge
 
-### canary
-- [ ] 10% で 30 分監視
-- [ ] エラー率 / レイテンシ異常なし
-- [ ] 100% に昇格
-- [ ] `gh release edit --draft=false`
+### Canary
+- [ ] Monitored at 10% for 30 minutes
+- [ ] Error rate / latency show no anomalies
+- [ ] Promoted to 100%
+- [ ] `gh release edit --draft=false` done
 
-## 関連 skill
+## Related skills
 
-- 設定: `harness-deploy-setup`
-- hotfix: `harness-new-hotfix`
-- Git 規律: `harness-git-discipline`
-- secrets: `harness-setup-secrets`
-- インフラ詳細: `docs/INFRA.md`
+- Setup: `harness-deploy-setup`
+- Hotfix: `harness-new-hotfix`
+- Git discipline: `harness-git-discipline`
+- Secrets: `harness-setup-secrets`
+- Infrastructure details: `docs/INFRA.md`

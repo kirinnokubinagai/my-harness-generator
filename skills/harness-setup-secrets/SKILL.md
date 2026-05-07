@@ -1,62 +1,62 @@
 ---
 name: harness-setup-secrets
-description: GitHub の Secrets / Variables を対話的に登録する。`setup-secrets.sh` をラップ。`.my-harness/.config` の選択（USE_CODEX / USE_EMAIL / USE_DB 等）に応じて必要な secrets だけ訊く。「GitHub secrets を設定」「初回セットアップの secrets」等の文脈で発火。
+description: Interactively registers GitHub Secrets / Variables. Wraps `setup-secrets.sh`. Only prompts for the secrets that are needed based on the selections in `.my-harness/.config` (USE_CODEX / USE_EMAIL / USE_DB, etc.). Fires when the user says "set up GitHub secrets", "initial setup secrets", or similar.
 ---
 
 # harness-setup-secrets
 
-ハーネス対応プロジェクトに必要な GitHub Secrets / Variables を `gh` CLI で対話登録する。bootstrap 完了後の **初回 1 回** だけ実行する想定。
+Interactively registers the GitHub Secrets / Variables required for a harness-based project via the `gh` CLI. Intended to be run **once** after bootstrap is complete.
 
-## 必須前提
+## Prerequisites
 
-- `gh auth status` が OK（GitHub にログイン済み）
-- リポジトリ作成済み（`gh repo create` 後）
-- `<root>/.my-harness/.config` が存在（bootstrap 済み）
+- `gh auth status` passes (logged into GitHub)
+- Repository is created (`gh repo create` done)
+- `<root>/.my-harness/.config` exists (bootstrap complete)
 
-## 呼び出し
+## Invocation
 
 ```bash
 cd <root>
 bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
-## 対話プロンプト
+## Interactive prompts
 
-`.my-harness/.config` の選択に応じて必要分だけプロンプト:
+Only prompts for what is needed based on `.my-harness/.config` selections:
 
-### 共通（全プロジェクト）
-- `DEV_URL` / `STAGE_URL` / `PROD_URL`（vars）
+### Common (all projects)
+- `DEV_URL` / `STAGE_URL` / `PROD_URL` (vars)
 
-### USE_CLAUDE_ACTION=yes のとき
-- `CLAUDE_CODE_OAUTH_TOKEN`（OAuth）または `ANTHROPIC_API_KEY`（API key）
+### When USE_CLAUDE_ACTION=yes
+- `CLAUDE_CODE_OAUTH_TOKEN` (OAuth) or `ANTHROPIC_API_KEY` (API key)
 
-### USE_EMAIL=yes のとき
+### When USE_EMAIL=yes
 - `RESEND_API_KEY` / `EMAIL_FROM_ADDRESS`
 
-### USE_DB=yes（DB_KIND=d1）のとき
+### When USE_DB=yes (DB_KIND=d1)
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_D1_DATABASE_ID`
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT_URL`
-- `R2_BACKUP_BUCKET`（var） / `AGE_RECIPIENTS`（var）
+- `R2_BACKUP_BUCKET` (var) / `AGE_RECIPIENTS` (var)
 - `AGE_SECRET_KEY_STAGE`
 
-### モバイル（USE_IOS / USE_ANDROID=yes）のとき
+### When USE_IOS / USE_ANDROID=yes (mobile)
 - `MOBSF_API_KEY`
 
-### USE_IOS=yes のとき
+### When USE_IOS=yes
 - `APP_STORE_CONNECT_API_KEY_ID` / `_ISSUER_ID` / `_KEY_BASE64`
 - `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION`
 
-## 動作
+## How it works
 
-各 secret/var に対して `gh secret set` / `gh variable set` を起動 → 対話で値入力（標準入力やペースト）。空入力でその secret はスキップ。
+For each secret/var, launches `gh secret set` / `gh variable set` → enter value interactively (stdin or paste). Empty input skips that secret.
 
-## 機密管理ベスプラ
+## Secret management best practices
 
-- 値はターミナル履歴に残らないよう、対話で直接入力
-- 共有が必要な値は **SOPS + age** で暗号化したファイル（`secrets/*.enc.json`）に書き、CI で復号する流れも併用可
-- 詳細は `<root>/.my-harness/docs/SETUP.md` 参照
+- Enter values interactively so they are not left in terminal history
+- For values that need to be shared, use **SOPS + age** encrypted files (`secrets/*.enc.json`) and decrypt in CI
+- See `<root>/.my-harness/docs/SETUP.md` for details
 
-## 関連
+## Related
 
-- branch protection: `harness-branch-protection`
-- ハードコード禁止: `harness-no-hardcoded-secrets`
+- Branch protection: `harness-branch-protection`
+- No-hardcode policy: `harness-no-hardcoded-secrets`

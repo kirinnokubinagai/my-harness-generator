@@ -1,77 +1,77 @@
 ---
 name: harness-no-hardcoded-secrets
-description: 機密値・API キー・接続文字列のハードコードを絶対禁止。環境変数 / SOPS 暗号化 / Secrets Manager のみ許可。pre-commit が機械的に弾く。「環境変数」「API キー」「DATABASE_URL」「秘密鍵」「.env」等の文脈で発火。
+description: Absolutely prohibits hardcoding secret values, API keys, and connection strings. Only environment variables, SOPS encryption, and Secrets Manager are allowed. Pre-commit mechanically blocks violations. Fires when the user mentions "environment variable", "API key", "DATABASE_URL", "secret key", ".env", or similar.
 ---
 
 # harness-no-hardcoded-secrets
 
-ハーネス配下のコード / 設定 / コミットで、機密値の **直書き禁止**。
+**No hardcoded secrets** in any code, config, or commit under the harness.
 
-## 鉄則
+## Non-negotiable rules
 
-| 種類 | 直書き |
-|------|--------|
-| API キー（`sk-...`, `ghp_...`, `xoxb-...` 等） | **禁止** |
-| 環境変数として扱うべき値（`JWT_SECRET`, `DATABASE_URL` 等） | **禁止** |
-| URL 内認証情報（`https://user:pass@host`） | **禁止** |
-| 本番想定 DSN（`postgres://prod...`） | **禁止** |
-| 平文 `.env` のコミット | **禁止**（`.env.example` のみ可） |
-| PEM 形式秘密鍵 | **禁止** |
+| Type | Hardcoding |
+|------|-----------|
+| API keys (`sk-...`, `ghp_...`, `xoxb-...`, etc.) | **Prohibited** |
+| Values that should be env vars (`JWT_SECRET`, `DATABASE_URL`, etc.) | **Prohibited** |
+| Credentials embedded in URLs (`https://user:pass@host`) | **Prohibited** |
+| Production DSNs (`postgres://prod...`) | **Prohibited** |
+| Committing a plaintext `.env` file | **Prohibited** (`.env.example` only) |
+| PEM private keys | **Prohibited** |
 
-pre-commit が機械的に弾く（漏れは bug）:
+Pre-commit mechanically blocks these (any slip-through is a bug):
 - `.gitleaks.toml` + `gitleaks protect`
-- `check-forbidden-patterns.sh`（独自パターン）
+- `check-forbidden-patterns.sh` (custom patterns)
 
-## 許可される書き方
+## Allowed patterns
 
 ```ts
-// ✅ 環境変数経由
+// ✅ Via environment variable
 const jwtSecret = process.env.JWT_SECRET ?? (() => {
   throw new Error('JWT_SECRET が未設定です');
 })();
 
-// ✅ Cloudflare Workers バインディング
+// ✅ Cloudflare Workers binding
 export default {
   async fetch(request, env) {
-    const apiKey = env.RESEND_API_KEY;  // wrangler.toml で binding
+    const apiKey = env.RESEND_API_KEY;  // bound in wrangler.toml
   }
 };
 
-// ✅ SOPS 復号
+// ✅ SOPS decryption
 const { OPENAI_API_KEY } = JSON.parse(
   await sopsDecrypt('secrets/openai.enc.json')
 );
 ```
 
-## 禁止される書き方
+## Prohibited patterns
 
 ```ts
-// ❌ 直書き
+// ❌ Hardcoded value
 const JWT_SECRET = "abc12345abcdefghijk";
 
-// ❌ DSN 直書き
+// ❌ Hardcoded DSN
 const DATABASE_URL = "postgres://user:pass@prod.db.example.com/app";
 
-// ❌ URL 認証
+// ❌ URL credentials
 fetch("https://admin:s3cret@api.example.com/x");
 
-// ❌ 平文 .env をコミット
-// .env をコミット対象に追加 → pre-commit で拒否
+// ❌ Committing a plaintext .env
+// Adding .env to tracked files → rejected by pre-commit
 ```
 
-## 共有が必要な機密の扱い
+## Handling secrets that need to be shared
 
-### SOPS + age（推奨）
-- 暗号化したファイル `secrets/cloudflare.enc.json` を git にコミット
-- 復号鍵は各メンバーが個別管理（1Password / iCloud Keychain）
-- CI は `AGE_SECRET_KEY` を GitHub Secrets で持つ
+### SOPS + age (recommended)
+- Commit the encrypted file `secrets/cloudflare.enc.json` to git
+- Each team member manages their own decryption key (1Password / iCloud Keychain)
+- CI holds `AGE_SECRET_KEY` in GitHub Secrets
 
 ### GitHub Secrets / Variables
-- ランタイムでのみ使う API キーは Secrets
-- 公開可能な設定値（URL 等）は Variables
-- 詳細は `docs/SETUP.md`
+- API keys used only at runtime → Secrets
+- Non-sensitive config values (URLs, etc.) → Variables
+- Details in `docs/SETUP.md`
 
-## 環境変数の必須チェック（起動時）
+## Required env var check at startup
 
 ```ts
 const requiredEnvVars = [
@@ -86,16 +86,16 @@ for (const name of requiredEnvVars) {
 }
 ```
 
-## マスキング（スキル `harness-mask` 参照）
+## Masking (see `harness-mask` skill)
 
-会話 / ログに機密値が含まれそうなときは `mask-secrets.sh` を通す:
+When conversations or logs might contain secret values, pipe through `mask-secrets.sh`:
 ```bash
 echo "$content" | bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/mask-secrets.sh > docs/talk/01.md
 ```
 
-## チェック
+## Checklist
 
-- [ ] grep で `JWT_SECRET\s*=\s*["']` 等を全 source 検索しヒット無し
-- [ ] `.env` が `.gitignore` 配下、`.env.example` のみコミット
-- [ ] pre-commit が gitleaks + forbidden-patterns で通った
-- [ ] `nix develop --command bash .my-harness/scripts/check-forbidden-patterns.sh <files>` を CI でも実行
+- [ ] grep for `JWT_SECRET\s*=\s*["']` across all source finds no matches
+- [ ] `.env` is in `.gitignore`; only `.env.example` is committed
+- [ ] Pre-commit passed with gitleaks + forbidden-patterns
+- [ ] `nix develop --command bash .my-harness/scripts/check-forbidden-patterns.sh <files>` also runs in CI

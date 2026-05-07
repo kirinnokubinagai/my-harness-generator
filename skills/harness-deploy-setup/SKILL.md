@@ -1,66 +1,66 @@
 ---
 name: harness-deploy-setup
-description: Terraform でデプロイインフラを定義し、Cloudflare（Pages / Workers / R2 / D1 / Tunnel）/ GitHub Actions の必要 secrets / wrangler / fastlane（iOS）等を一括セットアップする。実装フェーズが完了し、いざデプロイする手前で発火。「デプロイ設定」「Terraform で IaC」「Cloudflare 設定」「初回デプロイ準備」等の文脈で発火。
+description: Defines deploy infrastructure with Terraform and sets up Cloudflare (Pages / Workers / R2 / D1 / Tunnel), GitHub Actions secrets, wrangler, and fastlane (iOS) in one pass. Fires when implementation is complete and the next step is deployment: "deploy setup", "IaC with Terraform", "Cloudflare setup", "initial deploy prep", or similar.
 ---
 
 # harness-deploy-setup
 
-実装が一段落し、これから dev → stage → main の各環境にデプロイするための **インフラとシークレット** を Terraform 中心で構築する skill。
+The skill for building the **infrastructure and secrets** needed to deploy across the dev → stage → main pipeline, centered on Terraform, after implementation is complete.
 
-## 前提
+## Prerequisites
 
-- `/my-harness-init` で `.my-harness/.config` が確定済（`USE_DB`, `USE_EMAIL` 等が読まれる）
-- リポジトリが GitHub に push 済（`gh repo view` で確認可能）
-- ブランチ保護は `harness-branch-protection` で適用済
+- `.my-harness/.config` is finalized from `/my-harness-init` (`USE_DB`, `USE_EMAIL`, etc. are set)
+- Repository is pushed to GitHub (verify with `gh repo view`)
+- Branch protection has been applied via `harness-branch-protection`
 
-## やること（順）
+## Steps (in order)
 
-### 1. Terraform プロジェクトを `infra/` に生成
+### 1. Generate a Terraform project in `infra/`
 
 ```
 <root>/dev/infra/
-├── main.tf                  Cloudflare provider 定義 + リソース宣言
-├── variables.tf             variable "cloudflare_account_id" 等
-├── terraform.tfvars         ローカル用（gitignore）
+├── main.tf                  Cloudflare provider definition + resource declarations
+├── variables.tf             variable "cloudflare_account_id", etc.
+├── terraform.tfvars         Local values (gitignored)
 ├── secrets/
-│   └── cloudflare.enc.json  SOPS 暗号化（.gitignore + age 公開鍵で保護）
+│   └── cloudflare.enc.json  SOPS-encrypted (.gitignore + age public key protection)
 └── README.md
 ```
 
-### 2. 必要リソースを宣言
+### 2. Declare required resources
 
-`.my-harness/.config` の選択に応じて:
+Based on the selections in `.my-harness/.config`:
 
-- **USE_WEB=yes** → `cloudflare_pages_project` + `cloudflare_record`（DNS）
-- **USE_DB=yes** + `DB_KIND=d1` → `cloudflare_d1_database` × 2（prod / staging）
-- バックアップ用 → `cloudflare_r2_bucket`
-- USE_EMAIL=yes → SPF / DKIM / DMARC を `cloudflare_record` で（Resend 連携）
-- USE_IOS=yes → `fastlane` 設定（`fastlane/Fastfile`、Match 用 git repo）
-- USE_ANDROID=yes → Google Play Console サービスアカウント JSON 取扱い
+- **USE_WEB=yes** → `cloudflare_pages_project` + `cloudflare_record` (DNS)
+- **USE_DB=yes** + `DB_KIND=d1` → `cloudflare_d1_database` × 2 (prod / staging)
+- Backup storage → `cloudflare_r2_bucket`
+- USE_EMAIL=yes → SPF / DKIM / DMARC via `cloudflare_record` (Resend integration)
+- USE_IOS=yes → `fastlane` config (`fastlane/Fastfile`, Match git repo)
+- USE_ANDROID=yes → Google Play Console service account JSON handling
 
-### 3. GitHub Actions vars / secrets を設定（`harness-setup-secrets` を呼ぶ）
+### 3. Set GitHub Actions vars / secrets (calls `harness-setup-secrets`)
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
-### 4. Wrangler 設定の最終化
+### 4. Finalize wrangler configuration
 
 ```toml
 # wrangler.toml
 [[d1_databases]]
 binding = "DB"
 database_name = "<prod-name>"
-database_id = "<terraform output から取得>"
+database_id = "<retrieved from terraform output>"
 
 [env.staging]
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "<stage-name>"
-database_id = "<terraform output から取得>"
+database_id = "<retrieved from terraform output>"
 ```
 
-### 5. terraform apply（dev / stage 環境分）
+### 5. terraform apply (for dev / stage environments)
 
 ```bash
 cd dev/infra
@@ -69,15 +69,15 @@ nix develop --command terraform plan -var-file=terraform.tfvars
 nix develop --command terraform apply -var-file=terraform.tfvars
 ```
 
-ステート保存: R2 バックエンドを推奨（terraform `backend "s3"` + R2 互換 endpoint）。
+State storage: R2 backend is recommended (terraform `backend "s3"` + R2-compatible endpoint).
 
-### 6. デプロイ動作確認
+### 6. Verify deployment works
 
-- 手動で Pages / Workers にダミーデプロイ → ヘルスチェックが通る
-- D1 マイグレーションが `wrangler d1 migrations apply` で適用できる
-- R2 にダミーオブジェクトを put / get できる
+- Manually deploy a dummy build to Pages / Workers → health check passes
+- Confirm D1 migrations apply with `wrangler d1 migrations apply`
+- Confirm R2 dummy object put / get succeeds
 
-## 生成サンプル（最小）
+## Minimal generated example
 
 ```hcl
 # infra/main.tf
@@ -89,7 +89,7 @@ terraform {
     }
   }
   backend "s3" {
-    # R2 互換: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY を環境変数で
+    # R2-compatible: use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY as env vars
     bucket = "harness-terraform-state"
     key    = "<project>/terraform.tfstate"
     region = "auto"
@@ -98,7 +98,7 @@ terraform {
 }
 
 provider "cloudflare" {
-  # CLOUDFLARE_API_TOKEN を環境変数で（ハードコード禁止 → harness-no-hardcoded-secrets）
+  # Pass CLOUDFLARE_API_TOKEN via environment variable (no hardcoding — see harness-no-hardcoded-secrets)
 }
 
 resource "cloudflare_d1_database" "prod" {
@@ -121,18 +121,18 @@ output "d1_prod_id" { value = cloudflare_d1_database.prod.id }
 output "d1_staging_id" { value = cloudflare_d1_database.staging.id }
 ```
 
-## 完了時に確認すること
+## Completion checklist
 
-- [ ] `infra/main.tf` がコミットされている（terraform.tfvars は gitignore）
-- [ ] `terraform plan` がエラー無く通る
-- [ ] D1 / R2 / Pages がダッシュボードで作成済
-- [ ] GitHub Secrets / Variables が `harness-setup-secrets` で全部入った
-- [ ] `wrangler.toml` の database_id が terraform output と一致
-- [ ] `.my-harness/.config` の `DEPLOY_READY=yes` を追記
+- [ ] `infra/main.tf` committed (terraform.tfvars gitignored)
+- [ ] `terraform plan` passes without errors
+- [ ] D1 / R2 / Pages created in the Cloudflare dashboard
+- [ ] All GitHub Secrets / Variables populated via `harness-setup-secrets`
+- [ ] `wrangler.toml` `database_id` matches terraform output
+- [ ] `DEPLOY_READY=yes` appended to `.my-harness/.config`
 
-## 関連 skill
+## Related skills
 
-- secrets 登録: `harness-setup-secrets`
-- ハードコード禁止: `harness-no-hardcoded-secrets`
-- 実行: `harness-deploy-execute`
-- インフラ詳細: `docs/INFRA.md`
+- Secrets registration: `harness-setup-secrets`
+- No-hardcode policy: `harness-no-hardcoded-secrets`
+- Execution: `harness-deploy-execute`
+- Infrastructure details: `docs/INFRA.md`

@@ -1,56 +1,56 @@
 ---
 name: harness-drizzle-rules
-description: Drizzle ORM + Cloudflare D1 の規約を強制する。drizzle-kit migrate のみ使用、push 禁止、マイグレーションの命名・順序を保証。「DB スキーマを変更」「マイグレーション」「テーブル追加」等の文脈で発火。
+description: Enforces Drizzle ORM + Cloudflare D1 conventions. Only drizzle-kit migrate is allowed; push is prohibited; migration naming and ordering are guaranteed. Fires when the user mentions "change DB schema", "migration", "add a table", or similar.
 ---
 
 # harness-drizzle-rules
 
-DB は **Cloudflare D1 + Drizzle ORM** のみ。スキーマ変更は **マイグレーション経由のみ**。
+The DB stack is **Cloudflare D1 + Drizzle ORM** exclusively. Schema changes must go through **migrations only**.
 
-## 鉄則
+## Non-negotiable rules
 
-| 項目 | 規約 |
+| Item | Rule |
 |------|------|
-| ORM | Drizzle のみ（他 ORM は使わない） |
-| DB | Cloudflare D1（SQLite ダイアレクト） |
-| スキーマ変更 | 必ず `drizzle-kit generate --name <具体名>` でマイグレーション生成 |
-| マイグレーション適用 | `wrangler d1 migrations apply DB --local` / `--remote` |
-| **`drizzle-kit push` 禁止** | 履歴・ロールバック・チーム共有不能 |
-| 手動 SQL | 禁止。スキーマファイル経由でしか変更しない |
+| ORM | Drizzle only (no other ORMs) |
+| DB | Cloudflare D1 (SQLite dialect) |
+| Schema changes | Always generate via `drizzle-kit generate --name <descriptive-name>` |
+| Applying migrations | `wrangler d1 migrations apply DB --local` / `--remote` |
+| **`drizzle-kit push` is prohibited** | Cannot produce history, rollbacks, or team-shareable state |
+| Manual SQL | Prohibited — schema changes only through schema files |
 
-## ワークフロー
+## Workflow
 
 ```bash
-# 1. src/db/schema.ts を編集
-# 2. マイグレーション生成（具体名必須）
+# 1. Edit src/db/schema.ts
+# 2. Generate migration (descriptive name required)
 nix develop --command pnpm exec drizzle-kit generate --name add_users_table
 
-# 3. ローカル適用（初回は必須）
+# 3. Apply locally (required on first run)
 nix develop --command pnpm exec wrangler d1 migrations apply DB --local
 
-# 4. 本番 / stage 適用
+# 4. Apply to production / stage
 nix develop --command pnpm exec wrangler d1 migrations apply DB --remote
 nix develop --command pnpm exec wrangler d1 migrations apply DB --env staging --remote
 
-# 5. コミット
+# 5. Commit
 git add drizzle/ src/db/schema.ts
 git commit -m "feat: add users table migration"
 ```
 
-## マイグレーション命名
+## Migration naming
 
-| 良い例 | 悪い例 |
-|--------|--------|
+| Good | Bad |
+|------|-----|
 | `add_users_table` | `migration_1` |
 | `add_email_index_to_users` | `update` |
 | `rename_username_to_display_name` | `changes` |
 
-## スキーマ規約
+## Schema conventions
 
 ```ts
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
-// snake_case のカラム名、ULID 主キー
+// snake_case column names, ULID primary key
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
   email: text('email').notNull().unique(),
@@ -61,28 +61,28 @@ export const users = sqliteTable('users', {
 });
 ```
 
-外部キー必須:
+Foreign keys are required:
 ```ts
 user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' })
 ```
 
-## なぜ push 禁止か
+## Why push is prohibited
 
-| 機能 | migrate | push |
-|------|---------|------|
-| 履歴 | ✅ 残る | ❌ |
-| ロールバック | ✅ | ❌ |
-| チーム共有 | ✅ | ❌ |
-| 本番安全 | ✅ | ❌ |
-| Git 管理 | ✅ | ❌ |
+| Feature | migrate | push |
+|---------|---------|------|
+| History | ✅ Preserved | ❌ |
+| Rollback | ✅ | ❌ |
+| Team sharing | ✅ | ❌ |
+| Production safety | ✅ | ❌ |
+| Git-managed | ✅ | ❌ |
 
-## マイグレーション衝突防止（並列開発）
+## Preventing migration conflicts (parallel development)
 
-複数子 issue が同時にマイグレーションを生成しないこと。`harness-team-lead` agent が `check-migration-conflict.sh` で検出する。1 親 issue 配下で **マイグレーション担当の子 issue は 1 つに集約**。
+Multiple child issues must not generate migrations at the same time. The `harness-team-lead` agent detects conflicts via `check-migration-conflict.sh`. **Only one child issue per parent issue should own the migration work.**
 
-## チェック
+## Checklist
 
-- [ ] schema.ts を編集後、`drizzle-kit generate --name <具体名>` 実行済
-- [ ] drizzle/ 配下の SQL を git add 済
-- [ ] `drizzle-kit push` を **使っていない**
-- [ ] PR に schema.ts と drizzle/ の差分が同梱
+- [ ] After editing schema.ts, ran `drizzle-kit generate --name <descriptive-name>`
+- [ ] SQL files under `drizzle/` are staged with git add
+- [ ] `drizzle-kit push` was **not used**
+- [ ] PR includes diffs for both schema.ts and drizzle/

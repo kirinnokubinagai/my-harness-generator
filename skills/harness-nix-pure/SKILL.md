@@ -1,38 +1,38 @@
 ---
 name: harness-nix-pure
-description: Nix flake による完全 pure な環境を強制する。impure な実行（brew install / グローバル npm 等）を禁止。direnv による自動 shell 起動を必須化。「コマンドを実行」「ツールをインストール」「環境構築」等の文脈で発火。
+description: Enforces a fully pure environment via Nix flake. Prohibits impure execution (brew install, global npm, etc.). Requires automatic shell activation via direnv. Fires when the user says "run a command", "install a tool", "set up the environment", or similar.
 ---
 
 # harness-nix-pure
 
-ハーネス配下のすべてのツール実行は **Nix flake 経由のみ**。何も入っていない PC で `direnv allow` 一発で完全再現可能であることを保証する。
+Every tool invocation under the harness goes through **Nix flake only**. This guarantees that a completely fresh machine can achieve full reproducibility with a single `direnv allow`.
 
-## 鉄則
+## Non-negotiable rules
 
-| 項目 | 規約 |
+| Item | Rule |
 |------|------|
-| ツール実行 | `nix develop --command ...` 経由のみ |
-| 自動化 | `.envrc` に `use flake` を書き、`direnv allow` で自動切替 |
-| 例外 | Apple toolchain（Xcode / iOS Simulator）と Claude Code / Codex CLI のみ |
-| 禁止 | `brew install` / グローバル `npm install -g` / システム `pip install` |
+| Running tools | Via `nix develop --command ...` only |
+| Automation | Add `use flake` to `.envrc`; `direnv allow` switches the shell automatically |
+| Exceptions | Apple toolchain (Xcode / iOS Simulator) and Claude Code / Codex CLI only |
+| Prohibited | `brew install` / global `npm install -g` / system `pip install` |
 
-## 推奨フロー（プロジェクトに入る）
+## Recommended flow (entering a project)
 
 ```bash
 cd <project>/dev
-direnv allow                          # 初回のみ
-# 以降、cd するだけで flake.nix の dev shell に自動切替
-node --version                        # nix の Node.js が使われる
-pnpm --version                        # nix の pnpm
+direnv allow                          # First time only
+# After this, cd-ing into the directory auto-switches to the flake.nix dev shell
+node --version                        # Uses Nix's Node.js
+pnpm --version                        # Uses Nix's pnpm
 ```
 
-direnv 未インストール時:
+If direnv is not installed:
 ```bash
-nix develop                           # 手動で flake shell に入る
-# シェルを抜けても作業継続したい場合は `nix develop --command <cmd>`
+nix develop                           # Manually enter the flake shell
+# To keep working after exiting: nix develop --command <cmd>
 ```
 
-## 標準コマンド（必ず prefix を付ける）
+## Standard commands (always use the prefix)
 
 ```bash
 nix develop --command pnpm install
@@ -46,40 +46,40 @@ nix develop --command terraform apply
 nix develop --command sops -d secrets/cloudflare.enc.json
 ```
 
-## 禁止パターン
+## Prohibited patterns
 
 - `brew install pnpm` / `brew install nodejs`
 - `npm install -g <anything>`
 - `pip install --user <anything>`
-- `curl ... | bash` でツール導入
-- システムの Python / Ruby / Go を直接利用
+- Installing tools via `curl ... | bash`
+- Using the system's Python / Ruby / Go directly
 
-## flake.nix 更新時
+## When updating flake.nix
 
 ```bash
-# flake.nix を編集後、必ず flake.lock もコミット
+# After editing flake.nix, always commit flake.lock too
 git add flake.nix flake.lock .envrc
-direnv reload   # 自動で nix develop が再評価される
+direnv reload   # Automatically re-evaluates nix develop
 ```
 
-## CI でも同じ規約
+## Same rules apply in CI
 
-GitHub Actions では:
+In GitHub Actions:
 ```yaml
 - uses: DeterminateSystems/nix-installer-action@v18
 - run: nix develop --command pnpm install
 - run: nix develop --command pnpm exec vitest run
 ```
 
-## 例外（Apple / Claude Code / Codex）
+## Exceptions (Apple / Claude Code / Codex)
 
-- iOS Simulator は Xcode 依存、Nix 化不可（`docs/IOS_DAST.md` 参照）
-- Android SDK の platform-tools / build-tools は Google 配布で Nix 化困難
-- Claude Code（このエージェント）と Codex CLI（`@openai/codex`）は対話 AI なので例外
+- iOS Simulator depends on Xcode and cannot be Nix-ified (see `docs/IOS_DAST.md`)
+- Android SDK platform-tools / build-tools are Google-distributed and difficult to Nix-ify
+- Claude Code (this agent) and Codex CLI (`@openai/codex`) are interactive AIs and are exempt
 
-## チェック
+## Checklist
 
-- [ ] `.envrc` に `use flake` がある
-- [ ] `direnv allow` 実行済（or `nix develop` で shell に入っている）
-- [ ] `command -v node | grep nix/store` で Nix の node が使われている
-- [ ] CI が `nix develop --command` で動作
+- [ ] `.envrc` contains `use flake`
+- [ ] `direnv allow` has been run (or shell is entered via `nix develop`)
+- [ ] `command -v node | grep nix/store` confirms Nix's node is being used
+- [ ] CI runs via `nix develop --command`

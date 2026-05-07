@@ -1,59 +1,59 @@
 ---
 name: harness-git-discipline
-description: Git の rebase / reset --hard / push --force を絶対禁止。コンフリクトはマージコミットで解消。dev / stage / main の保護ブランチで作業しない。「git でコンフリクト」「git reset」「rebase」「force push」等の文脈で発火。
+description: Absolutely prohibits git rebase / reset --hard / push --force. Conflicts must be resolved with merge commits. Never work directly on the protected branches dev / stage / main. Fires when the user mentions "git conflict", "git reset", "rebase", "force push", or similar.
 ---
 
 # harness-git-discipline
 
-ハーネスのすべての Git 操作で守る規律。
+The discipline that governs every Git operation in the harness.
 
-## 鉄則（厳守）
+## Non-negotiable rules
 
-| 操作 | 状態 |
-|------|------|
-| `git rebase` | **禁止**（interactive 含む） |
-| `git rebase --autosquash` | **禁止** |
-| `git reset --hard` | **禁止** |
-| `git push --force` | **禁止** |
-| `git push --force-with-lease` | **禁止**（緩い force push） |
-| `git filter-branch` / `filter-repo` | **禁止**（漏洩した secrets の事後消去のみ承認制） |
-| **コンフリクト解消** | **必ず `git merge --no-ff` でマージコミットを作る** |
+| Operation | Status |
+|-----------|--------|
+| `git rebase` | **Prohibited** (including interactive) |
+| `git rebase --autosquash` | **Prohibited** |
+| `git reset --hard` | **Prohibited** |
+| `git push --force` | **Prohibited** |
+| `git push --force-with-lease` | **Prohibited** (still a form of force push) |
+| `git filter-branch` / `filter-repo` | **Prohibited** (post-leak secret removal requires separate approval) |
+| **Conflict resolution** | **Always create a merge commit with `git merge --no-ff`** |
 
-## ブランチ規約
+## Branch conventions
 
-| ブランチ | 用途 | 直接 push |
-|----------|------|----------|
-| `main` | 本番。stage からのマージのみ | **禁止** |
-| `stage` | ステージング。dev からのマージのみ | **禁止** |
-| `dev` | 既定の作業統合先。feat ブランチの PR 先 | 通常は禁止（PR 経由） |
-| `feat/<issue>-<slug>` | feature 開発、dev 起点 | OK |
-| `hotfix/<issue>-<slug>` | 緊急修正、main 起点 | OK |
+| Branch | Purpose | Direct push |
+|--------|---------|-------------|
+| `main` | Production. Merges from stage only | **Prohibited** |
+| `stage` | Staging. Merges from dev only | **Prohibited** |
+| `dev` | Default integration target. PR destination for feat branches | Normally prohibited (via PR) |
+| `feat/<issue>-<slug>` | Feature development, branched from dev | OK |
+| `hotfix/<issue>-<slug>` | Emergency fixes, branched from main | OK |
 
-pre-push フックが main / stage への直接 push を遮断する。
+The pre-push hook blocks direct pushes to main / stage.
 
-## コンフリクト解消（マージコミットのみ）
+## Conflict resolution (merge commits only)
 
 ```bash
-# feature worktree で
+# Inside the feature worktree
 cd lanes/feat-123-foo
 git fetch origin dev
 git merge --no-ff origin/dev -m "merge: resolve with dev (no rebase)"
-# コンフリクトを解消（両方の意図を残す）
+# Resolve conflicts (preserve the intent of both sides)
 nix develop --command pnpm exec biome check .
 nix develop --command pnpm exec vitest run
 git add -A
-git commit  # マージコミット完成
-git push origin feat/123-foo  # --force 系一切禁止
+git commit  # Merge commit complete
+git push origin feat/123-foo  # No --force variants ever
 ```
 
-ハーネスのスクリプト:
+Using the harness script:
 ```bash
 bash .my-harness/scripts/resolve-conflict.sh <feature-worktree>
 ```
 
-## hotfix 後の逆流（main → stage → dev）
+## Back-merge after hotfix (main → stage → dev)
 
-すべて `git merge --no-ff` でマージコミット:
+All back-merges use `git merge --no-ff`:
 ```bash
 git checkout stage
 git merge --no-ff origin/main -m "merge: hotfix back-merge main → stage"
@@ -64,25 +64,25 @@ git merge --no-ff origin/stage -m "merge: hotfix back-merge stage → dev"
 git push origin dev
 ```
 
-## なぜ rebase / reset 禁止か
+## Why rebase / reset is prohibited
 
-- 履歴改変は他者の作業を破壊する
-- マージコミットは「いつ」「誰が」「何を」取り込んだかの監査証跡
-- 逆流マージで一貫したルール
-- 並列開発（4 レーン）で history が壊れない保証
+- History rewriting destroys other contributors' work
+- Merge commits are an audit trail — "who merged what and when"
+- Consistent rules for back-merges
+- Guarantees history integrity with 4 parallel development lanes
 
-## コミット規約（Conventional Commits）
+## Commit message convention (Conventional Commits)
 
 ```
-<type>(<scope>): <subject in 日本語>
+<type>(<scope>): <subject in Japanese>
 
-<body in 日本語>
+<body in Japanese>
 ```
 
-type:
+Types:
 - `feat` / `fix` / `hotfix` / `docs` / `style` / `refactor` / `perf` / `test` / `build` / `ci` / `chore` / `revert`
 
-例:
+Example:
 ```
 feat(auth): メールアドレスでのログイン機能を追加
 
@@ -90,18 +90,20 @@ bcrypt cost 12 でハッシュ化、JWT は 15 分の短命トークン。
 リフレッシュトークンは 7 日。
 ```
 
-## 履歴に sensitive 情報が入った場合
+(Note: commit subjects and bodies are written in Japanese — this is the generated project's default output language convention.)
 
-これは緊急事態。
-1. 該当 secret を即座にローテーション（Resend / Cloudflare / GitHub 等）
-2. 履歴から消すかは別判断（force push 必要なため別途承認制）
-3. gitleaks scheduled scan が定期検出するので未然防止が優先
+## If sensitive information appears in history
 
-## チェックリスト
+This is an emergency.
+1. Rotate the exposed secret immediately (Resend / Cloudflare / GitHub, etc.)
+2. Whether to scrub it from history is a separate decision (requires approval since force-push is needed)
+3. Prevention is the priority — gitleaks scheduled scans catch this proactively
 
-- [ ] `git rebase` を打っていない
-- [ ] `git reset --hard` を打っていない
-- [ ] `git push --force` / `--force-with-lease` を打っていない
-- [ ] コンフリクトはマージコミットで解消
-- [ ] main / stage に直接 push していない
-- [ ] コミットメッセージが Conventional Commits + 日本語本文
+## Checklist
+
+- [ ] `git rebase` was not run
+- [ ] `git reset --hard` was not run
+- [ ] `git push --force` / `--force-with-lease` was not run
+- [ ] Conflicts resolved via merge commit
+- [ ] No direct push to main / stage
+- [ ] Commit message follows Conventional Commits with Japanese body

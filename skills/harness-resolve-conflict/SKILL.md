@@ -1,37 +1,37 @@
 ---
 name: harness-resolve-conflict
-description: コンフリクト解消を **マージコミットのみ** で行う。`resolve-conflict.sh` をラップ。`git rebase` / `git reset` / `git push --force` を絶対禁止。「コンフリクト」「merge conflict」「rebase 代替」等の文脈で発火。
+description: Resolves conflicts using merge commits only. Wraps `resolve-conflict.sh`. Absolutely prohibits `git rebase` / `git reset` / `git push --force`. Fires when the user mentions "conflict", "merge conflict", "rebase alternative", or similar.
 ---
 
 # harness-resolve-conflict
 
-ハーネス配下のすべてのコンフリクト解消は **マージコミットのみ**。`git rebase` / `git reset` / `git push --force` 全部禁止（`harness-git-discipline` に準拠）。
+All conflict resolution under the harness uses **merge commits only**. `git rebase` / `git reset` / `git push --force` are all prohibited (following `harness-git-discipline`).
 
-## 呼び出し
+## Invocation
 
 ```bash
 bash <root>/.my-harness/scripts/resolve-conflict.sh <feature-worktree> [base=dev]
 ```
 
-例:
+Example:
 ```bash
 bash <root>/.my-harness/scripts/resolve-conflict.sh lanes/feat-42-user-login dev
 ```
 
-スクリプトは:
-1. `git fetch origin <base>` で最新を取得
-2. `git merge --no-ff origin/<base>` で取り込み（rebase でない）
-3. コンフリクトマーカーが残ったら **engineer が手で両方の意図を保持して解消**
-4. 解消後 `git add -A && git commit`
-5. `git push origin <branch>`（`--force` 系一切禁止）
+The script:
+1. Fetches the latest with `git fetch origin <base>`
+2. Integrates with `git merge --no-ff origin/<base>` (not rebase)
+3. If conflict markers remain, **the engineer manually resolves them, preserving the intent of both sides**
+4. After resolution: `git add -A && git commit`
+5. `git push origin <branch>` (no `--force` variants ever)
 
-## なぜ rebase 禁止か
+## Why rebase is prohibited
 
-- 履歴改変は他者の作業を破壊する
-- マージコミットは「いつ・誰が・何を」取り込んだかの監査証跡
-- 並列 4 レーンで history が壊れない保証
+- History rewriting destroys other contributors' work
+- Merge commits are an audit trail — "who merged what and when"
+- Guarantees history integrity with 4 parallel development lanes
 
-## 解消後の検証
+## Post-resolution verification
 
 ```bash
 nix develop --command pnpm exec biome check .
@@ -39,13 +39,13 @@ nix develop --command pnpm exec tsc --noEmit
 nix develop --command pnpm exec vitest run
 ```
 
-すべて緑になってから push する。
+Push only after all checks pass green.
 
-## hotfix 後の逆流時も同じ
+## Same rules apply for back-merges after a hotfix
 
-main → stage → dev の逆流マージも `git merge --no-ff` のみ。`harness-new-hotfix` 参照。
+Back-merges from main → stage → dev also use `git merge --no-ff` only. See `harness-new-hotfix`.
 
-## 関連
+## Related
 
-- Git 規律全般: `harness-git-discipline`
-- dev 取込（コンフリクト無いとき）: `harness-sync-features`
+- Git discipline: `harness-git-discipline`
+- Pulling in dev with no conflicts: `harness-sync-features`

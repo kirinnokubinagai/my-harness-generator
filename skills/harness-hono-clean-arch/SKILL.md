@@ -1,63 +1,63 @@
 ---
 name: harness-hono-clean-arch
-description: Hono バックエンドで Clean Architecture を強制する。domain / application / infrastructure / interfaces の 4 層分離と依存方向の規約。「Hono で API を書く」「ハンドラを追加」「ユースケースを実装」「リポジトリを書く」等の文脈で発火。
+description: Enforces Clean Architecture on Hono backends. Mandates 4-layer separation (domain / application / infrastructure / interfaces) and strict dependency direction rules. Fires when the user says "write a Hono API", "add a handler", "implement a use case", "write a repository", or similar.
 ---
 
 # harness-hono-clean-arch
 
-Hono アプリで Clean Architecture を **厳格に** 適用する。
+Applies Clean Architecture **strictly** to Hono applications.
 
-## 4 層構造
+## 4-layer structure
 
 ```
 src/
-├── domain/          エンティティ / 値オブジェクト / ポート（インターフェース）
-├── application/     ユースケース（オーケストレーション）
-├── infrastructure/  Drizzle 実装 / 外部 API / Resend / Hono ハンドラ
-└── interfaces/      Hono ルーター / 入出力 DTO（Zod）
+├── domain/          Entities / value objects / ports (interfaces)
+├── application/     Use cases (orchestration)
+├── infrastructure/  Drizzle implementations / external APIs / Resend / Hono handlers
+└── interfaces/      Hono routers / input-output DTOs (Zod)
 ```
 
-## 依存方向（厳守）
+## Dependency direction (non-negotiable)
 
 ```
 interfaces → application → domain ← infrastructure
 ```
 
-- **domain は外側に依存しない**（純粋なビジネスルールのみ）
-- **infrastructure は domain の I/F を実装**（具体実装は外側、抽象は内側）
-- application は domain を使い、infrastructure を I/F 経由で呼ぶ
-- interfaces は application を呼ぶだけ（ロジックを書かない）
+- **domain must not depend on outer layers** (pure business rules only)
+- **infrastructure implements domain interfaces** (concrete implementations live outside; abstractions live inside)
+- application uses domain and calls infrastructure through interfaces
+- interfaces only call application (no business logic inside)
 
-## 各層の責務
+## Layer responsibilities
 
 ### domain
-- エンティティ / 値オブジェクト
-- リポジトリ I/F（`UserRepository` 等）
-- 外部依存ゼロ（npm 依存も最小、Zod は OK）
+- Entities / value objects
+- Repository interfaces (`UserRepository`, etc.)
+- Zero external dependencies (minimal npm deps; Zod is OK)
 
 ### application
-- ユースケース 1 つ = 1 関数 / クラス
-- 「何をするか」をコード化、「どうやるか」は I/F 経由
-- 副作用は依存性注入で受け取る
+- One use case = one function / class
+- Encodes "what to do"; delegates "how to do it" through interfaces
+- Side effects received via dependency injection
 
 ### infrastructure
-- Drizzle / Resend / R2 / 外部 HTTP の具体実装
-- domain のリポジトリ I/F を `implements`
-- フレームワーク（Hono ハンドラ等）もここ
+- Concrete implementations of Drizzle / Resend / R2 / external HTTP
+- Implements domain repository interfaces
+- Framework code (Hono handlers, etc.) lives here
 
 ### interfaces
-- Hono ルーター
-- Zod スキーマ（入力検証）
-- DTO 変換
+- Hono routers
+- Zod schemas (input validation)
+- DTO transformations
 
-## 禁止パターン
+## Prohibited patterns
 
-- domain がフレームワーク・DB・HTTP に依存
-- ハンドラの中でビジネスロジック
-- repository が application のことを知る
-- application から `import { db }` を直接書く（必ず I/F 経由）
+- domain importing framework, DB, or HTTP dependencies
+- Business logic inside handlers
+- Repository knowing about application layer
+- `import { db }` directly from application (must always go through an interface)
 
-## 例
+## Example
 
 ```ts
 // domain/user/user-repository.ts
@@ -78,8 +78,8 @@ authRouter.post('/login', zValidator('json', LoginSchema), async (c) => {
 });
 ```
 
-## チェック
+## Checklist
 
-- [ ] domain/ から外側への import は無い（grep で検証可能）
-- [ ] application/ は infrastructure/ を直接 import しない
-- [ ] interfaces/ は application/ だけ import
+- [ ] No imports from domain/ to outer layers (verifiable with grep)
+- [ ] application/ does not directly import from infrastructure/
+- [ ] interfaces/ only imports from application/

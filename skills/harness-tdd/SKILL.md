@@ -1,81 +1,81 @@
 ---
 name: harness-tdd
-description: テスト駆動開発（TDD）を強制する。新機能実装、バグ修正、リファクタリング、振る舞い変更の前に必ず適用。Red-Green-Refactor のサイクルを守り、テスト無しで本番コードを書かないことを保証する。「テストを書いて」「TDD で」「実装する前に」「バグを直す」等の文脈で発火。
+description: Enforces test-driven development (TDD). Must be applied before implementing new features, fixing bugs, refactoring, or changing behavior. Ensures the Red-Green-Refactor cycle is followed and no production code is written without a failing test. Fires when the user says "write a test", "do TDD", "before implementing", "fix a bug", or similar.
 ---
 
 # harness-tdd
 
-ハーネス配下のすべての本番コード変更で適用する TDD ルール。
+The TDD rules that apply to every production code change under the harness.
 
-## 鉄則
+## Non-negotiable rule
 
 ```
 NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST.
 ```
 
-テスト無しで本番コードを書いた場合は **コードを削除して書き直す**。例外無し。
+If production code was written without a failing test first, **delete the code and rewrite it**. No exceptions.
 
-## サイクル
+## The cycle
 
-### RED（失敗テスト）
-1 つの振る舞いだけをテストする失敗ケースを書く。
-- テスト名は「〜できること」「〜になること」（日本語）
-- AAA パターン（Arrange / Act / Assert をコメントで明示）
-- モックは外部依存のみ。Real code を直接呼ぶ。
+### RED (failing test)
+Write a failing test that covers exactly one behavior.
+- Test names should be in Japanese, following the pattern "〜できること" / "〜になること" (this is the generated project's default language convention)
+- Use the AAA pattern (Arrange / Act / Assert, each section marked with a comment)
+- Mock external dependencies only. Call real code directly.
 
-### Verify RED（必須）
+### Verify RED (required)
 ```bash
 nix develop --command pnpm exec vitest related --run <test>
 ```
-- 期待する理由で失敗していることを確認（typo ではない）
-- パスしてしまう場合 → テストが既存挙動を見ている。テストを直す。
+- Confirm the test fails for the expected reason (not a typo)
+- If it passes unexpectedly → the test is covering existing behavior. Fix the test.
 
-### GREEN（最小実装）
-テストを通す **最小限のコード**。YAGNI 厳守。
+### GREEN (minimal implementation)
+Write the **minimum code** to make the test pass. YAGNI strictly enforced.
 
 ### Verify GREEN
 ```bash
 nix develop --command pnpm exec vitest run
 ```
-他のテストも全部緑なら次へ。
+All other tests must also be green before moving on.
 
 ### REFACTOR
-緑のまま:
-- 命名改善
-- 関数分割
-- JSDoc/TSDoc 追加（`harness-jsdoc` skill 参照）
+While staying green:
+- Improve naming
+- Split functions
+- Add JSDoc/TSDoc (see `harness-jsdoc` skill)
 
-新しい振る舞いは追加しない。
+Do not add new behavior during refactor.
 
 ## E2E TDD
 
-UI / API 公開面の変更は Playwright（Web）または Maestro（Mobile）で同じサイクル:
-1. 失敗 E2E を書く
-2. 「実装が無いから赤」を確認
-3. 実装
-4. 緑
+For changes to UI or public API surfaces, apply the same cycle using Playwright (Web) or Maestro (Mobile):
+1. Write a failing E2E test
+2. Confirm it is red because the implementation does not exist
+3. Implement
+4. Green
 
-## 禁止パターン
+## Prohibited patterns
 
-- テスト後付け
-- `it.skip` / `test.todo` の濫用
-- 「動作確認しました」だけで進める
-- console.log デバッグ残置
-- 1 テストに複数の Assert（独立性）
+- Writing tests after the production code
+- Overusing `it.skip` / `test.todo`
+- Moving forward with only "I verified it works manually"
+- Leaving `console.log` debug statements in code
+- Multiple assertions in one test (breaks independence)
 
-## ハーネス内コマンド
+## Commands inside the harness
 
 ```bash
-nix develop --command pnpm exec vitest run                  # 全テスト
-nix develop --command pnpm exec vitest related --run <f>    # 関連のみ
+nix develop --command pnpm exec vitest run                  # All tests
+nix develop --command pnpm exec vitest related --run <f>    # Related tests only
 nix develop --command pnpm exec playwright test             # Web E2E
 nix develop --command maestro test tests/e2e/mobile         # Mobile E2E
 ```
 
-## 完了条件
+## Definition of done
 
-- [ ] 各新規関数 / メソッドに対応するテストがある
-- [ ] 各テストの失敗を実際に目視した
-- [ ] 最小実装で緑にした
-- [ ] biome / tsc / vitest すべて緑
-- [ ] 出力に warning / error 無し
+- [ ] Each new function / method has a corresponding test
+- [ ] Personally witnessed each test failing
+- [ ] Made it green with minimal implementation
+- [ ] biome / tsc / vitest all green
+- [ ] No warnings or errors in the output

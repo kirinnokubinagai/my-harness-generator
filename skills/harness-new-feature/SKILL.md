@@ -1,52 +1,52 @@
 ---
 name: harness-new-feature
-description: dev 起点の feature worktree を作成して並列開発レーンを 1 つ立ち上げる。`new-feature.sh` をラップ。「新機能を始める」「issue 着手」「feature ブランチを作る」「並列レーンに入る」等の文脈で発火。
+description: Creates a dev-based feature worktree and stands up one parallel development lane. Wraps `new-feature.sh`. Fires when the user says "start a new feature", "pick up an issue", "create a feature branch", "enter a parallel lane", or similar.
 ---
 
 # harness-new-feature
 
-子 issue 番号と slug を受け取り、`<root>/lanes/feat-<issue>-<slug>/` に dev 起点の worktree を作る。
+Takes a child issue number and slug, and creates a worktree at `<root>/lanes/feat-<issue>-<slug>/` branched from dev.
 
-## 必須前提
+## Prerequisites
 
-- `<root>/.my-harness/scripts/new-feature.sh` が実行可能（bootstrap で配布済み）
-- 現在の cwd がプロジェクトルート（`.my-harness/.config` がある場所）
+- `<root>/.my-harness/scripts/new-feature.sh` is executable (distributed by bootstrap)
+- Current working directory is the project root (where `.my-harness/.config` lives)
 
-## 呼び出し
+## Invocation
 
 ```bash
 cd <root>
 bash .my-harness/scripts/new-feature.sh <issue-number> <slug>
 ```
 
-例:
+Example:
 ```bash
 bash .my-harness/scripts/new-feature.sh 42 user-login
-# → lanes/feat-42-user-login/ に worktree 作成、ブランチ feat/42-user-login（dev 起点）
+# → Creates worktree at lanes/feat-42-user-login/, branch feat/42-user-login (from dev)
 ```
 
-## 完了後の作業フロー
+## Post-creation workflow
 
-1. `cd lanes/feat-<issue>-<slug>` で worktree に移動
-2. `direnv allow`（初回のみ）
-3. **TDD で実装**（`harness-tdd` skill 参照）
-4. **規約遵守**（`harness-jsdoc` / `harness-hono-clean-arch` / `harness-drizzle-rules` 等）
-5. `git add` / `git commit`（husky pre-commit が format/lint/test/secrets を弾く）
-6. `git push` で feat ブランチを push
-7. `gh pr create --base dev` で PR 作成（PR 先は **必ず dev**）
+1. `cd lanes/feat-<issue>-<slug>` to enter the worktree
+2. `direnv allow` (first time only)
+3. **Implement with TDD** (see `harness-tdd` skill)
+4. **Follow all conventions** (`harness-jsdoc` / `harness-hono-clean-arch` / `harness-drizzle-rules`, etc.)
+5. `git add` / `git commit` (husky pre-commit enforces format/lint/test/secrets)
+6. `git push` to push the feat branch
+7. `gh pr create --base dev` to open a PR (**PR target must always be dev**)
 
-## 4 レーン並列の場合
+## When running 4 parallel lanes
 
-`harness-team-lead` agent が 4 子 issue を 4 レーンに振り分ける。各レーンの engineer がこの skill で worktree を立ち上げる。
+The `harness-team-lead` agent distributes 4 child issues across 4 lanes. Each lane's engineer uses this skill to set up their worktree.
 
-## 規約
+## Conventions
 
-- 起点ブランチは **必ず dev**（main / stage 起点は禁止、hotfix 除く）
-- ブランチ命名は `feat/<issue>-<slug>` 統一
-- マージ後は `git worktree remove lanes/feat-<issue>-<slug>` で掃除
+- Base branch must **always be dev** (branching from main / stage is prohibited except for hotfixes)
+- Branch naming follows the unified pattern `feat/<issue>-<slug>`
+- After merge, clean up with `git worktree remove lanes/feat-<issue>-<slug>`
 
-## 関連
+## Related
 
-- hotfix 開始は `harness-new-hotfix`
-- コンフリクト解消は `harness-resolve-conflict`
-- dev 取込は `harness-sync-features`
+- Starting a hotfix: `harness-new-hotfix`
+- Resolving conflicts: `harness-resolve-conflict`
+- Pulling in dev updates: `harness-sync-features`

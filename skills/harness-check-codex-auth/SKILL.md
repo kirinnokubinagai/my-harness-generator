@@ -1,49 +1,49 @@
 ---
 name: harness-check-codex-auth
-description: Codex CLI のインストール状況とログイン状態を確認する。`check-codex-auth.sh` をラップ。「Codex 使えるか」「codex login」「Codex 認証」等の文脈で発火。
+description: Checks whether the Codex CLI is installed and authenticated. Wraps `check-codex-auth.sh`. Fires when the user asks "can I use Codex", "codex login", "Codex authentication", or similar.
 ---
 
 # harness-check-codex-auth
 
-Codex CLI（`@openai/codex`）が使える状態かを判定する。`/my-harness-init` の段階 0 や、Codex 連携を始める前に必ず通す。
+Determines whether the Codex CLI (`@openai/codex`) is ready to use. Run this during `/my-harness-init` setup phase 0, or before starting any Codex integration.
 
-## 呼び出し
+## Invocation
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT:-/my-harness-generator}/scripts/check-codex-auth.sh
 ```
 
-## 結果
+## Results
 
-| stdout | exit code | 意味 | 対処 |
-|--------|-----------|------|------|
-| `logged-in` | 0 | OK、`codex exec` が動く | 続行 |
-| `not-logged-in` | 1 | CLI はあるが未ログイン | `codex login` を案内 |
-| `not-installed` | 127 | CLI がインストールされていない | `npm i -g @openai/codex` を案内 |
+| stdout | exit code | Meaning | Action |
+|--------|-----------|---------|--------|
+| `logged-in` | 0 | OK — `codex exec` will work | Continue |
+| `not-logged-in` | 1 | CLI is installed but not authenticated | Guide user to run `codex login` |
+| `not-installed` | 127 | CLI is not installed | Guide user to run `npm i -g @openai/codex` |
 
-## 判定ロジック
+## Detection logic
 
-- `command -v codex` で CLI 存在確認
-- `~/.codex/auth.json` の存在確認
-- jq で `tokens.access_token` / `tokens.id_token` / `api_key` のいずれかが空でないか確認
+- Checks CLI existence with `command -v codex`
+- Checks for `~/.codex/auth.json`
+- Uses jq to verify that at least one of `tokens.access_token`, `tokens.id_token`, or `api_key` is non-empty
 
-## 失敗時の案内テンプレ
+## Guidance templates
 
 `not-installed`:
 ```
-Codex CLI が見つかりません。次を実行してください:
+Codex CLI not found. Please run:
   npm install -g @openai/codex
   codex login
 ```
 
 `not-logged-in`:
 ```
-Codex CLI はあるが認証されていません。次を実行してください:
+Codex CLI is installed but not authenticated. Please run:
   codex login
-完了後、もう一度試してください。
+Then try again.
 ```
 
-## 関連
+## Related
 
-- Codex に質問する: `harness-codex-consult`
-- `/my-harness-init` 段階 0 で USE_CODEX=yes を選んだ際にこの skill が呼ばれる
+- Consulting Codex: `harness-codex-consult`
+- This skill is called automatically when the user selects USE_CODEX=yes during `/my-harness-init` setup
