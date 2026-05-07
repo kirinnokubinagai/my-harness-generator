@@ -256,7 +256,7 @@ USE_GLOBAL_CLAUDE=yes         # ~/.claude/CLAUDE.md を引き継ぐ or プロジ
 USE_GITHUB_ISSUES=yes         # gh issue or "no"（ローカル docs/task/）
 CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # engineer subagent を Codex に委譲（USE_CODEX=yes のときのみ意味あり）
-USE_CODEX_E2E_REVIEWER=yes    # E2E テスト実行を Codex に委譲
+USE_CODEX_E2E_REVIEWER=no     # E2E レポート合成を Codex に委譲（デフォルト: no — Claude がローカルで実行）
 USE_CODEX_REVIEWER=yes        # 規約レビューを Codex に委譲
 ON_CODEX_AUTH_FAIL=pause      # 既定: 認証/サブスク切れ時にユーザー通知＋待機、re-login 後 resume。fail なら即失敗
 ```

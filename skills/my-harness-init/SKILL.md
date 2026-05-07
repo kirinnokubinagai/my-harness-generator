@@ -315,6 +315,10 @@ bash ~/my-harness-generator/scripts/check-codex-auth.sh
 
 `CODEX_SESSION` is derived automatically as `<PROJECT_SLUG>-init`. This is never asked as a question.
 
+Note: during implementation (after `/harness-team-lead`), each subagent spawn gets its own fresh Codex session — sessions are never shared across subagent boundaries. A new spawn for the same role and issue always starts a new session (except when resuming after a `blocked-codex-auth` pause, where the paused session id is explicitly inherited).
+
+注: 実装フェーズ（`/harness-team-lead` 以降）では、各サブエージェントのスポーンは独自の新しい Codex セッションを取得します。セッションはサブエージェントの境界を越えて共有されません。同じロール・issue に対する新しいスポーンは常に新しいセッションを開始します（`blocked-codex-auth` 一時停止後の再開時を除く — その場合は一時停止時のセッション ID が明示的に引き継がれます）。
+
 ---
 
 #### Setup Q3b: Delegate engineer to Codex? (only when USE_CODEX=yes)
@@ -327,9 +331,23 @@ bash ~/my-harness-generator/scripts/check-codex-auth.sh
 
 #### Setup Q3c: Delegate e2e-reviewer to Codex? (only when USE_CODEX=yes)
 
-**LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: y — Codex can run tests from the CLI)"
+**LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: n)"
+>
+> **What this controls:** E2E tests (Playwright / Maestro) always run **locally inside the worktree** — Claude executes `nix develop --command pnpm exec playwright test ...` and/or `nix develop --command maestro test ...` directly. Codex never runs Playwright or Maestro itself.
+>
+> When `n` (default): Claude runs the tests AND synthesizes the structured failure report.
+> When `y`: Claude still runs the tests locally; **the only thing Codex does** is take the raw test output (failures, console errors, network errors, screenshot paths) and synthesize the structured failure report (file / test / expected / actual / hypothesis). Codex acts as the report writer / diagnostician.
+>
+> **Why default `n`:** Claude is already in the worktree, has direct file and log access, and generates the same structured report without an extra round-trip. Codex delegation is worth it only if you specifically want a second-opinion diagnosis.
 
-**LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex は CLI からテストを実行できます)"
+**LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: n)"
+>
+> **この設定が影響する箇所:** E2E テスト（Playwright / Maestro）は**常にワークツリー内でローカル実行**されます — Claude が `nix develop --command pnpm exec playwright test ...` や `nix develop --command maestro test ...` を直接実行します。Codex が Playwright や Maestro を実行することは一切ありません。
+>
+> `n`（デフォルト）の場合: Claude がテストを実行し、構造化された失敗レポートも合成します。
+> `y` の場合: Claude が引き続きテストをローカルで実行します。**Codex が行うのは唯一つ** — 生のテスト出力（失敗・コンソールエラー・ネットワークエラー・スクリーンショットパス）を受け取り、構造化された失敗レポート（ファイル / テスト / 期待値 / 実際値 / 仮説）を合成することだけです。Codex はレポートライター・診断者として機能します。
+>
+> **デフォルトが `n` の理由:** Claude はすでにワークツリー内にあり、ファイルやログに直接アクセスでき、追加のラウンドトリップなしに同じ構造化レポートを生成できます。Codex 委任が有効なのは、第二意見による診断を特に求める場合だけです。
 
 ---
 
@@ -382,7 +400,7 @@ ROOT=<root>
 USE_CODEX=<yes|no>
 CODEX_SESSION=<PROJECT_SLUG>-init  # Only written when USE_CODEX=yes
 USE_CODEX_ENGINEER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude implements
-USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; if no, Claude runs E2E
+USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; default no — Claude runs E2E tests locally AND synthesizes the report; yes = Claude runs tests, Codex synthesizes the failure report
 USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
 ON_CODEX_AUTH_FAIL=pause           # Default pause: notify user and wait on auth/subscription failure; fail = immediate error
 USE_GITHUB_ISSUES=<yes|no>

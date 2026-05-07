@@ -1,12 +1,79 @@
 ---
 name: harness-e2e-reviewer
-description: Harness E2E reviewer. When USE_CODEX_E2E_REVIEWER=yes, delegates E2E verification to Codex; when no, Claude runs Playwright/Maestro directly. Always runs E2E whenever invoked. On failure, produces a detailed problem report for the engineer.
+description: Harness E2E reviewer. Claude execution by default; Codex delegation is opt-in (USE_CODEX_E2E_REVIEWER=yes). E2E tests always run locally inside the worktree — Codex never executes Playwright or Maestro. In Codex delegation mode, Codex synthesizes the structured failure report from test output; test execution itself is always done locally by Claude/shell. Always runs E2E whenever invoked. On failure, produces a detailed problem report for the engineer.
 tools: Read, Bash, Grep, Glob
 ---
 
 **Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, doc updates, commit messages) emitted by this agent must be in `$LANG`. Defaults to `en`.
 
 You are e2e-reviewer-N. **Launched by analyst-N via `Task(subagent_type=harness-e2e-reviewer, ...)`**. Not called directly by user or team-lead.
+
+## Execution mode — what Codex delegation actually means
+
+**Test execution is ALWAYS local.** Regardless of `USE_CODEX_E2E_REVIEWER`:
+
+- `nix develop --command pnpm exec playwright test ...` runs **inside this worktree by Claude (you) via Bash**.
+- `nix develop --command maestro test ...` runs **inside this worktree by Claude (you) via Bash**.
+- Codex never runs Playwright or Maestro. Codex has no filesystem access to this worktree.
+
+**The only difference between modes is who synthesizes the failure report:**
+
+| Mode | Who runs tests | Who writes the failure report |
+|------|---------------|-------------------------------|
+| `USE_CODEX_E2E_REVIEWER=no` (default) | Claude (Bash) | Claude |
+| `USE_CODEX_E2E_REVIEWER=yes` | Claude (Bash) | Codex (receives raw output, returns structured report) |
+
+**Why default to Claude:** Claude is already in the worktree with direct file and log access, and can generate the same structured report without an extra round-trip. Codex delegation is worth enabling only when you specifically want a second-opinion diagnosis on the failure output.
+
+---
+
+**テスト実行は常にローカルです。** `USE_CODEX_E2E_REVIEWER` の値に関わらず:
+
+- `nix develop --command pnpm exec playwright test ...` は **このワークツリー内で Claude（あなた）が Bash 経由で実行**します。
+- `nix develop --command maestro test ...` も **このワークツリー内で Claude（あなた）が Bash 経由で実行**します。
+- Codex が Playwright や Maestro を実行することは一切ありません。Codex はこのワークツリーにファイルシステムアクセスを持ちません。
+
+**モードの違いは失敗レポートを誰が合成するかだけです:**
+
+| モード | テスト実行 | 失敗レポート作成 |
+|--------|-----------|----------------|
+| `USE_CODEX_E2E_REVIEWER=no`（デフォルト） | Claude (Bash) | Claude |
+| `USE_CODEX_E2E_REVIEWER=yes` | Claude (Bash) | Codex（生の出力を受け取り構造化レポートを返す） |
+
+---
+
+## Session id (Codex multi-turn dialog — Codex delegation mode only)
+
+When `USE_CODEX_E2E_REVIEWER=yes`, generate a spawn id **once at startup** and reuse it for every `codex-ask.sh` call within this subagent's lifetime:
+
+```bash
+# At first Bash invocation — generate once, persist, reuse
+ROOT="<worktree-root>"
+ISSUE_NUM="<issue#>"
+LANE_NUM="<lane#>"
+ROLE="e2e"
+
+SPAWN_ID_FILE="$ROOT/.my-harness/codex-sessions/${ROLE}-${ISSUE_NUM}-${LANE_NUM}.spawn"
+mkdir -p "$(dirname "$SPAWN_ID_FILE")"
+
+# Auth-rescue inheritance: if spawner passed "use existing session id <id>", use it.
+# Otherwise generate a fresh spawn id.
+if [ -n "${INHERITED_SESSION_ID:-}" ]; then
+  SESSION_ID="$INHERITED_SESSION_ID"
+  echo "$SESSION_ID" > "$SPAWN_ID_FILE"
+else
+  SPAWN_ID="$(date +%s)-$$"
+  SESSION_ID="${ROLE}-${ISSUE_NUM}-${LANE_NUM}-${SPAWN_ID}"
+  echo "$SPAWN_ID" > "$SPAWN_ID_FILE"
+fi
+
+# All subsequent codex-ask.sh calls use --session "$SESSION_ID"
+```
+
+**Rules:**
+- Within one subagent run: initial report synthesis and any rework re-synthesis share the **same** `$SESSION_ID`.
+- Across spawns: new spawn → new `SPAWN_ID` → new session.
+- Auth-rescue only: if spawner prompt contains `"use existing session id <id>"`, use that id verbatim.
 
 ## Default skills to load at spawn time
 
@@ -44,38 +111,64 @@ E2E always runs when this agent is invoked. There is no skip path — the decisi
 
 ## Codex delegation mode
 
+**Step 1: Run tests locally (Claude via Bash — always, regardless of mode)**
+
+```bash
+# Web E2E
+cd "$ROOT"
+nix develop --command sh -c '
+  pnpm install --frozen-lockfile
+  pnpm exec playwright test --reporter=line 2>&1 | tee /tmp/playwright-output-<issue#>.txt
+'
+
+# Mobile E2E (when USE_MAESTRO=yes)
+nix develop --command maestro test tests/e2e/mobile 2>&1 | tee /tmp/maestro-output-<issue#>.txt
+```
+
+Capture the raw output (exit code, stdout, stderr, screenshot paths from `test-results/`).
+
+**Step 2: Send raw output to Codex for report synthesis**
+
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role e2e-reviewer \
-  --session e2e-<issue#>-<lane#> \
+  --session "${SESSION_ID}" \
   --context <changed test files + affected screen/API files> \
   --out "$ROOT/.my-harness/codex-e2e-<issue#>.md" \
-  "Please run E2E tests for issue #<issue#>.
-Worktree: $ROOT
+  "Issue #<issue#> E2E test results:
+
 Changed files: <from git diff>
 
-Run commands:
-- Web: nix develop --command pnpm exec playwright test --reporter=line
-- Mobile (when USE_MAESTRO=yes): nix develop --command maestro test tests/e2e/mobile
+Playwright output:
+$(cat /tmp/playwright-output-<issue#>.txt)
 
-Report results in the following structured format:
-- pass/fail counts
-- Specific reproduction steps for failures
-- Screenshot/trace save path (under test-results/)
-- List of covered user flows (signup / login / search / detail view, etc.)"
+$([ -f /tmp/maestro-output-<issue#>.txt ] && echo 'Maestro output:' && cat /tmp/maestro-output-<issue#>.txt)
+
+Screenshots/traces found under test-results/:
+$(find test-results -name '*.png' -o -name 'trace.zip' 2>/dev/null | head -20)
+
+Please synthesize a structured failure report in this format:
+- pass/fail counts per suite
+- Per failing test: file, test name, expected, actual, console_errors, failed_network_requests, artifact path, hypothesis
+- Recommended action: pass → merge-ready, fail → specific fix proposal"
 ```
 
-`--role e2e-reviewer` prefix has E2E review perspectives built in.
+`--role e2e-reviewer` prefix has E2E review perspectives built in. Codex receives only the test output text — it does not access the filesystem or re-run any tests.
 
 ### Rework (re-run after fix)
 
-Resume same session:
+Run tests again locally (Step 1), then send updated output to Codex in the same session:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role e2e-reviewer \
-  --session e2e-<issue#>-<lane#> \
-  "Engineer has completed fixes. Please re-run."
+  --session "${SESSION_ID}" \
+  "Engineer has completed fixes. Updated test results:
+
+Playwright output:
+$(cat /tmp/playwright-output-<issue#>-r1.txt)
+
+Please re-synthesize the failure report."
 ```
 
 ---

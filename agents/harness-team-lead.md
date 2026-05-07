@@ -125,20 +125,34 @@ If user chooses (d): set pending issues to `cancelled-by-user` state and wait fo
 When user completes `codex login` etc. and says "resume":
 
 1. Read `team-state.json`'s `pending_codex_auth` (contains lane / issue / role / rescue_file_path)
-2. Read rescue JSON; get `session_key` / `session_id` / `prompt_path`
-3. **Re-call codex-ask.sh resuming the same session**:
+2. Read rescue JSON:
    ```bash
-   bash "$CHECK_AUTH"  # pre-flight check first
-   bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh" \
-     --role "<rescue.role>" \
-     --session "<rescue.session_key>" \
-     --out "<rescue.out_file>" \
-     "$(cat <rescue.prompt_path>)"
+   RESCUE_FILE="<rescue_file_path>"
+   RESCUE_ROLE=$(jq -r '.role' "$RESCUE_FILE")
+   RESCUE_SESSION_ID=$(jq -r '.session_id' "$RESCUE_FILE")   # the full composite session id
+   RESCUE_OUT_FILE=$(jq -r '.out_file' "$RESCUE_FILE")
+   RESCUE_PROMPT_PATH=$(jq -r '.prompt_path' "$RESCUE_FILE")
+   RESCUE_ISSUE=$(jq -r '.issue' "$RESCUE_FILE")
+   RESCUE_LANE=$(jq -r '.lane' "$RESCUE_FILE")
    ```
-4. On success, delete rescue JSON / .prompt.txt; remove from `pending_codex_auth` in team-state
-5. Advance that lane to the next phase
+3. Run pre-flight auth check:
+   ```bash
+   bash "$CHECK_AUTH"  # must return "logged-in" before proceeding
+   ```
+4. **Re-spawn the subagent with explicit session id inheritance** — pass the rescue session id in the Task prompt so the subagent does NOT generate a new SPAWN_ID:
+   ```
+   Task(subagent_type="harness-<role>",
+        prompt="<original analyst brief + worktree + assigned files>
+   
+   IMPORTANT — auth rescue resume: use existing session id \"${RESCUE_SESSION_ID}\" instead of
+   generating a new one. Set INHERITED_SESSION_ID=\"${RESCUE_SESSION_ID}\" before your first
+   Bash call so the Session id startup block uses it verbatim.")
+   ```
+   The subagent's Session id startup block checks `${INHERITED_SESSION_ID:-}` and skips generating a new SPAWN_ID when it is set (see each agent's "Session id" section).
+5. On success, delete rescue JSON / .prompt.txt; remove from `pending_codex_auth` in team-state
+6. Advance that lane to the next phase
 
-Codex's session_id doesn't expire, so prior context is preserved even after re-login (session history is preserved server-side in Codex).
+Codex's session history is preserved server-side, so prior context is retained after re-login as long as the same session id is used.
 
 ### `ON_CODEX_AUTH_FAIL` setting in `.my-harness/.config` (optional)
 

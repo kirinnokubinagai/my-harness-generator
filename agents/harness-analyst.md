@@ -26,6 +26,41 @@ Constraints:
 Reference: https://github.com/<owner>/<repo>/issues/<N>  (for engineer's reference only)
 ```
 
+## Session id (Codex multi-turn dialog)
+
+When this subagent uses Codex (`USE_CODEX=yes`), generate a spawn id **once at startup** and reuse it for every `codex-ask.sh` call within this subagent's lifetime:
+
+```bash
+# At first Bash invocation — generate once, persist, reuse
+ROOT="<worktree-root>"
+ISSUE_NUM="<issue#>"
+LANE_NUM="<lane#>"
+ROLE="analyst"
+
+SPAWN_ID_FILE="$ROOT/.my-harness/codex-sessions/${ROLE}-${ISSUE_NUM}-${LANE_NUM}.spawn"
+mkdir -p "$(dirname "$SPAWN_ID_FILE")"
+
+# Auth-rescue inheritance: if a rescue file indicates this exact role/issue/lane
+# was paused and the spawner passed "use existing session id <id>", use that id instead.
+# Otherwise generate a fresh spawn id.
+if [ -n "${INHERITED_SESSION_ID:-}" ]; then
+  SESSION_ID="$INHERITED_SESSION_ID"
+  echo "$SESSION_ID" > "$SPAWN_ID_FILE"
+else
+  SPAWN_ID="$(date +%s)-$$"
+  SESSION_ID="${ROLE}-${ISSUE_NUM}-${LANE_NUM}-${SPAWN_ID}"
+  echo "$SPAWN_ID" > "$SPAWN_ID_FILE"
+fi
+
+# All subsequent codex-ask.sh calls in this subagent use --session "$SESSION_ID"
+# Example: codex-ask.sh --role analyst --session "$SESSION_ID" "..."
+```
+
+**Rules:**
+- Within one subagent run: every `codex-ask.sh` call uses the **same** `$SESSION_ID` (multi-turn context accumulates).
+- Across spawns (orchestrator re-spawns a fresh Task for the same role/issue/lane): the new subagent generates a new `SPAWN_ID`, overwrites the file, and starts a new Codex session. The previous session is implicitly discarded.
+- Auth-rescue only: if the spawner prompt contains `"use existing session id <id>"`, use that id verbatim (see team-lead auth rescue protocol).
+
 ## Default skills to load at spawn time
 
 Invoke these skills immediately upon receiving the spawn prompt:

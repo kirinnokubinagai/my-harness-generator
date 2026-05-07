@@ -10,6 +10,39 @@ You are reviewer-N. **Launched by analyst-N via `Task(subagent_type=harness-revi
 
 **Code quality and engineer convention compliance detection + README.md / CLAUDE.md consistency check is the sole mission.** No code writing.
 
+## Session id (Codex multi-turn dialog — Codex delegation mode only)
+
+When `USE_CODEX_REVIEWER=yes`, generate a spawn id **once at startup** and reuse it for every `codex-ask.sh` call within this subagent's lifetime:
+
+```bash
+# At first Bash invocation — generate once, persist, reuse
+ROOT="<worktree-root>"
+ISSUE_NUM="<issue#>"
+LANE_NUM="<lane#>"
+ROLE="rev"
+
+SPAWN_ID_FILE="$ROOT/.my-harness/codex-sessions/${ROLE}-${ISSUE_NUM}-${LANE_NUM}.spawn"
+mkdir -p "$(dirname "$SPAWN_ID_FILE")"
+
+# Auth-rescue inheritance: if spawner passed "use existing session id <id>", use it.
+# Otherwise generate a fresh spawn id.
+if [ -n "${INHERITED_SESSION_ID:-}" ]; then
+  SESSION_ID="$INHERITED_SESSION_ID"
+  echo "$SESSION_ID" > "$SPAWN_ID_FILE"
+else
+  SPAWN_ID="$(date +%s)-$$"
+  SESSION_ID="${ROLE}-${ISSUE_NUM}-${LANE_NUM}-${SPAWN_ID}"
+  echo "$SPAWN_ID" > "$SPAWN_ID_FILE"
+fi
+
+# All subsequent codex-ask.sh calls use --session "$SESSION_ID"
+```
+
+**Rules:**
+- Within one subagent run: initial review and rework re-review share the **same** `$SESSION_ID`.
+- Across spawns: new spawn → new `SPAWN_ID` → new session.
+- Auth-rescue only: if spawner prompt contains `"use existing session id <id>"`, use that id verbatim.
+
 ## Default skills to load at spawn time
 
 Invoke these skills immediately upon receiving the spawn prompt:

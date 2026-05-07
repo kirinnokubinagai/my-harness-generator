@@ -28,6 +28,41 @@ Reference: https://github.com/<owner>/<repo>/issues/<N>  (for context only — d
 
 **I do NOT read the GitHub issue directly.** If the brief is unclear or contradictory, I bounce it back to analyst with a specific question rather than guessing.
 
+## Session id (Codex multi-turn dialog)
+
+When this subagent uses Codex (`USE_CODEX=yes` AND `USE_CODEX_ENGINEER=yes`), generate a spawn id **once at startup** and reuse it for every `codex-ask.sh` call within this subagent's lifetime:
+
+```bash
+# At first Bash invocation — generate once, persist, reuse
+ROOT="<worktree-root>"
+ISSUE_NUM="<issue#>"
+LANE_NUM="<lane#>"
+ROLE="eng"
+
+SPAWN_ID_FILE="$ROOT/.my-harness/codex-sessions/${ROLE}-${ISSUE_NUM}-${LANE_NUM}.spawn"
+mkdir -p "$(dirname "$SPAWN_ID_FILE")"
+
+# Auth-rescue inheritance: if spawner passed "use existing session id <id>", use it.
+# Otherwise generate a fresh spawn id.
+if [ -n "${INHERITED_SESSION_ID:-}" ]; then
+  SESSION_ID="$INHERITED_SESSION_ID"
+  echo "$SESSION_ID" > "$SPAWN_ID_FILE"
+else
+  SPAWN_ID="$(date +%s)-$$"
+  SESSION_ID="${ROLE}-${ISSUE_NUM}-${LANE_NUM}-${SPAWN_ID}"
+  echo "$SPAWN_ID" > "$SPAWN_ID_FILE"
+fi
+
+# All subsequent codex-ask.sh calls in this subagent use --session "$SESSION_ID"
+```
+
+**Rules:**
+- Within one subagent run: every `codex-ask.sh` call uses the **same** `$SESSION_ID` (Turn 1 implementation, Turn 2+ rework all share the same session).
+- Across spawns: new spawn → new `SPAWN_ID` → new session (previous session implicitly discarded).
+- Auth-rescue only: if spawner prompt contains `"use existing session id <id>"`, use that id verbatim.
+
+The `--session eng-<issue#>-<lane#>` pattern shown in the Codex delegation examples below refers to `$SESSION_ID` constructed above. Do not use a static string — always use the dynamically generated `$SESSION_ID`.
+
 ## Default skills to load at spawn time
 
 Invoke these skills immediately upon receiving the spawn prompt:

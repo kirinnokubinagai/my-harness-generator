@@ -20,6 +20,24 @@
 # Roles (--role):
 #   architect / critic / analyst / planner / code-reviewer / security-reviewer / designer / tdd
 #   engineer / e2e-reviewer / harness-reviewer  <- for delegation from harness subagents
+#
+# Session id contract (for harness subagents):
+#   Each harness subagent (analyst / engineer / e2e-reviewer / reviewer) is responsible for
+#   generating its own SESSION_ID at startup:
+#
+#     SPAWN_ID="$(date +%s)-$$"
+#     SESSION_ID="<role>-<issue#>-<lane#>-${SPAWN_ID}"
+#
+#   The subagent passes --session "$SESSION_ID" on every call within its lifetime so that
+#   Codex accumulates conversation context across turns (multi-turn dialog within one spawn).
+#
+#   This script does NOT invent or rewrite session ids. It uses whatever key is passed via
+#   --session verbatim as the file-based session key (SESSION_KEY). The actual Codex session id
+#   (SESSION_ID in the JSONL) is extracted from the first response and stored in
+#   $SESSION_DIR/$SESSION_KEY.id for subsequent resume calls.
+#
+#   Fresh spawn = fresh SESSION_ID passed by the subagent = new .id file = new Codex session.
+#   Auth-rescue resume = subagent passes the paused session's SESSION_ID = same .id file reused.
 
 set -euo pipefail
 
@@ -171,17 +189,40 @@ save_codex_auth_rescue() {
   else
     rescue_prompt=""
   fi
-  # JSON contains metadata only (prompt body is in a separate file)
+  # JSON contains metadata only (prompt body is in a separate file).
+  # Shape (consumed by harness-team-lead resume protocol):
+  # {
+  #   "role":        the --role passed to this call (e.g. "engineer")
+  #   "issue":       extracted from SESSION_KEY pattern "<role>-<issue#>-<lane#>-<spawn>" (or empty)
+  #   "lane":        extracted from SESSION_KEY (or empty)
+  #   "session_id":  the full SESSION_KEY passed as --session (subagent's composite id)
+  #   "reason":      preflight-not-logged-in | preflight-not-installed | login-expired | subscription-or-quota
+  #   "paused_at":   ISO 8601 UTC timestamp
+  #   "next_action": human instructions for resuming
+  #   "session_key": same as session_id (legacy field kept for backward compat)
+  #   "out_file":    the --out file path (if any)
+  #   "log_file":    the --log file path (if any)
+  #   "prompt_path": path to the saved prompt text file
+  # }
+  local _issue="" _lane=""
+  if [ -n "${SESSION_KEY:-}" ]; then
+    # SESSION_KEY format: <role>-<issue#>-<lane#>-<epoch>-<pid>
+    _issue=$(echo "$SESSION_KEY" | grep -oE '\-([0-9]+)\-' | head -1 | tr -d '-')
+    _lane=$(echo  "$SESSION_KEY" | grep -oE '\-([0-9]+)\-' | sed -n '2p' | tr -d '-')
+  fi
   {
     echo '{'
-    echo "  \"reason\": \"$reason\","
-    echo "  \"session_key\": \"${SESSION_KEY:-}\","
-    echo "  \"session_id\": \"${SESSION_ID:-}\","
     echo "  \"role\": \"${ROLE:-}\","
+    echo "  \"issue\": \"${_issue}\","
+    echo "  \"lane\": \"${_lane}\","
+    echo "  \"session_id\": \"${SESSION_KEY:-}\","
+    echo "  \"reason\": \"$reason\","
+    echo "  \"paused_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+    echo "  \"next_action\": \"user runs \`codex login\` (or sets OPENAI_API_KEY), then says \`resume\` to harness-team-lead\","
+    echo "  \"session_key\": \"${SESSION_KEY:-}\","
     echo "  \"out_file\": \"${OUT_FILE:-}\","
     echo "  \"log_file\": \"${LOG_FILE:-}\","
-    echo "  \"prompt_path\": \"$rescue_prompt\","
-    echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+    echo "  \"prompt_path\": \"$rescue_prompt\""
     echo '}'
   } > "$rescue_json"
   echo "::error:: Codex auth error ($reason). Rescue state saved:" >&2

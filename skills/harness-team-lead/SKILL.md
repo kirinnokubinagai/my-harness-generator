@@ -98,14 +98,30 @@ Ask the user: "Ready to run the next batch? (y/n)"
 If any subagent returns `blocked-codex-auth`:
 
 1. Pause that lane.
-2. Surface the rescue file path from the status message.
+2. Read the rescue file to extract the paused session id:
+   ```bash
+   RESCUE_FILE="<path from status message>"
+   RESCUE_SESSION_ID=$(jq -r '.session_id' "$RESCUE_FILE")
+   RESCUE_ROLE=$(jq -r '.role' "$RESCUE_FILE")
+   RESCUE_ISSUE=$(jq -r '.issue' "$RESCUE_FILE")
+   RESCUE_LANE=$(jq -r '.lane' "$RESCUE_FILE")
+   ```
 3. Tell the user:
    ```
    Lane N (issue #X) is paused — Codex auth expired.
    Run: codex login
    Then reply: resume lane N
    ```
-4. On "resume lane N": re-spawn only that lane's analyst with the same issue and worktree, using `Task(subagent_type=harness-analyst, ...)`. The Codex session is preserved server-side.
+4. On "resume lane N": re-spawn only that lane's subagent with the same issue and worktree, passing the paused session id explicitly so the new spawn inherits it instead of generating a fresh one:
+   ```
+   Task(subagent_type="harness-<RESCUE_ROLE>",
+        prompt="<original brief + worktree + assigned files>
+
+   IMPORTANT — auth rescue resume: use existing session id \"${RESCUE_SESSION_ID}\" instead of
+   generating a new one. Set INHERITED_SESSION_ID=\"${RESCUE_SESSION_ID}\" before your first
+   Bash call so the Session id startup block uses it verbatim.")
+   ```
+   The Codex session is preserved server-side; the subagent will resume from where the conversation left off.
 
 ## Stateless design
 

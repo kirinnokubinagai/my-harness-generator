@@ -256,7 +256,7 @@ USE_GLOBAL_CLAUDE=yes         # inherit ~/.claude/CLAUDE.md, or isolate
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
 CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
-USE_CODEX_E2E_REVIEWER=yes    # delegate E2E test execution to Codex
+USE_CODEX_E2E_REVIEWER=no     # delegate E2E test report synthesis to Codex (default: no — Claude runs locally)
 USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
 ON_CODEX_AUTH_FAIL=pause      # default: pause + user notify + resume after re-login. "fail" → immediate fail
 ```

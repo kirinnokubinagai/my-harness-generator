@@ -181,7 +181,7 @@ else
   if [ "$USE_CODEX" = "yes" ]; then
     CODEX_SESSION=$(ask "  Codex session name" "my-harness-init")
     USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer to Codex" "y")
-    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer to Codex" "y")
+    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer to Codex" "n")
     USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer to Codex" "y")
     ON_CODEX_AUTH_FAIL=$(ask_choice "  Behavior on auth/subscription failure" "pause" pause fail)
   else
