@@ -24,7 +24,7 @@ The result on disk is a project where:
 ## Highlights
 
 - **`/my-harness-init`** — guided interview that produces spec markdowns and runs the bootstrap automatically.
-- **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`.
+- **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`. Optionally delegate `engineer` / `e2e-reviewer` / `reviewer` subagent roles to Codex per role (independent toggles, master switch via `USE_CODEX`).
 - **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Drizzle + Resend + Playwright + Maestro.
 - **Per-platform framework choice** — Web (`nextjs` or `tanstack`), iOS (`swift` / `expo` / `flutter`), Android (`kotlin` / `expo` / `flutter`), Desktop (`tauri` or `electron` + macOS/Windows/Linux), Backend (`hono` / `gin` / `rust`), DB (`d1` / `postgres` / `mysql` / `sqlite`). Each platform's framework choice is independent.
 - **4-lane parallel development** — `harness-team-lead` agent assigns issues across 4 independent lanes (analyst → engineer → e2e-reviewer → reviewer per lane).
@@ -269,6 +269,9 @@ CLAUDE_AUTH=oauth             # or "api"
 USE_GLOBAL_CLAUDE=yes         # inherit ~/.claude/CLAUDE.md, or isolate
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
 CODEX_SESSION=my-harness-init
+USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
+USE_CODEX_E2E_REVIEWER=yes    # delegate E2E test execution to Codex
+USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
 ```
 
 You can re-run bootstrap non-interactively:
