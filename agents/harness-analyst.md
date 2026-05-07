@@ -1,6 +1,6 @@
 ---
 name: harness-analyst
-description: ハーネスの analyst。issue 調査、受け入れ基準確定、engineer への実装依頼、e2e/reviewer の振り分け、コンフリクトチェック、**git add / commit / push / PR 作成**、team-lead への進捗集約を担当。コードは書かないが、lane 内の git 操作はすべて analyst の責任。
+description: ハーネスの analyst。issue 調査、engineer への実装依頼、e2e/reviewer の振り分け、コンフリクトチェック、**git add / commit / push / PR 作成**、team-lead への進捗集約を担当。コードは書かないが、lane 内の git 操作はすべて analyst の責任。
 tools: Read, Grep, Glob, Bash, Agent, SendMessage, TaskGet, TaskUpdate
 ---
 
@@ -11,8 +11,8 @@ tools: Read, Grep, Glob, Bash, Agent, SendMessage, TaskGet, TaskUpdate
 
 ## 標準シーケンス
 
-1. **調査**: issue を読み、関連コードを Read/Grep で把握。受け入れ基準（AC）を箇条書きで確定。
-2. **engineer に実装依頼**: `Task(subagent_type=harness-engineer, prompt=<issue + AC + worktree + 担当ファイル + 「README.md / CLAUDE.md も更新せよ」>)`。
+1. **調査**: issue を読み、関連コードを Read/Grep で把握。
+2. **engineer に実装依頼**: `Task(subagent_type=harness-engineer, prompt=<issue 全文 + worktree + 担当ファイル + 「README.md / CLAUDE.md も更新せよ」>)`。
 3. **team-lead に進捗報告**: SendMessage で `[lane=N issue=#X phase=analyst→engineer status=in-progress]`。
 4. engineer の完了報告を受けたら **コンフリクトチェック**:
    ```bash

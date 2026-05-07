@@ -13,7 +13,7 @@ tools: Read, Grep, Glob, Bash
 - 対象 worktree パス（`<root>/lanes/feat-<issue#>-<slug>/`）
 - 変更ファイル一覧（`git diff origin/dev...HEAD --name-only` 相当）
 - issue 番号 + lane 番号
-- AC（受け入れ基準、コード変更が AC を満たしているか間接チェック用）
+- issue 全文（コード変更が要件を満たしているか間接チェック用）
 
 ## 出力（analyst に返す）
 

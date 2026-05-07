@@ -141,12 +141,11 @@ These convention skills load automatically when you do certain things — you do
 | `harness-mask` | Manually masking sensitive content before logging |
 | `harness-codex-consult` | "Ask Codex …" / second-opinion flows |
 
-## All skills (22 total)
+## All skills (21 total)
 
 | Category | Skill | Purpose |
 |----------|-------|---------|
-| Entry point | `my-harness-init` | New project from scratch (interview → bootstrap) |
-| Entry point | `harness-resume` | Resume work in an existing harnessed project (reads `.my-harness/init-state.json`) |
+| Entry point | `my-harness-init` | New project from scratch (interview → bootstrap). Detects existing `.my-harness/init-state.json` and resumes from the saved phase. |
 | Convention | `harness-tdd` | Enforces Red-Green-Refactor |
 | Convention | `harness-hono-clean-arch` | 4-layer Clean Architecture for Hono |
 | Convention | `harness-drizzle-rules` | Drizzle migrate-only, descriptive migration names |

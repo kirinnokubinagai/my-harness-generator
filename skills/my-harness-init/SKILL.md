@@ -94,13 +94,41 @@ EOF
 ユーザーが「ちょっと中断」「やめる」等を言ったら:
 - 現在のフェーズ末で `init-state.json` を最新化、保存先と再開コマンドを案内、停止
 
-ユーザーが再開してきたら（または `/harness-resume` を使ったら）:
+ユーザーが再開してきたら（再度 `/my-harness-init` を実行など）:
 - `<root>/.my-harness/init-state.json` を Read で読み、`current_phase` を確認
 - そのフェーズの最初の質問から再開（既存の docs/spec / docs/talk は引き継ぐ）
 
 ---
 
-### Setup フェーズ（起動 + 各種選択）
+### 起動時: init-state.json の自動検出
+
+`/my-harness-init` が呼ばれたら、**最初に** ユーザーの cwd または 親ディレクトリに `.my-harness/init-state.json` が存在しないか確認する:
+
+```bash
+find_existing_state() {
+  local d="$PWD"
+  for _ in 1 2 3 4 5; do
+    if [ -f "$d/.my-harness/init-state.json" ]; then
+      echo "$d/.my-harness/init-state.json"
+      return 0
+    fi
+    d=$(dirname "$d")
+  done
+  return 1
+}
+```
+
+見つかった場合:
+1. `current_phase` を Read で読む
+2. ユーザーに「前回 `<current_phase>` フェーズで中断されています。続きから再開しますか？ (y/n)」
+3. y → 該当フェーズの最初の質問から再開（既存の `docs/spec/` `docs/talk/` を継続）
+4. n → ユーザーに確認（破棄して新規 init するか、別ディレクトリ指定するか）
+
+見つからない場合: 新規 init として下記 Setup フェーズへ進む。
+
+---
+
+### Setup フェーズ（起動 + 各種選択、新規 init 時のみ）
 
 以下を **1 問ずつ** 確認する:
 
@@ -531,7 +559,7 @@ nix develop --command pnpm exec husky
 ハーネス（my-harness-generator）が orchestrate:
 - `/harness-team-lead` — 4 lane 並列で全 issue 一気に進める
 - `/harness-new-feature <issue#>` — 個別 issue 着手
-- `/harness-resume` — 中断からの再開
+- `/my-harness-init` を再実行 — 中断からの再開（`init-state.json` を自動検出）
 
 ## 環境変数
 
@@ -624,7 +652,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
   "current_phase": "completed",
   "phases_completed": ["setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],
   "next_action": "implementation",
-  "next_action_command": "/harness-resume （または /harness-team-lead / /harness-new-feature <issue#>）",
+  "next_action_command": "/harness-team-lead （または /harness-new-feature <issue#>）",
   "working_directory": "$ROOT/dev",
   "issue_count": $ISSUE_COUNT,
   "lanes_assigned": true,
@@ -661,9 +689,9 @@ EOF
 3) このセッションを終了し、ターミナルで `cd <root>/dev` してから
    Claude Code を再起動。新セッションで以下のいずれかを実行:
 
-     /harness-resume                  # init-state.json から続きを判断（推奨）
-     /harness-team-lead               # 4 レーン並列で全 issue を一気に進める
+     /harness-team-lead               # 4 レーン並列で全 issue を一気に進める（推奨）
      /harness-new-feature <issue#>    # 個別に feature 着手
+     /my-harness-init                 # 中断からの再開（init-state.json を自動検出）
 ```
 
 **Claude（あなた）はここで停止する**。ユーザーが dev/ で新セッションを起こすまで、追加の作業を勝手に進めない。

@@ -11,7 +11,7 @@ tools: Read, Bash, Grep, Glob
 - 対象 worktree パス（`<root>/lanes/feat-<issue#>-<slug>/`）
 - 変更ファイル一覧（`git diff origin/dev...HEAD --name-only` 相当）
 - issue 番号 + lane 番号
-- E2E テスト要件（AC のうち E2E に関わるもの）
+- E2E テスト要件（issue のうち E2E に関わるもの）
 
 ## 出力（analyst に返す）
 

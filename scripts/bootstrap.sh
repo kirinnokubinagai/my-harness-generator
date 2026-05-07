@@ -363,9 +363,8 @@ cat <<EOS
 
 そして dev/ 配下で Claude Code を再起動し、新セッションで:
 
-  /harness-resume    # init-state.json から続きを判断（おすすめ）
-  または
-  /harness-team-lead              # 4 レーン並列で issue 一気に進める
+  /harness-team-lead              # 4 レーン並列で issue 一気に進める（推奨）
   /harness-new-feature <issue#>   # 個別 feature 着手
+  /my-harness-init                # 中断からの再開（init-state.json 自動検出）
 
 EOS
