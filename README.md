@@ -185,7 +185,8 @@ Plus 19 convention skills that load automatically when relevant (TDD, JSDoc, Hon
 ├── dev/   stage/   main/               worktrees (you only work in dev)
 ├── lanes/feat-<n>-<slug>/              feature worktrees (up to 4 in parallel)
 └── lanes/hotfix-<n>-<slug>/            main-based hotfix worktrees
-    ├── .claude/CLAUDE.md               always written; project conventions go here. Note that the global ~/.claude/CLAUDE.md still loads (Claude Code limitation); local conventions augment, not replace, the global instructions.
+    ├── .claude/CLAUDE.md               always written; project conventions go here.
+    ├── dev/.claude/                    only when USE_GLOBAL_CLAUDE=no (writes settings.json with claudeMdExcludes for ~/.claude/CLAUDE.md)
     ├── docs/{spec,design,talk,task}/   spec / mocks / Q&A logs / tasks
     ├── .my-harness/                    plugin runtime files (copied)
     ├── flake.nix .envrc                Nix-pure environment
@@ -253,6 +254,7 @@ USE_MAESTRO=no
 USE_CLAUDE_ACTION=yes         # PR review via Claude Code Action
 CLAUDE_AUTH=oauth             # or "api"
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
+USE_GLOBAL_CLAUDE=yes         # or "no" → writes dev/.claude/settings.json with claudeMdExcludes for ~/.claude/CLAUDE.md
 CODEX_SESSION=my-harness-init
 USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
 USE_CODEX_E2E_REVIEWER=no     # delegate E2E test report synthesis to Codex (default: no — Claude runs locally)
@@ -294,6 +296,10 @@ No. Pick `n` at the Setup phase and Claude will run all phases solo (only image 
 
 **Will `dev/docs/talk/` end up in my repo?**
 Yes (private repo recommended). `mask-secrets.sh` redacts secrets, but the conversational content itself is committed. Add `dev/docs/talk/` to `.gitignore` if you'd rather not.
+
+**Can I isolate this project from my personal `~/.claude/CLAUDE.md`?**
+
+Yes. Pick `USE_GLOBAL_CLAUDE=no` at Setup. The plugin writes `dev/.claude/settings.json` with `claudeMdExcludes` listing your absolute `~/.claude/CLAUDE.md` path. Claude Code respects this natively — your global instructions are skipped for sessions started in `dev/`. Note: managed-policy CLAUDE.md (org-deployed at `/Library/Application Support/ClaudeCode/CLAUDE.md` etc.) cannot be excluded by individual project settings.
 
 **How do I update the plugin?**
 `/plugin marketplace update` then `/plugin install my-harness@my-harness-generator`. Don't `git pull` inside the plugin cache directory.

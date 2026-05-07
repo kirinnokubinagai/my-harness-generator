@@ -373,6 +373,22 @@ Note: during implementation (after `/harness-team-lead`), each subagent spawn ge
 
 ---
 
+#### Setup Q5: Inherit global CLAUDE.md
+
+**LANG=en prompt:**
+> **Inherit your global `~/.claude/CLAUDE.md`?** [y/n, default: y]
+>
+> **What this controls:** Your `~/.claude/CLAUDE.md` (user-level instructions) is loaded into every Claude Code session by default — including in this project. If you want this project to be **isolated** from your personal instructions (e.g., you have global preferences that don't fit this project's conventions), say `n`. The plugin will write `dev/.claude/settings.json` with `claudeMdExcludes` set to your absolute `~/.claude/CLAUDE.md` path, which Claude Code respects natively. Defaults to `y` because most users want their personal preferences active everywhere.
+
+**LANG=ja prompt:**
+> **個人グローバル `~/.claude/CLAUDE.md` を引き継ぎますか？** [y/n、デフォルト: y]
+>
+> **これが何を制御するか:** `~/.claude/CLAUDE.md`（個人レベルの指示）は通常すべての Claude Code セッションで読み込まれ、このプロジェクトにも影響します。プロジェクトを個人指示から**隔離**したい場合（例: グローバル設定がこのプロジェクトの規約と相性が悪い）は `n`。プラグインが `dev/.claude/settings.json` に `claudeMdExcludes` を書き込み、絶対パス指定で `~/.claude/CLAUDE.md` の読み込みを無効化します（Claude Code 公式機能）。多くのユーザーは個人設定を全プロジェクトで有効にしたいので既定は `y`。
+
+Persist as `USE_GLOBAL_CLAUDE=yes|no` in `.my-harness/init-state.json` and write to `.my-harness/.config` at finalization time.
+
+---
+
 Save the answers:
 
 ```bash
@@ -390,6 +406,7 @@ USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; default
 USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
 ON_CODEX_AUTH_FAIL=pause           # Default pause: notify user and wait on auth/subscription failure; fail = immediate error
 USE_GITHUB_ISSUES=<yes|no>
+USE_GLOBAL_CLAUDE=<yes|no>         # no → dev/.claude/settings.json written with claudeMdExcludes for ~/.claude/CLAUDE.md
 EOF
 ```
 

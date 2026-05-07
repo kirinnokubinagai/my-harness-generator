@@ -19,6 +19,7 @@
 #   USE_CODEX + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
 #   CODEX_SESSION / ON_CODEX_AUTH_FAIL (pause|fail)
 #   USE_GITHUB_ISSUES
+#   USE_GLOBAL_CLAUDE (yes|no, default yes) — no writes dev/.claude/settings.json with claudeMdExcludes
 #   LANG (en|ja, default en)
 
 set -euo pipefail
@@ -100,6 +101,7 @@ if [ -n "$CONFIG_FILE" ]; then
   USE_CODEX_REVIEWER="${USE_CODEX_REVIEWER:-no}"
   ON_CODEX_AUTH_FAIL="${ON_CODEX_AUTH_FAIL:-pause}"
   USE_GITHUB_ISSUES="${USE_GITHUB_ISSUES:-yes}"
+  USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
   LANG="${LANG:-en}"
 else
   echo "=================================="
@@ -194,6 +196,7 @@ else
   echo
   echo "── Other ──"
   USE_GITHUB_ISSUES=$(ask_yn "Use GitHub Issue-driven workflow (n = local docs/task/)" "y")
+  USE_GLOBAL_CLAUDE=$(ask_yn "Inherit global ~/.claude/CLAUDE.md in this project (n = write claudeMdExcludes to dev/.claude/settings.json)" "y")
 fi
 
 # ===== Derive USE_PLAYWRIGHT / USE_MAESTRO from E2E_SCOPE =====
@@ -244,6 +247,7 @@ USE_CODEX_E2E_REVIEWER=$USE_CODEX_E2E_REVIEWER
 USE_CODEX_REVIEWER=$USE_CODEX_REVIEWER
 ON_CODEX_AUTH_FAIL=$ON_CODEX_AUTH_FAIL
 USE_GITHUB_ISSUES=$USE_GITHUB_ISSUES
+USE_GLOBAL_CLAUDE=${USE_GLOBAL_CLAUDE:-yes}
 EOF
 
 echo
@@ -306,6 +310,33 @@ bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 mkdir -p dev/.my-harness
 rsync -a --exclude='.git' --exclude='.config' "$HARNESS_DIR/" dev/.my-harness/
 cp .my-harness/.config dev/.my-harness/.config
+
+# ===== 5b. Write dev/.claude/settings.json when USE_GLOBAL_CLAUDE=no =====
+if [ "${USE_GLOBAL_CLAUDE:-yes}" = "no" ]; then
+  # Resolve absolute path to user's global CLAUDE.md.
+  GLOBAL_CLAUDE_MD="${HOME}/.claude/CLAUDE.md"
+
+  # Write project-scope settings.json (or merge into existing) so Claude Code
+  # excludes the user-level CLAUDE.md when sessions start under dev/.
+  PROJECT_SETTINGS="dev/.claude/settings.json"
+  mkdir -p "dev/.claude"
+  if [ -f "$PROJECT_SETTINGS" ]; then
+    # Merge: keep existing fields, add/override claudeMdExcludes.
+    tmp=$(mktemp)
+    jq --arg path "$GLOBAL_CLAUDE_MD" \
+       '.claudeMdExcludes = ((.claudeMdExcludes // []) + [$path] | unique)' \
+       "$PROJECT_SETTINGS" > "$tmp" && mv "$tmp" "$PROJECT_SETTINGS"
+  else
+    cat > "$PROJECT_SETTINGS" <<EOF
+{
+  "claudeMdExcludes": [
+    "$GLOBAL_CLAUDE_MD"
+  ]
+}
+EOF
+  fi
+  echo "Configured dev/.claude/settings.json to exclude ~/.claude/CLAUDE.md (USE_GLOBAL_CLAUDE=no)"
+fi
 
 # ===== 6. Commit initial scaffold on dev =====
 if ! git -C dev log --oneline 2>/dev/null | grep -q "chore: harness scaffold"; then
