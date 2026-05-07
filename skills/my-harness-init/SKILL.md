@@ -117,7 +117,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
   "schema_version": "1",
   "project_name": "<PROJECT_NAME>",
-  "projectLang": "en",
+  "lang": "en",
   "root": "$ROOT",
   "current_phase": "backend",
   "phases_completed": ["language", "setup", "what", "platform"],
@@ -175,15 +175,18 @@ If not found: proceed to Phase 0 below as a new init.
 
 ### Phase 0: Language (new init only)
 
-**Ask one question:**
+**First question:**
 
-1. **"What language should all descriptions, comments, and output be written in?"** (choices: `en` / `ja`, default: `en`)
-   - `en`: English (TSDoc, commit messages, error messages, docs — all in English)
-   - `ja`: Japanese (TSDoc, commit messages, error messages, docs — all in Japanese)
+> "Should I speak Japanese with you, or English? (`en` or `ja`, default `en`)"
+
+- `en`: All output in English (TSDoc, commit messages, error messages, docs — all in English)
+- `ja`: All output in Japanese (TSDoc, commit messages, error messages, docs — all in Japanese)
+
+From this point, all conversation, all generated docs, JSDoc text, error messages, and issue templates use the chosen language.
 
 Save to `.my-harness/.config` (first entry, before all other keys):
 ```bash
-PROJECT_LANG=<en|ja>
+LANG=<en|ja>
 ```
 
 Update `init-state.json`:
@@ -192,7 +195,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
   "schema_version": "1",
   "project_name": "",
-  "projectLang": "${PROJECT_LANG:-en}",
+  "lang": "${LANG:-en}",
   "root": "$ROOT",
   "current_phase": "setup",
   "phases_completed": ["language"],
@@ -238,7 +241,7 @@ Save the answers:
 mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/dev/docs/talk <root>/dev/docs/task
 
 cat > <root>/.my-harness/.config <<EOF
-PROJECT_LANG=<en|ja>
+LANG=<en|ja>
 PROJECT_NAME=<slug>
 ROOT=<root>
 USE_CODEX=<yes|no>
@@ -703,15 +706,15 @@ The harness auto-firing skills enforce:
 <Initialize the MVP feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
 ```
 
-After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree. Write the commit message in `$PROJECT_LANG`:
+After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree. Write the commit message in `$LANG`:
 
 ```bash
 cd "<root>/dev"
 git add README.md CLAUDE.md
-# If PROJECT_LANG=en:
+# If LANG=en:
 git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: generate initial README.md and CLAUDE.md from spec"
-# If PROJECT_LANG=ja:
+# If LANG=ja:
 git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
 ```
@@ -731,7 +734,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
   "schema_version": "1",
   "project_name": "<PROJECT_NAME>",
-  "projectLang": "${PROJECT_LANG:-en}",
+  "lang": "${LANG:-en}",
   "root": "$ROOT",
   "current_phase": "completed",
   "phases_completed": ["language", "setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],

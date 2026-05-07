@@ -1,15 +1,15 @@
 ---
 name: harness-jsdoc
-description: Requires JSDoc / TSDoc on every variable, constant, function, and type. Prohibits inline comments inside function bodies. All descriptions must be written in the project language (PROJECT_LANG from .my-harness/.config, default en). Fires when the user says "write a function", "add a comment", "type definition", "write a description", or similar.
+description: Requires JSDoc / TSDoc on every variable, constant, function, and type. Prohibits inline comments inside function bodies. All descriptions must be written in the project language (LANG from .my-harness/.config, default en). Fires when the user says "write a function", "add a comment", "type definition", "write a description", or similar.
 ---
 
 # harness-jsdoc
 
-All code in the harness requires **JSDoc / TSDoc**. Inline comments inside function bodies are prohibited. **All descriptions must be written in `$PROJECT_LANG`** (read from `<root>/.my-harness/.config`, default: `en`).
+All code in the harness requires **JSDoc / TSDoc**. Inline comments inside function bodies are prohibited. **All descriptions must be written in `$LANG`** (read from `<root>/.my-harness/.config`, default: `en`).
 
 ```bash
-PROJECT_LANG=$(grep -E "^PROJECT_LANG=" "$ROOT/.my-harness/.config" 2>/dev/null | cut -d= -f2)
-PROJECT_LANG="${PROJECT_LANG:-en}"
+LANG=$(grep -E "^LANG=" "$ROOT/.my-harness/.config" 2>/dev/null | cut -d= -f2)
+LANG="${LANG:-en}"
 ```
 
 ## Non-negotiable rules
@@ -20,11 +20,11 @@ PROJECT_LANG="${PROJECT_LANG:-en}"
 | Types / classes / interfaces | TSDoc required |
 | Variables / constants | Explain intent with a JSDoc comment |
 | **Inline comments in function bodies** | **Prohibited** (split the function if you need to explain it) |
-| Language | **`$PROJECT_LANG`** (proper nouns, type names, commands, and URLs may be in English) |
+| Language | **`$LANG`** (proper nouns, type names, commands, and URLs may be in English) |
 
 ## How to write functions
 
-When `PROJECT_LANG=en`:
+When `LANG=en`:
 ```ts
 /**
  * Creates a user from an email address and password.
@@ -46,7 +46,7 @@ export async function createUser(input: CreateUserInput): Promise<Result<User>> 
 }
 ```
 
-When `PROJECT_LANG=ja`:
+When `LANG=ja`:
 ```ts
 /**
  * メールアドレスとパスワードからユーザーを作成する。
@@ -65,7 +65,7 @@ export async function createUser(input: CreateUserInput): Promise<Result<User>> 
 
 ## Variables / constants
 
-When `PROJECT_LANG=en`:
+When `LANG=en`:
 ```ts
 /** Maximum retry count */
 const MAX_RETRY_COUNT = 3;
@@ -77,7 +77,7 @@ const SESSION_TTL_MS = 3600000;
 const isAuthenticated = checkAuth();
 ```
 
-When `PROJECT_LANG=ja`:
+When `LANG=ja`:
 ```ts
 /** 最大リトライ回数 */
 const MAX_RETRY_COUNT = 3;
@@ -91,7 +91,7 @@ const isAuthenticated = checkAuth();
 
 ## Types / interfaces
 
-When `PROJECT_LANG=en`:
+When `LANG=en`:
 ```ts
 /**
  * Contract for the user repository.
@@ -136,7 +136,7 @@ const x = users.filter(u => u.a > 0);  // active users
 const activeUsers = users.filter((user) => user.activatedAt !== null);
 ```
 
-## Language conventions by PROJECT_LANG
+## Language conventions by LANG
 
 | Location | en | ja |
 |----------|----|----|
@@ -153,5 +153,5 @@ const activeUsers = users.filter((user) => user.activatedAt !== null);
 - [ ] All functions / types / public constants have TSDoc
 - [ ] No inline comments inside function bodies
 - [ ] Names convey intent without comments
-- [ ] All descriptions are in `$PROJECT_LANG`
-- [ ] Error messages are in `$PROJECT_LANG`
+- [ ] All descriptions are in `$LANG`
+- [ ] Error messages are in `$LANG`

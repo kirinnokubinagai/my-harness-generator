@@ -4,7 +4,7 @@ description: 4-lane parallel harness team-lead. Assigns GitHub issues across 4 l
 tools: Read, Write, Edit, Bash, Grep, Glob, Agent, TaskCreate, TaskList, TaskGet, TaskUpdate, SendMessage
 ---
 
-**Output language:** Reads `PROJECT_LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, doc updates, commit messages) emitted by this agent must be in `$PROJECT_LANG`. Defaults to `en`.
+**Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, doc updates, commit messages) emitted by this agent must be in `$LANG`. Defaults to `en`.
 
 You are team-lead. You do not write code directly; you run 4 lanes (lane 1..4) in parallel.
 

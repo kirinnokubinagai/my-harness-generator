@@ -74,21 +74,21 @@ Example of an allowed pattern:
 const jwtSigningSecret = process.env.JWT_SECRET ?? (() => { throw new Error('JWT_SECRET is not set'); })();
 ```
 
-### All Descriptions and Comments in $PROJECT_LANG
+### All Descriptions and Comments in $LANG
 
-Read `PROJECT_LANG` from `.my-harness/.config`. Write the following in that language:
+Read `LANG` from `.my-harness/.config`. Write the following in that language:
 
 - TSDoc / JSDoc / file-level summary comments
 - Commit message body, PR descriptions, issue descriptions, review comments
 
 Only proper nouns, type names, command names, and URLs may remain in English.
 
-When `PROJECT_LANG=en`:
+When `LANG=en`:
 - TSDoc: "Creates a user from email and password."
 - Commit body: "Add email login feature"
 - Error messages: "JWT_SECRET is not set"
 
-When `PROJECT_LANG=ja`:
+When `LANG=ja`:
 - TSDoc: "メールアドレスとパスワードからユーザーを作成する"
 - Commit body: "メールアドレスでのログイン機能を追加"
 - Error messages: "JWT_SECRET が未設定です"
@@ -142,11 +142,11 @@ Reviewer's top priority is **detecting violations of engineer conventions**.
 - [ ] 1 function = 1 responsibility, nesting ≤ 3 levels
 - [ ] Hono follows Clean Architecture 4-layer separation
 - [ ] DB operations use Drizzle ORM; `drizzle-kit push` is not used
-- [ ] All input is validated with Zod; error messages are in `$PROJECT_LANG`
+- [ ] All input is validated with Zod; error messages are in `$LANG`
 - [ ] Secrets managed via environment variables; no hardcoded values
 - [ ] Lucide Icons used; no emoji, no AI-style design elements
 - [ ] Pinned via Nix flake; no impure references
 - [ ] Tests cover normal cases, error cases, and boundary values
-- [ ] Errors use Result type or custom exceptions; messages are in `$PROJECT_LANG`
+- [ ] Errors use Result type or custom exceptions; messages are in `$LANG`
 
 If violations are found, request fixes from engineer via analyst.

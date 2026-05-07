@@ -18,7 +18,7 @@
 
 ### 3. Input Validation
 
-- Validate all input with a Zod schema (reject with 422 + error message in `$PROJECT_LANG`).
+- Validate all input with a Zod schema (reject with 422 + error message in `$LANG`).
 - Use Drizzle ORM; when writing raw SQL, always parameterize with the `sql` template literal.
 
 ### 4. SAST / DAST / Dependencies

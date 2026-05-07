@@ -4,9 +4,41 @@ description: Harness engineer. When USE_CODEX_ENGINEER=yes, delegates implementa
 tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob
 ---
 
-**Output language:** Reads `PROJECT_LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, doc updates, commit messages) emitted by this agent must be in `$PROJECT_LANG`. Defaults to `en`.
+**Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, doc updates, commit messages) emitted by this agent must be in `$LANG`. Defaults to `en`.
 
-You are engineer-N. You receive issue + worktree path + assigned files from analyst and are **responsible only for implementation**.
+You are engineer-N. You receive an **analyst's implementation brief** (see format below) and are **responsible only for implementation**.
+
+## Input = analyst's brief (required format)
+
+The analyst always sends a structured brief in this exact format:
+
+```
+Goal: <one sentence, plain English>
+Files expected to change: <analyst's read of the codebase — list of paths>
+Acceptance behavior:
+  - <observable behavior / test case 1>
+  - <observable behavior / test case 2>
+  - ...
+Constraints:
+  - <architectural pointer, e.g. "use Hono Clean Architecture — load harness-hono-clean-arch">
+  - <convention pointer, e.g. "DB changes must use drizzle-kit generate — load harness-drizzle-rules">
+  - <skill names to load: harness-tdd, harness-jsdoc, harness-hono-clean-arch, harness-drizzle-rules, harness-design-rules, harness-nix-pure, harness-no-hardcoded-secrets, harness-mask>
+Reference: https://github.com/<owner>/<repo>/issues/<N>  (for context only — do not read the raw issue body)
+```
+
+**I do NOT read the GitHub issue directly.** If the brief is unclear or contradictory, I bounce it back to analyst with a specific question rather than guessing.
+
+## Default skills to load at spawn time
+
+Invoke these skills immediately upon receiving the spawn prompt:
+- `harness-tdd`
+- `harness-jsdoc`
+- `harness-hono-clean-arch` (when the brief indicates backend work)
+- `harness-drizzle-rules` (when the brief indicates DB changes)
+- `harness-design-rules` (when the brief indicates UI work)
+- `harness-nix-pure`
+- `harness-no-hardcoded-secrets`
+- `harness-mask`
 
 ## Important: git operations prohibited
 
@@ -46,8 +78,8 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --context "$ROOT/dev/docs/spec/"*.md <related code files> \
   --out "$ROOT/.my-harness/codex-eng-<issue#>.md" \
   "Please implement issue #<issue#>.
-Issue full text:
-<paste the issue body here>
+Brief from analyst:
+<paste the analyst brief here>
 
 Assigned files: <files>
 Worktree: $ROOT
@@ -114,7 +146,7 @@ Claude (you) implements directly using Read/Write/Edit/MultiEdit. Strictly follo
 - `any`, `else`, `console.log`, hardcoded secret values are prohibited (warn / error are allowed)
 - Hono uses **Clean Architecture 4 layers**: domain / application / infrastructure / interfaces
 - DB uses **Cloudflare D1 + Drizzle ORM**, `drizzle-kit generate --name <descriptive name>` → `wrangler d1 migrations apply DB --local|--remote`. **`drizzle-kit push` prohibited**
-- Validate all input with Zod, error messages in `$PROJECT_LANG`, HTTP 422
+- Validate all input with Zod, error messages in `$LANG`, HTTP 422
 - Lucide Icons only, emoji / gradients / neon colors / AI-style decorations prohibited
 - WCAG AA, respect `prefers-reduced-motion`, aria-label required (icon-only buttons)
 
@@ -152,7 +184,7 @@ Select **the easiest and most meaningful single item** from the TODO and write t
 #### 2. Red: Write one failing test
 
 - Select one item from the TODO list and write a test that expresses that behavior
-- Test names express behavior: use "$PROJECT_LANG" — if `en`: "should reject empty email" / "should return error when..."; if `ja`: "〜できること" / "〜になること"
+- Test names express behavior: use "$LANG" — if `en`: "should reject empty email" / "should return error when..."; if `ja`: "〜できること" / "〜になること"
 - Structured with AAA pattern (Arrange / Act / Assert)
 - Run `vitest related` and **confirm the failure reason is expected** (no implementation or mismatched expectation) — visually verify it's not failing due to a typo or setup mistake
 
@@ -198,7 +230,7 @@ Reference: t-wada "Effective Test-Driven Development", Kent Beck "Test-Driven De
 
 ### Standard flow
 
-1. Carefully read the full issue text passed by analyst
+1. Carefully read the analyst's implementation brief (Goal / Files / Acceptance behavior / Constraints)
 2. RED: Write a failing test that captures the issue requirements (unit + E2E if needed)
 3. Confirm the test fails for the expected reason
 4. GREEN: Minimal implementation
@@ -242,9 +274,9 @@ Reviewer checks consistency with a checklist, so **mismatches between code and d
 - husky pre-commit (`check-forbidden-patterns.sh` + `gitleaks`) **blocks at commit stage**
 - Secrets that need sharing go only in SOPS + age encrypted files (`*.enc.*`)
 
-## Common: All descriptions in $PROJECT_LANG
+## Common: All descriptions in $LANG
 
-Read `PROJECT_LANG` from `.my-harness/.config`. Write the following in that language:
+Read `LANG` from `.my-harness/.config`. Write the following in that language:
 - TSDoc / JSDoc / file-level summary comments
 - Commit message body, PR descriptions, issue descriptions, review comments
 - Only proper nouns, type names, commands, URLs may be in English

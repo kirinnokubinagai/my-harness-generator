@@ -61,6 +61,8 @@ The interview should start. If the first question appears, the plugin is install
 
 ## Quick start
 
+The first question of `/my-harness-init` asks whether to use English or Japanese; everything generated afterward follows that choice.
+
 `/my-harness-init` is the only command you need to start a new project. It walks through the following phases — one question per turn, with masked Q&A automatically saved to `dev/docs/spec/` and `dev/docs/talk/`:
 
 | Phase | What you decide |
@@ -141,31 +143,14 @@ These convention skills load automatically when you do certain things — you do
 | `harness-mask` | Manually masking sensitive content before logging |
 | `harness-codex-consult` | "Ask Codex …" / second-opinion flows |
 
-## All skills (21 total)
+## Slash commands
 
-| Category | Skill | Purpose |
-|----------|-------|---------|
-| Entry point | `my-harness-init` | New project from scratch (interview → bootstrap). Detects existing `.my-harness/init-state.json` and resumes from the saved phase. |
-| Convention | `harness-tdd` | Enforces Red-Green-Refactor |
-| Convention | `harness-hono-clean-arch` | 4-layer Clean Architecture for Hono |
-| Convention | `harness-drizzle-rules` | Drizzle migrate-only, descriptive migration names |
-| Convention | `harness-nix-pure` | Nix flake pure environment, direnv auto-activation |
-| Convention | `harness-design-rules` | Anti-AI-look design, Lucide icons only, WCAG AA |
-| Convention | `harness-jsdoc` | JSDoc / TSDoc on every export, Japanese descriptions |
-| Convention | `harness-git-discipline` | No rebase / reset / force-push; merge commits only |
-| Convention | `harness-no-hardcoded-secrets` | env vars or SOPS only; never hardcode |
-| Convention | `harness-mask` | 9-pattern secret masking helper |
-| Convention | `harness-codex-consult` | Wraps `codex-ask.sh` for second opinions |
-| Workflow | `harness-new-feature` | dev-based feature worktree |
-| Workflow | `harness-new-hotfix` | main-based hotfix worktree |
-| Workflow | `harness-resolve-conflict` | Merge-commit-only conflict resolution |
-| Workflow | `harness-sync-features` | Back-merge `dev` into all feature branches |
-| Workflow | `harness-check-codex-auth` | Codex CLI install + login state |
-| Workflow | `harness-check-secrets` | Forbidden-pattern scan |
-| Workflow | `harness-setup-secrets` | Interactive GitHub Secrets / Variables registration |
-| Workflow | `harness-branch-protection` | Apply protection rules in bulk |
-| Workflow | `harness-deploy-setup` | Generate Terraform / wrangler / fastlane |
-| Workflow | `harness-deploy-execute` | Staged deploy: dev → stage → main canary |
+**Two slash commands you'll use directly:**
+
+- `/my-harness-init` — start a new project (one-time, per project). Detects existing `.my-harness/init-state.json` and resumes from the saved phase.
+- `/harness-team-lead` — coordinate ongoing 4-lane parallel implementation
+
+Plus 19 convention skills that load automatically when relevant (TDD, JSDoc, Hono Clean Architecture, Drizzle, Nix-pure, design rules, secret masking, git discipline, etc.). You don't invoke these directly — agents pull them in by topic.
 
 ## Architecture
 
@@ -247,7 +232,7 @@ When the orchestrating session itself becomes heavy (after 5–10 issues), `harn
 The interview produces `<root>/.my-harness/.config`:
 
 ```bash
-PROJECT_LANG=en               # output language for descriptions, comments, and docs (en | ja)
+LANG=en
 PROJECT_NAME=todo-app
 USE_WEB=yes
 WEB_KIND=nextjs               # only when USE_WEB=yes (nextjs | tanstack)

@@ -23,7 +23,7 @@
       "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",
       "repository": "https://github.com/kirinnokubinagai/my-harness-generator",
       "license": "MIT",
-      "keywords": ["harness", "tdd", "hono", "drizzle", "cloudflare-d1", "codex", "monorepo", "worktree", "japanese"],
+      "keywords": ["harness", "tdd", "hono", "drizzle", "cloudflare-d1", "codex", "monorepo", "worktree", "bilingual"],
       "category": "development-workflow",
       "tags": ["bootstrap", "scaffolding", "skills", "hooks", "monorepo"]
     }

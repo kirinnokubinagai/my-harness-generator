@@ -19,7 +19,7 @@
 #   USE_CODEX + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
 #   CODEX_SESSION / ON_CODEX_AUTH_FAIL (pause|fail)
 #   USE_GLOBAL_CLAUDE / USE_GITHUB_ISSUES
-#   PROJECT_LANG (en|ja, default en)
+#   LANG (en|ja, default en)
 
 set -euo pipefail
 
@@ -101,7 +101,7 @@ if [ -n "$CONFIG_FILE" ]; then
   ON_CODEX_AUTH_FAIL="${ON_CODEX_AUTH_FAIL:-pause}"
   USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
   USE_GITHUB_ISSUES="${USE_GITHUB_ISSUES:-yes}"
-  PROJECT_LANG="${PROJECT_LANG:-en}"
+  LANG="${LANG:-en}"
 else
   echo "=================================="
   echo " Harness One-Command Setup"
@@ -110,7 +110,7 @@ else
   echo
 
   # Phase 0 — Language
-  PROJECT_LANG=$(ask_choice "Output language for this project" "en" en ja)
+  LANG=$(ask_choice "Output language for this project" "en" en ja)
 
   PROJECT_NAME=$(ask "Project name" "$(basename "$ROOT")")
 
@@ -218,7 +218,7 @@ mkdir -p .my-harness lanes
 cat > .my-harness/.config <<EOF
 PROJECT_NAME=$PROJECT_NAME
 ROOT=$ROOT
-PROJECT_LANG=${PROJECT_LANG:-en}
+LANG=${LANG:-en}
 USE_WEB=$USE_WEB
 WEB_KIND=$WEB_KIND
 USE_IOS=$USE_IOS
@@ -304,8 +304,6 @@ bash "$HARNESS_DIR/scripts/setup-common.sh" "$ROOT"
 echo "[bootstrap] Distributing platform-specific templates"
 bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 
-echo "[bootstrap] Placing Claude config (USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE)"
-bash "$HARNESS_DIR/scripts/setup-claude.sh" "$ROOT"
 
 # ===== 5. Copy harness itself to dev/.my-harness =====
 mkdir -p dev/.my-harness
@@ -331,7 +329,7 @@ cat > .my-harness/init-state.json <<EOF
   "schema_version": "1",
   "project_name": "$PROJECT_NAME",
   "root": "$ROOT",
-  "projectLang": "${PROJECT_LANG:-en}",
+  "projectLang": "${LANG:-en}",
   "current_phase": "bootstrap-completed",
   "phases_completed": ["language", "setup", "what", "platform", "backend", "data-model", "visual", "bootstrap"],
   "next_action": "issue-task-generation",
@@ -354,7 +352,7 @@ Configuration:
   Backend=$USE_BACKEND ($BACKEND_KIND)  DB=$USE_DB ($DB_KIND)
   Auth=$AUTH_KIND  E2E=$E2E_SCOPE
   Codex=$USE_CODEX (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
-  Language=$PROJECT_LANG
+  Language=$LANG
 Task management: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue-driven" || echo "Local docs/task/-driven")
 
 Next steps (run in terminal):

@@ -61,6 +61,8 @@ Claude Code 内で:
 
 ## クイックスタート
 
+`/my-harness-init` の最初の質問で英語（English）または日本語（Japanese）を選択します。それ以降に生成されるすべての内容はその選択に従います。
+
 新規プロジェクトを始めるときに必要なコマンドは `/my-harness-init` ひとつだけ。以下のフェーズを 1 ターン 1 問で進めます。各 Q&A は **マスク済み** で `dev/docs/spec/` と `dev/docs/talk/` に自動保存されます。
 
 | フェーズ | 決めること |
@@ -141,31 +143,14 @@ init 後の開発で使うコマンド一覧:
 | `harness-mask` | 機密値マスク手動実行 |
 | `harness-codex-consult` | 「Codex に聞いて」「セカンドオピニオン」 |
 
-## 全 skill 一覧（21 個）
+## スラッシュコマンド
 
-| 種別 | skill | 用途 |
-|------|-------|------|
-| エントリ | `my-harness-init` | 新規プロジェクトをゼロから（インタビュー → bootstrap）。既存の `.my-harness/init-state.json` を検出すると保存済フェーズから再開する。 |
-| 規約 | `harness-tdd` | Red-Green-Refactor 強制 |
-| 規約 | `harness-hono-clean-arch` | Hono の 4 層 Clean Architecture |
-| 規約 | `harness-drizzle-rules` | Drizzle migrate-only、マイグレーション命名規約 |
-| 規約 | `harness-nix-pure` | Nix flake pure 環境、direnv 自動切替 |
-| 規約 | `harness-design-rules` | AI 風デザイン禁止、Lucide のみ、WCAG AA |
-| 規約 | `harness-jsdoc` | 全 export に JSDoc / TSDoc 必須、説明は日本語 |
-| 規約 | `harness-git-discipline` | rebase / reset / force-push 禁止、merge コミットのみ |
-| 規約 | `harness-no-hardcoded-secrets` | env vars / SOPS のみ許可、ハードコード禁止 |
-| 規約 | `harness-mask` | 9 パターンの機密マスキング |
-| 規約 | `harness-codex-consult` | `codex-ask.sh` ラッパー、Codex 第二意見 |
-| 操作 | `harness-new-feature` | dev 起点の feature worktree 作成 |
-| 操作 | `harness-new-hotfix` | main 起点の hotfix worktree 作成 |
-| 操作 | `harness-resolve-conflict` | merge コミットのみでコンフリクト解消 |
-| 操作 | `harness-sync-features` | 全 feature ブランチに dev を back-merge |
-| 操作 | `harness-check-codex-auth` | Codex CLI のインストール / ログイン状態確認 |
-| 操作 | `harness-check-secrets` | 禁止パターンスキャン |
-| 操作 | `harness-setup-secrets` | GitHub Secrets / Variables を対話登録 |
-| 操作 | `harness-branch-protection` | ブランチ保護を一括適用 |
-| 操作 | `harness-deploy-setup` | Terraform / wrangler / fastlane 生成 |
-| 操作 | `harness-deploy-execute` | dev → stage → main 段階デプロイ |
+**直接使用する 2 つのスラッシュコマンド：**
+
+- `/my-harness-init` — 新規プロジェクトをゼロから開始（プロジェクトごとに 1 回）。既存の `.my-harness/init-state.json` を検出すると保存済みフェーズから再開する。
+- `/harness-team-lead` — 4 レーン並列実装の継続開発を調整する
+
+この他に 19 個の規約 skill が文脈に応じて自動でロードされます（TDD / JSDoc / Hono Clean Architecture / Drizzle / Nix pure / デザイン規律 / 機密マスキング / Git 規律など）。ユーザーが直接呼ぶ必要はなく、エージェントがトピックに応じて読み込みます。
 
 ## アーキテクチャ図
 
@@ -247,7 +232,7 @@ team-lead 自身の context が重くなったら（issue 5〜10 個ごと）、
 `/my-harness-init` のインタビュー結果は `<root>/.my-harness/.config` に保存されます:
 
 ```bash
-PROJECT_LANG=en               # 説明・コメント・ドキュメントの出力言語（en | ja）
+LANG=en
 PROJECT_NAME=todo-app
 USE_WEB=yes
 WEB_KIND=nextjs               # USE_WEB=yes のときのみ（nextjs | tanstack）
