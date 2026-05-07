@@ -2,23 +2,23 @@
 # 概要: ハーネスのワンコマンド対話セットアップ。
 #
 # 使い方:
-#   bash bootstrap.sh <project-root>                       # 対話モード（人間向け）
-#   bash bootstrap.sh <project-root> --config <file>       # 非対話モード（Claude が /my-harness-init から呼ぶ）
+#   bash bootstrap.sh <project-root>                    # 対話モード
+#   bash bootstrap.sh <project-root> --config <file>    # 非対話モード（/my-harness-init から呼ぶ）
 #
-# 設定ファイル形式（.my-harness/.config 互換）:
-#   PROJECT_NAME=todo-app
-#   USE_WEB=yes
-#   USE_IOS=no
-#   USE_ANDROID=no
-#   USE_DB=yes
-#   DB_KIND=d1
-#   USE_EMAIL=yes
-#   USE_PLAYWRIGHT=yes
-#   USE_MAESTRO=no
-#   USE_CLAUDE_ACTION=yes
-#   CLAUDE_AUTH=oauth
-#   USE_GLOBAL_CLAUDE=yes
-#   USE_GITHUB_ISSUES=yes
+# 設定ファイル形式（.my-harness/.config 互換、SKILL.md と同じスキーマ）:
+#   PROJECT_NAME / ROOT
+#   USE_WEB + WEB_KIND (nextjs|tanstack)
+#   USE_IOS + IOS_KIND (swift|expo|flutter)
+#   USE_ANDROID + ANDROID_KIND (kotlin|expo|flutter)
+#   USE_DESKTOP + DESKTOP_KIND (tauri|electron) + DESKTOP_OS
+#   USE_BACKEND + BACKEND_KIND (hono|gin|rust)
+#   USE_DB + DB_KIND (d1|postgres|mysql|sqlite)
+#   USE_EMAIL / AUTH_KIND (none|password|oauth)
+#   E2E_SCOPE (web|mobile|both|none) → derive USE_PLAYWRIGHT / USE_MAESTRO
+#   USE_CLAUDE_ACTION / CLAUDE_AUTH (api|oauth)
+#   USE_CODEX + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
+#   CODEX_SESSION / ON_CODEX_AUTH_FAIL (pause|fail)
+#   USE_GLOBAL_CLAUDE / USE_GITHUB_ISSUES
 
 set -euo pipefail
 
@@ -41,7 +41,7 @@ ROOT="${ROOT:-$PWD}"
 mkdir -p "$ROOT"
 cd "$ROOT"
 
-# ===== 対話 / 非対話の分岐 =====
+# ===== 対話 helpers =====
 ask() {
   local prompt="$1"; local default="$2"; local answer
   printf "%s [%s]: " "$prompt" "$default" >&2
@@ -53,6 +53,17 @@ ask_yn() {
   a=$(ask "$prompt (y/n)" "$default")
   case "$a" in y|Y|yes|YES) echo "yes" ;; *) echo "no" ;; esac
 }
+ask_choice() {
+  local prompt="$1"; local default="$2"; shift 2
+  local choices=("$@") c a
+  while :; do
+    a=$(ask "$prompt ($(IFS=/; echo "${choices[*]}"))" "$default")
+    for c in "${choices[@]}"; do
+      [ "$a" = "$c" ] && { echo "$c"; return; }
+    done
+    echo "  → 下記から選んでください: ${choices[*]}" >&2
+  done
+}
 
 if [ -n "$CONFIG_FILE" ]; then
   if [ ! -f "$CONFIG_FILE" ]; then
@@ -63,16 +74,30 @@ if [ -n "$CONFIG_FILE" ]; then
   # shellcheck disable=SC1090
   source "$CONFIG_FILE"
   PROJECT_NAME="${PROJECT_NAME:-$(basename "$ROOT")}"
-  USE_WEB="${USE_WEB:-no}"
-  USE_IOS="${USE_IOS:-no}"
-  USE_ANDROID="${USE_ANDROID:-no}"
-  USE_DB="${USE_DB:-no}"
-  DB_KIND="${DB_KIND:-none}"
+  USE_WEB="${USE_WEB:-yes}"
+  WEB_KIND="${WEB_KIND:-nextjs}"
+  USE_IOS="${USE_IOS:-yes}"
+  IOS_KIND="${IOS_KIND:-swift}"
+  USE_ANDROID="${USE_ANDROID:-yes}"
+  ANDROID_KIND="${ANDROID_KIND:-kotlin}"
+  USE_DESKTOP="${USE_DESKTOP:-yes}"
+  DESKTOP_KIND="${DESKTOP_KIND:-tauri}"
+  DESKTOP_OS="${DESKTOP_OS:-macos,windows,linux}"
+  USE_BACKEND="${USE_BACKEND:-yes}"
+  BACKEND_KIND="${BACKEND_KIND:-hono}"
+  USE_DB="${USE_DB:-yes}"
+  DB_KIND="${DB_KIND:-d1}"
   USE_EMAIL="${USE_EMAIL:-no}"
-  USE_PLAYWRIGHT="${USE_PLAYWRIGHT:-no}"
-  USE_MAESTRO="${USE_MAESTRO:-no}"
-  USE_CLAUDE_ACTION="${USE_CLAUDE_ACTION:-no}"
+  AUTH_KIND="${AUTH_KIND:-none}"
+  E2E_SCOPE="${E2E_SCOPE:-web}"
+  USE_CLAUDE_ACTION="${USE_CLAUDE_ACTION:-yes}"
   CLAUDE_AUTH="${CLAUDE_AUTH:-oauth}"
+  USE_CODEX="${USE_CODEX:-no}"
+  CODEX_SESSION="${CODEX_SESSION:-my-harness-init}"
+  USE_CODEX_ENGINEER="${USE_CODEX_ENGINEER:-no}"
+  USE_CODEX_E2E_REVIEWER="${USE_CODEX_E2E_REVIEWER:-no}"
+  USE_CODEX_REVIEWER="${USE_CODEX_REVIEWER:-no}"
+  ON_CODEX_AUTH_FAIL="${ON_CODEX_AUTH_FAIL:-pause}"
   USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
   USE_GITHUB_ISSUES="${USE_GITHUB_ISSUES:-yes}"
 else
@@ -85,77 +110,135 @@ else
   PROJECT_NAME=$(ask "プロジェクト名" "$(basename "$ROOT")")
 
   echo
-  echo "プラットフォームを選択（複数可、必要なものを y）"
-  USE_WEB=$(ask_yn "  Web (Hono + React Email)" "y")
-  USE_IOS=$(ask_yn "  iOS (Swift / SwiftUI)" "n")
-  USE_ANDROID=$(ask_yn "  Android (Kotlin / Jetpack Compose)" "n")
+  echo "── プラットフォーム ──"
+  USE_WEB=$(ask_yn "Web を作る" "y")
+  if [ "$USE_WEB" = "yes" ]; then
+    WEB_KIND=$(ask_choice "  フレームワーク" "nextjs" nextjs tanstack)
+  else
+    WEB_KIND=nextjs
+  fi
+  USE_IOS=$(ask_yn "iOS を作る" "y")
+  if [ "$USE_IOS" = "yes" ]; then
+    IOS_KIND=$(ask_choice "  実装" "swift" swift expo flutter)
+  else
+    IOS_KIND=swift
+  fi
+  USE_ANDROID=$(ask_yn "Android を作る" "y")
+  if [ "$USE_ANDROID" = "yes" ]; then
+    ANDROID_KIND=$(ask_choice "  実装" "kotlin" kotlin expo flutter)
+  else
+    ANDROID_KIND=kotlin
+  fi
+  USE_DESKTOP=$(ask_yn "Desktop を作る" "y")
+  if [ "$USE_DESKTOP" = "yes" ]; then
+    DESKTOP_KIND=$(ask_choice "  フレームワーク" "tauri" tauri electron)
+    DESKTOP_OS=$(ask "  対応 OS（カンマ区切り）" "macos,windows,linux")
+  else
+    DESKTOP_KIND=tauri
+    DESKTOP_OS=macos,windows,linux
+  fi
 
-  if [ "$USE_WEB" = "no" ] && [ "$USE_IOS" = "no" ] && [ "$USE_ANDROID" = "no" ]; then
-    echo "::error:: 1 つ以上のプラットフォームを選択してください"
+  if [ "$USE_WEB" = "no" ] && [ "$USE_IOS" = "no" ] && [ "$USE_ANDROID" = "no" ] && [ "$USE_DESKTOP" = "no" ]; then
+    echo "::error:: 1 つ以上のプラットフォームを選択してください" >&2
     exit 1
   fi
 
   echo
-  echo "データベース"
-  USE_DB=$(ask_yn "  DB を使う" "y")
-  DB_KIND="none"
+  echo "── バックエンド ──"
+  USE_BACKEND=$(ask_yn "バックエンドを作る" "y")
+  if [ "$USE_BACKEND" = "yes" ]; then
+    BACKEND_KIND=$(ask_choice "  言語/フレームワーク" "hono" hono gin rust)
+  else
+    BACKEND_KIND=hono
+  fi
+  USE_DB=$(ask_yn "DB を使う" "y")
   if [ "$USE_DB" = "yes" ]; then
-    echo "  選択: 1) Cloudflare D1 (推奨)  2) なし"
-    DB_KIND=$(ask "  どれを使う？ (d1/none)" "d1")
+    DB_KIND=$(ask_choice "  DB の種類" "d1" d1 postgres mysql sqlite)
+  else
+    DB_KIND=d1
   fi
+  USE_EMAIL=$(ask_yn "メール（Resend、パスワードリセット含む）を使う" "n")
+  AUTH_KIND=$(ask_choice "認証どこまで" "none" none password oauth)
 
   echo
-  USE_EMAIL=$(ask_yn "メール機能（Resend、パスワードリセット含む）を使う" "n")
-
-  echo
-  USE_PLAYWRIGHT="no"; USE_MAESTRO="no"
-  [ "$USE_WEB" = "yes" ] && USE_PLAYWRIGHT=$(ask_yn "E2E に Playwright を使う" "y")
-  if [ "$USE_IOS" = "yes" ] || [ "$USE_ANDROID" = "yes" ]; then
-    USE_MAESTRO=$(ask_yn "E2E に Maestro を使う" "y")
-  fi
-
-  echo
+  echo "── テスト / CI ──"
+  E2E_SCOPE=$(ask_choice "E2E スコープ" "web" web mobile both none)
   USE_CLAUDE_ACTION=$(ask_yn "PR レビューに Claude Code Action を使う" "y")
-  CLAUDE_AUTH="oauth"
   if [ "$USE_CLAUDE_ACTION" = "yes" ]; then
-    echo "  認証方式: api = Anthropic API キー / oauth = サブスクリプション (Claude Pro/Max)"
-    while :; do
-      CLAUDE_AUTH=$(ask "  どっち？ (api/oauth)" "oauth")
-      case "$CLAUDE_AUTH" in
-        api|API)   CLAUDE_AUTH=api;   break ;;
-        oauth|OAUTH) CLAUDE_AUTH=oauth; break ;;
-        *) echo "    → 'api' か 'oauth' で答えてください" ;;
-      esac
-    done
+    CLAUDE_AUTH=$(ask_choice "  認証方式" "oauth" api oauth)
+  else
+    CLAUDE_AUTH=oauth
   fi
 
   echo
-  echo "Claude のグローバル設定（~/.claude/CLAUDE.md, skills, agents）の扱い:"
-  echo "  y = グローバルを引き継ぐ（個人の好みがそのまま効く、推奨）"
-  echo "  n = プロジェクト内に独立配置"
-  USE_GLOBAL_CLAUDE=$(ask_yn "Claude グローバル設定を引き継ぐ" "y")
+  echo "── Codex 連携（任意）──"
+  USE_CODEX=$(ask_yn "Codex 連携を使う（第二意見・画像生成・subagent 委譲）" "n")
+  if [ "$USE_CODEX" = "yes" ]; then
+    CODEX_SESSION=$(ask "  Codex session 名" "my-harness-init")
+    USE_CODEX_ENGINEER=$(ask_yn "  engineer を Codex に任せる" "y")
+    USE_CODEX_E2E_REVIEWER=$(ask_yn "  e2e-reviewer を Codex に任せる" "y")
+    USE_CODEX_REVIEWER=$(ask_yn "  reviewer を Codex に任せる" "y")
+    ON_CODEX_AUTH_FAIL=$(ask_choice "  認証/サブスク切れ時の挙動" "pause" pause fail)
+  else
+    CODEX_SESSION=my-harness-init
+    USE_CODEX_ENGINEER=no
+    USE_CODEX_E2E_REVIEWER=no
+    USE_CODEX_REVIEWER=no
+    ON_CODEX_AUTH_FAIL=pause
+  fi
 
   echo
-  echo "タスク管理の方式:"
-  echo "  y = GitHub Issue で管理（gh issue create で親/子 issue を起票）"
-  echo "  n = ローカル管理（dev/docs/task/<id>.md にファイルとして保存）"
-  USE_GITHUB_ISSUES=$(ask_yn "GitHub Issue 駆動で進める" "y")
+  echo "── その他 ──"
+  USE_GLOBAL_CLAUDE=$(ask_yn "Claude グローバル設定を引き継ぐ" "y")
+  USE_GITHUB_ISSUES=$(ask_yn "GitHub Issue 駆動で進める（n ならローカル docs/task/）" "y")
+fi
+
+# ===== USE_PLAYWRIGHT / USE_MAESTRO を E2E_SCOPE から派生 =====
+case "${E2E_SCOPE:-web}" in
+  web)         USE_PLAYWRIGHT=yes; USE_MAESTRO=no  ;;
+  mobile)      USE_PLAYWRIGHT=no;  USE_MAESTRO=yes ;;
+  both)        USE_PLAYWRIGHT=yes; USE_MAESTRO=yes ;;
+  none|*)      USE_PLAYWRIGHT=no;  USE_MAESTRO=no  ;;
+esac
+
+# ===== USE_CODEX=no のとき個別フラグも強制 no（master switch 優先）=====
+if [ "$USE_CODEX" != "yes" ]; then
+  USE_CODEX_ENGINEER=no
+  USE_CODEX_E2E_REVIEWER=no
+  USE_CODEX_REVIEWER=no
 fi
 
 # ===== 設定保存（統一: .my-harness/.config）=====
 mkdir -p .my-harness lanes
 cat > .my-harness/.config <<EOF
 PROJECT_NAME=$PROJECT_NAME
+ROOT=$ROOT
 USE_WEB=$USE_WEB
+WEB_KIND=$WEB_KIND
 USE_IOS=$USE_IOS
+IOS_KIND=$IOS_KIND
 USE_ANDROID=$USE_ANDROID
+ANDROID_KIND=$ANDROID_KIND
+USE_DESKTOP=$USE_DESKTOP
+DESKTOP_KIND=$DESKTOP_KIND
+DESKTOP_OS=$DESKTOP_OS
+USE_BACKEND=$USE_BACKEND
+BACKEND_KIND=$BACKEND_KIND
 USE_DB=$USE_DB
 DB_KIND=$DB_KIND
 USE_EMAIL=$USE_EMAIL
+AUTH_KIND=$AUTH_KIND
+E2E_SCOPE=$E2E_SCOPE
 USE_PLAYWRIGHT=$USE_PLAYWRIGHT
 USE_MAESTRO=$USE_MAESTRO
 USE_CLAUDE_ACTION=$USE_CLAUDE_ACTION
 CLAUDE_AUTH=$CLAUDE_AUTH
+USE_CODEX=$USE_CODEX
+CODEX_SESSION=$CODEX_SESSION
+USE_CODEX_ENGINEER=$USE_CODEX_ENGINEER
+USE_CODEX_E2E_REVIEWER=$USE_CODEX_E2E_REVIEWER
+USE_CODEX_REVIEWER=$USE_CODEX_REVIEWER
+ON_CODEX_AUTH_FAIL=$ON_CODEX_AUTH_FAIL
 USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE
 USE_GITHUB_ISSUES=$USE_GITHUB_ISSUES
 EOF
@@ -230,31 +313,59 @@ if ! git -C dev log --oneline 2>/dev/null | grep -q "chore: harness scaffold"; t
     git add -A
     if ! git diff --cached --quiet; then
       git -c user.name="harness-bot" -c user.email="harness@local" \
-        commit --no-verify -m "chore: harness scaffold ($(grep -E 'USE_|DB_KIND' .my-harness/.config | tr '\n' ' '))"
+        commit --no-verify -m "chore: harness scaffold ($(grep -E 'USE_|_KIND' .my-harness/.config | tr '\n' ' '))"
     fi
   )
 fi
+
+# ===== 7. init-state.json を書き出し（/my-harness-init からの再開用）=====
+mkdir -p .my-harness
+cat > .my-harness/init-state.json <<EOF
+{
+  "schema_version": "1",
+  "project_name": "$PROJECT_NAME",
+  "root": "$ROOT",
+  "current_phase": "bootstrap-completed",
+  "phases_completed": ["setup", "what", "platform", "backend", "data-model", "visual", "bootstrap"],
+  "next_action": "issue-task-generation",
+  "next_action_command": "/my-harness-init を継続（フェーズ 6.3 issue/task 生成へ）",
+  "working_directory": "$ROOT",
+  "resume_after_bootstrap_directory": "$ROOT/dev",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+echo "[bootstrap] init-state.json を書き出し → .my-harness/init-state.json"
 
 cat <<EOS
 
 ==================================
  ハーネス構築完了
 ==================================
-構成: web=$USE_WEB ios=$USE_IOS android=$USE_ANDROID db=$DB_KIND email=$USE_EMAIL
+構成:
+  Web=$USE_WEB ($WEB_KIND)  iOS=$USE_IOS ($IOS_KIND)
+  Android=$USE_ANDROID ($ANDROID_KIND)  Desktop=$USE_DESKTOP ($DESKTOP_KIND)
+  Backend=$USE_BACKEND ($BACKEND_KIND)  DB=$USE_DB ($DB_KIND)
+  Auth=$AUTH_KIND  E2E=$E2E_SCOPE
+  Codex=$USE_CODEX (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
 タスク管理: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue 駆動" || echo "ローカル docs/task/ 駆動")
 
-次のステップ:
+次のステップ（ターミナルで実行）:
 
   cd $ROOT/dev
-  direnv allow              # Nix shell へ自動切替
-  pnpm install              # 依存関係
-  pnpm exec husky           # husky 9.x セットアップ
+  direnv allow
+  pnpm install
+  pnpm exec husky
+
   git remote add origin git@github.com:<owner>/<repo>.git
-  git push --all origin     # main / stage / dev を一斉 push
+  git push --all origin
   bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
   bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 
-完成後:
-  bash .my-harness/scripts/new-feature.sh <issue-number> <slug>
+そして dev/ 配下で Claude Code を再起動し、新セッションで:
+
+  /harness-resume    # init-state.json から続きを判断（おすすめ）
+  または
+  /harness-team-lead              # 4 レーン並列で issue 一気に進める
+  /harness-new-feature <issue#>   # 個別 feature 着手
 
 EOS

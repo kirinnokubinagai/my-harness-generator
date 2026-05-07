@@ -141,11 +141,12 @@ init 後の開発で使うコマンド一覧:
 | `harness-mask` | 機密値マスク手動実行 |
 | `harness-codex-consult` | 「Codex に聞いて」「セカンドオピニオン」 |
 
-## 全 skill 一覧（21 個）
+## 全 skill 一覧（22 個）
 
 | 種別 | skill | 用途 |
 |------|-------|------|
 | エントリ | `my-harness-init` | 新規プロジェクトをゼロから（インタビュー → bootstrap） |
+| エントリ | `harness-resume` | ハーネス化済プロジェクトの作業を再開（`.my-harness/init-state.json` から判定） |
 | 規約 | `harness-tdd` | Red-Green-Refactor 強制 |
 | 規約 | `harness-hono-clean-arch` | Hono の 4 層 Clean Architecture |
 | 規約 | `harness-drizzle-rules` | Drizzle migrate-only、マイグレーション命名規約 |
