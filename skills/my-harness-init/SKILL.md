@@ -294,8 +294,16 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md \
   --out <root>/.my-harness/codex-logo.md \
-  "$PROJECT_NAME のロゴを 3 案、PNG で生成してください（SVG 禁止、1024x1024 以上、透過背景）。
+  "\$imagegen $PROJECT_NAME のロゴを 3 案生成してください。
+
+**必ず image_gen ツール（gpt-image-2）で PNG を直接生成してください**。HTML/CSS を書いて screenshot する方法、SVG を書く方法、コード経由は禁止です。
+
 仕様書を読んでプロジェクトに合うデザインを Codex の判断で作ってください。<主色ヒントがあれば: 主色は <ヒント>>
+
+仕様:
+- 形式: PNG（透過背景）
+- 解像度: 1024x1024 以上
+- 各案ごとに image_gen を別コール（合計 3 回）
 
 保存先:
 - <root>/dev/docs/design/logo-1.png
@@ -350,10 +358,19 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
   --out <root>/.my-harness/codex-mock-<画面>.md \
-  "$PROJECT_NAME の <画面名> 画面のモックを 2 案、PNG で生成してください（SVG 禁止）。
-解像度: <Web/Desktop なら 1280x800、モバイルなら 375x812>
+  "\$imagegen $PROJECT_NAME の <画面名> 画面のモックを 2 案生成してください。
 
-仕様書とロゴ採用案を踏まえて、Codex の判断でデザインしてください。Lucide Icons 使用。
+**必ず image_gen ツール（gpt-image-2）で PNG を直接生成してください**。
+- HTML/CSS を書いて Playwright/Puppeteer で screenshot する方法は **絶対に禁止**
+- SVG を書く方法、\`<canvas>\` でラスタライズする方法も **禁止**
+- コードを書くのではなく、**画像生成 AI に視覚的に描かせる**
+
+仕様書とロゴ採用案を踏まえて、Codex の判断でデザインしてください。Lucide Icons 風のアイコン使用、AI 風グラデーション禁止。
+
+仕様:
+- 形式: PNG
+- 解像度: <Web/Desktop なら 1280x800、モバイルなら 375x812>
+- 各案ごとに image_gen を別コール（合計 2 回）
 
 保存先:
 - <root>/dev/docs/design/mock-<画面>-1.png
