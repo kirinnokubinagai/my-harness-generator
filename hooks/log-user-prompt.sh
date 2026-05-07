@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# 概要: Claude Code の UserPromptSubmit フックで呼ばれ、ユーザー入力を
-#       <project>/dev/docs/talk/<date>.md に自動追記する。
-#       ファイル書き出し前に mask-secrets.sh で機密値を必ずマスクする。
+# Summary: Called by the Claude Code UserPromptSubmit hook. Appends the user's input to
+#          <project>/dev/docs/talk/<date>.md.
+#          Sensitive values are always masked via mask-secrets.sh before writing.
 #
-# 公式 stdin JSON スキーマ（Claude Code Hooks reference より）:
+# Official stdin JSON schema (from Claude Code Hooks reference):
 #   {
 #     "session_id": "...",
 #     "transcript_path": "...",
 #     "cwd": "...",
 #     "permission_mode": "...",
 #     "hook_event_name": "UserPromptSubmit",
-#     "prompt": "ユーザー入力本文"
+#     "prompt": "user input text"
 #   }
 #
-# 想定登録先（settings.json）:
+# Intended registration location (settings.json):
 #   {
 #     "hooks": {
 #       "UserPromptSubmit": [
@@ -26,7 +26,7 @@ set -uo pipefail
 
 INPUT=$(cat 2>/dev/null || true)
 
-# JSON から prompt と cwd を抽出（jq があれば使う）
+# Extract prompt and cwd from JSON (use jq if available)
 USER_PROMPT=""
 WORK_DIR=""
 if command -v jq >/dev/null 2>&1 && [ -n "$INPUT" ]; then
@@ -37,7 +37,7 @@ fi
 [ -z "$USER_PROMPT" ] && exit 0
 [ -z "$WORK_DIR" ] && WORK_DIR="${PWD:-$(pwd)}"
 
-# プロジェクトルート探索（.my-harness/.config の存在）
+# Locate project root (presence of .my-harness/.config)
 PROJECT_ROOT="$WORK_DIR"
 while [ "$PROJECT_ROOT" != "/" ] && [ "$PROJECT_ROOT" != "" ]; do
   [ -f "$PROJECT_ROOT/.my-harness/.config" ] && break

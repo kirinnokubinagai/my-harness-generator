@@ -19,9 +19,16 @@ If production code was written without a failing test first, **delete the code a
 
 ### RED (failing test)
 Write a failing test that covers exactly one behavior.
-- Test names should be in Japanese, following the pattern "〜できること" / "〜になること" (this is the generated project's default language convention)
+- Test names should be in `$PROJECT_LANG` (read from `.my-harness/.config`, default: `en`):
+  - If `en`: use the pattern `"should X"` / `"returns Y when Z"` (e.g. `"should create a user"`, `"returns null when user not found"`)
+  - If `ja`: use the pattern `"〜できること"` / `"〜になること"` (e.g. `"ユーザーを作成できること"`)
 - Use the AAA pattern (Arrange / Act / Assert, each section marked with a comment)
 - Mock external dependencies only. Call real code directly.
+
+```bash
+PROJECT_LANG=$(grep -E "^PROJECT_LANG=" ".my-harness/.config" 2>/dev/null | cut -d= -f2)
+PROJECT_LANG="${PROJECT_LANG:-en}"
+```
 
 ### Verify RED (required)
 ```bash

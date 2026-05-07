@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# 概要: GitHub の branch protection を gh CLI で一括設定する。
-#       main / stage に対して force-push 禁止、必須 status check、必須 PR レビューを適用する。
-# 使い方: bash .harness/scripts/setup-branch-protection.sh <owner/repo>
+# Summary: Applies GitHub branch protection rules in bulk using the gh CLI.
+#          Enforces force-push prohibition, required status checks, and required PR reviews
+#          on main / stage / dev.
+# Usage: bash .harness/scripts/setup-branch-protection.sh <owner/repo>
 set -euo pipefail
 REPO="${1:?owner/repo required}"
 
-# 必須 status check 名（reusable workflow が exposing する job 名と一致させる）
+# Required status check names (must match the job names exposed by reusable workflows)
 REQUIRED_CHECKS='[
   "quality",
   "e2e",
@@ -16,7 +17,7 @@ REQUIRED_CHECKS='[
 apply_protection() {
   local BRANCH="$1"
   local APPROVALS="$2"
-  echo "[branch-protection] $BRANCH に保護を適用"
+  echo "[branch-protection] Applying protection to $BRANCH"
   gh api -X PUT "repos/$REPO/branches/$BRANCH/protection" \
     -H "Accept: application/vnd.github+json" \
     -f required_status_checks[strict]=true \
@@ -38,7 +39,7 @@ apply_protection "main"  2
 apply_protection "stage" 1
 apply_protection "dev"   1
 
-# auto-merge を許可（リポジトリ設定）
+# Enable auto-merge (repository setting)
 gh api -X PATCH "repos/$REPO" \
   -F allow_auto_merge=true \
   -F allow_merge_commit=true \
@@ -46,4 +47,4 @@ gh api -X PATCH "repos/$REPO" \
   -F allow_rebase_merge=false \
   -F delete_branch_on_merge=true
 
-echo "[branch-protection] 完了。force-push 禁止・必須 status check・必須レビューを設定しました。"
+echo "[branch-protection] Done. Force-push prohibited, required status checks, and required reviews are configured."

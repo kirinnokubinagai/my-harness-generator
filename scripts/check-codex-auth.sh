@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# 概要: Codex CLI のログイン状態を確認する。
-#       Codex CLI 自体に "auth status" コマンドが存在しないため、auth.json の存在と
-#       軽い codex exec の成功で多段検証する。
-# 終了コード: 0 = ログイン済 / 1 = 未ログイン or 不明 / 127 = codex CLI 未インストール
-# 標準出力: 状態 (logged-in / not-logged-in / not-installed)
+# Summary: Checks the Codex CLI login status.
+#          Because the Codex CLI has no "auth status" command, this uses a two-stage
+#          verification: checking for auth.json and a lightweight codex exec success.
+# Exit code: 0 = logged in / 1 = not logged in or unknown / 127 = codex CLI not installed
+# Stdout: status string (logged-in / not-logged-in / not-installed)
 
 set -uo pipefail
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "not-installed"
-  echo "::error:: codex CLI が見つかりません。インストール: npm i -g @openai/codex" >&2
+  echo "::error:: codex CLI not found. Install with: npm i -g @openai/codex" >&2
   exit 127
 fi
 
 AUTH_FILE="${HOME}/.codex/auth.json"
 if [ ! -f "$AUTH_FILE" ]; then
   echo "not-logged-in"
-  echo "::warning:: $AUTH_FILE がありません。'codex login' を実行してください。" >&2
+  echo "::warning:: $AUTH_FILE not found. Run 'codex login'." >&2
   exit 1
 fi
 
-# auth.json の中身を緩く検証（access_token または api_key のいずれかがあれば OK）
-# jq があれば厳密に、無ければ grep で代替
+# Loosely validate auth.json contents (OK if either access_token or api_key is present)
+# Use jq if available, otherwise fall back to grep
 if command -v jq >/dev/null 2>&1; then
   HAS_TOKEN=$(jq -r '
     (.tokens.access_token // .tokens.id_token // .api_key // .OPENAI_API_KEY // "") != ""
@@ -36,7 +36,7 @@ fi
 
 if [ "$HAS_TOKEN" != "true" ]; then
   echo "not-logged-in"
-  echo "::warning:: auth.json にトークンが見つかりません。'codex login' を再実行してください。" >&2
+  echo "::warning:: No token found in auth.json. Run 'codex login' again." >&2
   exit 1
 fi
 

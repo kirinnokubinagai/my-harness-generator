@@ -1,20 +1,20 @@
-# セットアップ手順（GitHub Actions Variables / Secrets）
+# Setup Guide (GitHub Actions Variables / Secrets)
 
-ハーネスを動かすために必要な GitHub の Variables / Secrets を `gh` CLI で対話的に登録する手順。
-**すべて値を含めずキー名だけを表に列挙** してあるので、対面で値を入力しながら登録してください。
+This guide describes how to interactively register the GitHub Variables / Secrets needed to run the harness using the `gh` CLI.
+**Only key names are listed in the tables below — enter values interactively as you register them.**
 
-## Variables（公開可、ビルドタイムに参照）
+## Variables (public, referenced at build time)
 
-| 名称 | 用途 | 例 |
-|------|------|-----|
-| `DEV_URL` | dev 環境のベース URL | `https://dev.example.com` |
-| `STAGE_URL` | stage 環境のベース URL（OWASP ZAP の対象） | `https://stage.example.com` |
-| `PROD_URL` | 本番 URL | `https://example.com` |
-| `STAGE_IPA_PATH` | MobSF にかける iOS ビルドの artifact 内パス | `build/app.ipa` |
-| `R2_BACKUP_BUCKET` | DB バックアップ保存先の R2 バケット名 | `harness-prod-backups` |
-| `AGE_RECIPIENTS` | バックアップ暗号化用 age 公開鍵（スペース区切り） | `age1xxx age1yyy` |
+| Name | Purpose | Example |
+|------|---------|---------|
+| `DEV_URL` | Base URL of the dev environment | `https://dev.example.com` |
+| `STAGE_URL` | Base URL of the stage environment (OWASP ZAP target) | `https://stage.example.com` |
+| `PROD_URL` | Production URL | `https://example.com` |
+| `STAGE_IPA_PATH` | Path to iOS build artifact to pass to MobSF | `build/app.ipa` |
+| `R2_BACKUP_BUCKET` | R2 bucket name for DB backup storage | `harness-prod-backups` |
+| `AGE_RECIPIENTS` | age public keys for backup encryption (space-separated) | `age1xxx age1yyy` |
 
-登録コマンド:
+Registration commands:
 
 ```bash
 gh variable set DEV_URL --repo <owner/repo>
@@ -25,25 +25,25 @@ gh variable set R2_BACKUP_BUCKET --repo <owner/repo>
 gh variable set AGE_RECIPIENTS --repo <owner/repo>
 ```
 
-`gh variable set` は対話で値を促すので、安全にコピー&ペースト可能。
+`gh variable set` prompts interactively for the value, making it safe to copy and paste.
 
-## Secrets（暗号化必須、ログ出力されない）
+## Secrets (must be encrypted, never logged)
 
-| 名称 | 用途 |
-|------|------|
-| `ANTHROPIC_API_KEY` | Claude Code Action 用 API キー |
-| `RESEND_API_KEY` | パスワードリセット等のメール送信 |
-| `EMAIL_FROM_ADDRESS` | 送信元（認証済みドメイン配下） |
-| `PROD_DATABASE_URL` | 本番 DB（pg_dump 用） |
-| `STAGE_DATABASE_URL` | stage DB（restore 先） |
-| `R2_ACCESS_KEY_ID` | Cloudflare R2 アクセスキー |
-| `R2_SECRET_ACCESS_KEY` | R2 シークレット |
-| `R2_ENDPOINT_URL` | R2 のエンドポイント URL |
-| `AGE_SECRET_KEY_STAGE` | stage 復元用 age 秘密鍵 |
-| `MOBSF_API_KEY` | MobSF への認証 |
-| `CLOUDFLARE_API_TOKEN` | Terraform で Cloudflare 操作する場合 |
+| Name | Purpose |
+|------|---------|
+| `ANTHROPIC_API_KEY` | API key for Claude Code Action |
+| `RESEND_API_KEY` | Email sending for password resets, etc. |
+| `EMAIL_FROM_ADDRESS` | Sender address (under an authenticated domain) |
+| `PROD_DATABASE_URL` | Production DB (for pg_dump) |
+| `STAGE_DATABASE_URL` | Stage DB (restore target) |
+| `R2_ACCESS_KEY_ID` | Cloudflare R2 access key |
+| `R2_SECRET_ACCESS_KEY` | R2 secret |
+| `R2_ENDPOINT_URL` | R2 endpoint URL |
+| `AGE_SECRET_KEY_STAGE` | age private key for stage restore |
+| `MOBSF_API_KEY` | MobSF authentication |
+| `CLOUDFLARE_API_TOKEN` | For Cloudflare operations via Terraform |
 
-登録コマンド:
+Registration commands:
 
 ```bash
 gh secret set ANTHROPIC_API_KEY --repo <owner/repo>
@@ -59,34 +59,34 @@ gh secret set MOBSF_API_KEY --repo <owner/repo>
 gh secret set CLOUDFLARE_API_TOKEN --repo <owner/repo>
 ```
 
-## ブランチプロテクション
+## Branch Protection
 
-リポジトリ作成直後に必ず実行する:
+Run this immediately after creating the repository:
 
 ```bash
 bash .harness/scripts/setup-branch-protection.sh <owner/repo>
 ```
 
-これで main / stage / dev に対して以下が一括設定される:
-- force-push 禁止 (`allow_force_pushes=false`)
-- 削除禁止 (`allow_deletions=false`)
-- 必須 PR レビュー（main=2 件、stage/dev=1 件）
-- 必須 status checks（quality / e2e / security / claude-review）
-- 会話解決必須 (`required_conversation_resolution=true`)
-- merge コミット保持 (`allow_merge_commit=true`、squash/rebase 禁止)
-- マージ後ブランチ自動削除
+This applies the following settings in bulk to main / stage / dev:
+- Force-push prohibited (`allow_force_pushes=false`)
+- Deletion prohibited (`allow_deletions=false`)
+- Required PR reviews (main=2, stage/dev=1)
+- Required status checks (quality / e2e / security / claude-review)
+- Conversation resolution required (`required_conversation_resolution=true`)
+- Merge commits retained (`allow_merge_commit=true`; squash/rebase prohibited)
+- Automatic branch deletion after merge
 
-## auto-merge を有効化
+## Enabling Auto-Merge
 
-`setup-branch-protection.sh` が `allow_auto_merge=true` を自動で適用するため追加操作は不要。
+`setup-branch-protection.sh` automatically applies `allow_auto_merge=true`, so no additional action is needed.
 
-## Resend ドメイン認証
+## Resend Domain Authentication
 
-1. <https://resend.com/domains> でドメイン追加。
-2. 表示される DNS レコード（SPF / DKIM / DMARC）を Cloudflare の `cloudflare_record` リソースで Terraform 管理。
-3. 認証完了後、`EMAIL_FROM_ADDRESS` をそのドメイン配下のアドレスに設定。
+1. Add your domain at <https://resend.com/domains>.
+2. Manage the displayed DNS records (SPF / DKIM / DMARC) via Terraform using `cloudflare_record` resources.
+3. After authentication is complete, set `EMAIL_FROM_ADDRESS` to an address under that domain.
 
-## Cloudflare R2 バックアップバケット
+## Cloudflare R2 Backup Bucket
 
 ```bash
 nix develop --command terraform apply -target=cloudflare_r2_bucket.harness_backup
@@ -100,4 +100,4 @@ resource "cloudflare_r2_bucket" "harness_backup" {
 }
 ```
 
-ライフサイクルルール（90 日経過で削除）は R2 ダッシュボードで設定するか、`cloudflare_r2_lifecycle` リソースを使う。
+Lifecycle rules (delete after 90 days) can be configured in the R2 dashboard or via the `cloudflare_r2_lifecycle` resource.

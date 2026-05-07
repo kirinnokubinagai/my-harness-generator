@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-hooks",
-  "_comment": "ハーネスプロジェクト（cwd またはその親に .my-harness/.config がある）でのみ動作する。それ以外では即 exit 0。",
+  "_comment": "Active only in harness projects (where .my-harness/.config exists in cwd or a parent directory). Exits immediately with code 0 in all other projects.",
   "UserPromptSubmit": [
     {
       "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-user-prompt.sh"

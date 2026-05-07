@@ -1,54 +1,54 @@
-# セキュリティ規約（質問16への回答）
+# Security Policy
 
-## レイヤー別防御
+## Defense by Layer
 
-### 1. シークレット管理
+### 1. Secret Management
 
-- Git に平文の `.env` を絶対にコミットしない（`.gitignore` で防止済み）。
-- 開発: **direnv + Nix flake** でローカル環境変数を pure に注入。
-- 共有: **SOPS + age** で暗号化したファイルのみリポジトリに含める。
-  - 鍵は 1Password / iCloud Keychain で個人管理、CI には `AGE_KEY` を Secret 設定。
-- 本番: **AWS Secrets Manager** または **GCP Secret Manager**。アプリは IAM Role で取得。
+- Never commit a plain-text `.env` to Git (prevented by `.gitignore`).
+- Development: inject local environment variables purely via **direnv + Nix flake**.
+- Sharing: include only **SOPS + age**-encrypted files in the repository.
+  - Keys are managed personally in 1Password / iCloud Keychain; CI uses an `AGE_KEY` secret.
+- Production: **AWS Secrets Manager** or **GCP Secret Manager**. Applications retrieve secrets via IAM Role.
 
-### 2. 認証・認可
+### 2. Authentication and Authorization
 
-- パスワード: bcrypt cost ≥ 12（`~/.claude/rules/security.md` 参照）。
-- セッション: HttpOnly + Secure + SameSite=Strict Cookie、JWT は短命 (15m) + リフレッシュ (7d)。
-- 認可: リソース所有者チェック必須、RBAC は Hono ミドルウェアで集中管理。
+- Passwords: bcrypt cost ≥ 12 (see `~/.claude/rules/security.md`).
+- Sessions: HttpOnly + Secure + SameSite=Strict Cookie; JWT is short-lived (15m) + refresh (7d).
+- Authorization: resource owner check is mandatory; RBAC is centralized in Hono middleware.
 
-### 3. 入力検証
+### 3. Input Validation
 
-- すべての入力を Zod スキーマで検証（拒否は 422 + 日本語エラー）。
-- ORM は Drizzle、生 SQL を書く場合は必ず `sql` テンプレートリテラルでパラメータ化。
+- Validate all input with a Zod schema (reject with 422 + error message in `$PROJECT_LANG`).
+- Use Drizzle ORM; when writing raw SQL, always parameterize with the `sql` template literal.
 
-### 4. SAST / DAST / 依存
+### 4. SAST / DAST / Dependencies
 
-| 種別 | ツール | 実行タイミング |
-|------|--------|----------------|
+| Type | Tool | Timing |
+|------|------|--------|
 | SAST | Semgrep (OWASP / typescript ruleset) | PR → dev |
 | Secrets scan | gitleaks | pre-commit + CI |
-| Dependency | Trivy + Renovate | CI 毎日 + PR |
-| Container | Trivy image scan | docker build 後 |
-| DAST | OWASP ZAP baseline + full | dev → stage マージ時 |
-| License | license-checker | リリース前 |
+| Dependency | Trivy + Renovate | CI daily + PR |
+| Container | Trivy image scan | after docker build |
+| DAST | OWASP ZAP baseline + full | dev → stage merge |
+| License | license-checker | before release |
 
-### 5. ネットワーク / インフラ
+### 5. Network / Infrastructure
 
-- HTTPS 強制 + HSTS preload。
-- CSP は `default-src 'self'` を起点に必要なオリジンのみ追加。
-- CORS は許可オリジンを `.env` で明示、`*` は禁止。
-- WAF: Cloudflare or AWS WAF（OWASP Core Rule Set）。
-- レート制限: ログイン 5 回 / 15 分、API 全体 100 req / 15 分。
+- HTTPS enforced + HSTS preload.
+- CSP starts from `default-src 'self'`; only add necessary origins.
+- CORS: allowed origins are explicitly set in `.env`; `*` is prohibited.
+- WAF: Cloudflare or AWS WAF (OWASP Core Rule Set).
+- Rate limiting: login 5 attempts / 15 min; API overall 100 req / 15 min.
 
-### 6. 観測性
+### 6. Observability
 
-- 構造化ログ (pino) → CloudWatch / Datadog。
-- 機密情報マスク（メールは `te***@example.com` 形式）。
-- メトリクス: p95 レイテンシ、エラー率、認証失敗回数のアラート設定。
-- 監査ログ: 認証・権限変更・データ削除は別ストアに 1 年保存。
+- Structured logging (pino) → CloudWatch / Datadog.
+- Sensitive data masked (email in `te***@example.com` format).
+- Metrics: alerts configured for p95 latency, error rate, and authentication failure count.
+- Audit log: authentication, permission changes, and data deletion stored separately for 1 year.
 
-## なぜこの構成か
+## Why This Configuration
 
-- **Nix pure + SOPS**: 「何も入っていない PC」要件を満たし、シークレットも Git で安全に共有可能。
-- **Semgrep + Trivy + ZAP**: SAST/DAST/SCA を OSS のみで網羅。
-- **stage で ZAP/E2E**: 本番ライク環境で副作用を検出、main は常にグリーン保証。
+- **Nix pure + SOPS**: satisfies the "clean machine" requirement and enables safe secret sharing via Git.
+- **Semgrep + Trivy + ZAP**: comprehensive SAST/DAST/SCA coverage using only OSS tools.
+- **ZAP/E2E at stage**: detects side effects in a production-like environment; main is always kept green.

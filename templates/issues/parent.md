@@ -1,36 +1,36 @@
 ---
-name: 親 issue（feature）
-about: 大きな機能・変更を子 issue に分割するための親
+name: Parent issue (feature)
+about: Parent issue for splitting a large feature or change into child issues
 title: "[parent] "
 labels: parent
 ---
 
-## 目的 / ゴール
+## Purpose / Goal
 
-<!-- なぜ必要か、達成すれば何が良いか -->
+<!-- Why is this needed, and what benefit does it deliver? -->
 
-## スコープ
+## Scope
 
-- 含む:
-- 含まない:
+- In scope:
+- Out of scope:
 
-## 子 issue リスト（コンフリクトを避ける単位で分割）
+## Child Issue List (split into units that avoid conflicts)
 
-- [ ] #<子1> 変更ファイル群: `src/domain/...`
-- [ ] #<子2> 変更ファイル群: `src/application/...`
-- [ ] #<子3> 変更ファイル群: `src/interfaces/...`
-- [ ] #<子4> tests
-- [ ] #<子5> docs
+- [ ] #<child1> Changed files: `src/domain/...`
+- [ ] #<child2> Changed files: `src/application/...`
+- [ ] #<child3> Changed files: `src/interfaces/...`
+- [ ] #<child4> tests
+- [ ] #<child5> docs
 
-## 完了条件
+## Completion Criteria
 
-- [ ] すべての子 issue クローズ
-- [ ] dev でフルテスト緑
-- [ ] stage で OWASP ZAP / E2E 緑
+- [ ] All child issues closed
+- [ ] Full test suite green on dev
+- [ ] OWASP ZAP / E2E green on stage
 
-## レーン割当（team-lead 記入）
+## Lane Assignment (filled in by team-lead)
 
-- lane 1: #<子>
-- lane 2: #<子>
-- lane 3: #<子>
-- lane 4: #<子>
+- lane 1: #<child>
+- lane 2: #<child>
+- lane 3: #<child>
+- lane 4: #<child>

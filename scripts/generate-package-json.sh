@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# 概要: bootstrap.env の選択に応じて、必要な依存だけを含む package.json を組み立てる。
+# Summary: Assembles a package.json containing only the dependencies needed based on bootstrap.env selections.
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
 
-# bootstrap.env は $ROOT/.harness/ に保存されている（dev/.harness/ にコピーされるのは後段）
+# bootstrap.env is saved in $ROOT/.harness/ (copied to dev/.harness/ in a later step)
 # shellcheck disable=SC1091
 source "$ROOT/.my-harness/.config"
 
 cd "$ROOT/dev"
 
-# 共通の base
+# Common base
 BASE='{
   "name": "'"$PROJECT_NAME"'",
   "private": true,
@@ -42,7 +42,7 @@ BASE='{
   }
 }'
 
-# jq でオプションを足す
+# Add optional dependencies via jq
 TMP=$(mktemp)
 echo "$BASE" > "$TMP"
 
@@ -101,4 +101,4 @@ if [ "$USE_MAESTRO" = "yes" ]; then
 fi
 
 mv "$TMP" package.json
-echo "[generate-package-json] 完了"
+echo "[generate-package-json] Done"

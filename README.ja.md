@@ -247,6 +247,7 @@ team-lead 自身の context が重くなったら（issue 5〜10 個ごと）、
 `/my-harness-init` のインタビュー結果は `<root>/.my-harness/.config` に保存されます:
 
 ```bash
+PROJECT_LANG=en               # 説明・コメント・ドキュメントの出力言語（en | ja）
 PROJECT_NAME=todo-app
 USE_WEB=yes
 WEB_KIND=nextjs               # USE_WEB=yes のときのみ（nextjs | tanstack）

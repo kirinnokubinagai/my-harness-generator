@@ -1,24 +1,24 @@
 ---
 name: hotfix
-about: 本番障害の緊急修正
+about: Emergency fix for a production incident
 title: "[hotfix] "
 labels: hotfix, priority/p0
 ---
 
-## 障害概要
+## Incident Summary
 
-## 影響範囲
+## Impact Scope
 
-## 一時回避策（あれば）
+## Temporary Workaround (if any)
 
-## 修正方針
+## Fix Approach
 
-## ロールバック計画
+## Rollback Plan
 
-## 完了条件（最小）
+## Completion Criteria (minimum)
 
-- [ ] hotfix/* ブランチで修正 + 最小テスト
-- [ ] PR を main 宛に作成
-- [ ] post-merge で OWASP ZAP / E2E 即時実施
-- [ ] main → stage → dev へマージコミットで逆流
-- [ ] 24 時間以内に post-mortem 親 issue 起票
+- [ ] Fix + minimal tests in a hotfix/* branch
+- [ ] PR created targeting main
+- [ ] OWASP ZAP / E2E run immediately post-merge
+- [ ] Back-merge via merge commit: main → stage → dev
+- [ ] Post-mortem parent issue created within 24 hours

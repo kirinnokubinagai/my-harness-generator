@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 子 issue 番号から feature worktree を dev 起点で作成
-# 使い方: bash .harness/scripts/new-feature.sh <issue-number> <slug>
+# Creates a feature worktree from dev based on a child issue number
+# Usage: bash .harness/scripts/new-feature.sh <issue-number> <slug>
 set -euo pipefail
 
 ISSUE="${1:?issue number required}"

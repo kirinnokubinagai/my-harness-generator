@@ -1,22 +1,22 @@
-# iOS DAST（質問16 補足）
+# iOS DAST
 
-## 結論
+## Conclusion
 
-**OWASP ZAP は Web 専用** で iOS アプリには使えない。
-2026 年現在、iOS アプリの DAST/SAST を OSS で自動化する現実解は **MobSF（Mobile Security Framework）** 一択。
+**OWASP ZAP is web-only** and cannot be used for iOS apps.
+As of 2026, the only practical OSS solution for automating iOS DAST/SAST is **MobSF (Mobile Security Framework)**.
 
-| ツール | iOS 対応 | DAST | SAST | コスト | 自動化 |
-|--------|---------|------|------|-------|--------|
-| **MobSF** | ✅ | △ (静的のみ) | ✅ | OSS（無料） | Docker + REST API |
-| NowSecure | ✅ | ✅ | ✅ | 商用（高額） | GitHub Action あり |
-| Veracode | ✅ | ✅ | ✅ | 商用（高額） | 公式 Action |
-| Mobile-Threat | ✅ | ✅ | ✅ | 商用 | API |
+| Tool | iOS support | DAST | SAST | Cost | Automation |
+|------|------------|------|------|------|-----------|
+| **MobSF** | ✅ | △ (static only) | ✅ | OSS (free) | Docker + REST API |
+| NowSecure | ✅ | ✅ | ✅ | Commercial (expensive) | GitHub Action available |
+| Veracode | ✅ | ✅ | ✅ | Commercial (expensive) | Official Action |
+| Mobile-Threat | ✅ | ✅ | ✅ | Commercial | API |
 
-> 重要: MobSF v3.9 時点で **動的解析（DAST）は Android のみ対応**。
-> iOS は **静的解析 + IPA 内のシークレット/弱い暗号/危険な API 呼び出し検出** が中心。
-> それでも CI に組み込む価値は十分にある（OWASP MASVS L1 の大半をカバー）。
+> Important: As of MobSF v3.9, **dynamic analysis (DAST) supports Android only**.
+> For iOS, the focus is **static analysis + detection of secrets / weak cryptography / dangerous API calls inside the IPA**.
+> Even so, there is clear value in integrating it into CI (covers most of OWASP MASVS L1).
 
-## CI 組み込み（`.github/workflows/_reusable-security.yml` で自動）
+## CI Integration (automated via `.github/workflows/_reusable-security.yml`)
 
 ```yaml
 services:
@@ -27,27 +27,27 @@ services:
       MOBSF_API_KEY: ${{ secrets.MOBSF_API_KEY }}
 ```
 
-`mobsf` ジョブは `MOBSF_API_KEY` シークレットを使って起動 → IPA をアップロード → スキャン → JSON レポート取得 → high 重大度が 1 件でもあれば失敗。
-失敗時は GitHub issue を自動起票して該当レーンに修正を戻す。
+The `mobsf` job starts using the `MOBSF_API_KEY` secret → uploads the IPA → runs the scan → retrieves a JSON report → fails if even one high-severity finding exists.
+On failure, a GitHub issue is automatically created and the fix is routed back to the relevant lane.
 
-## 動的解析が必要な場合
+## When Dynamic Analysis Is Required
 
-- **iOS のリアル DAST は商用ツールが必要**（NowSecure、Veracode、Mobile-Threat）。
-- 予算が許せば **NowSecure GitHub Action**（`nowsecure/nowsecure-action`）を `_reusable-security.yml` に追加するのが最も簡単。
-- 予算が無い場合は手動ペネトレーションテストを四半期に 1 回行う運用にする。
+- **Real iOS DAST requires commercial tools** (NowSecure, Veracode, Mobile-Threat).
+- If budget allows, adding the **NowSecure GitHub Action** (`nowsecure/nowsecure-action`) to `_reusable-security.yml` is the simplest approach.
+- Without budget, perform manual penetration testing quarterly.
 
-## 手動補完
+## Manual Supplementation
 
-- **Frida + Objection** によるランタイム解析を月次で（手動）。
-- **App Store Review Guideline** + **iOS Privacy Manifest** チェックを Xcode の `xcodebuild -enableThreadSanitizer` で。
-- **Apple Privacy Manifests**（PrivacyInfo.xcprivacy）の存在確認を CI に追加することを推奨。
+- **Runtime analysis with Frida + Objection** monthly (manual).
+- **App Store Review Guideline** + **iOS Privacy Manifest** checks via Xcode's `xcodebuild -enableThreadSanitizer`.
+- It is recommended to add **Apple Privacy Manifests** (`PrivacyInfo.xcprivacy`) existence checks to CI.
 
-## まとめ
+## Summary
 
-iOS の場合、ZAP の代わりに:
-1. **MobSF を CI で必須化**（OSS、自動）→ 静的脆弱性 + 設定ミスを 95% カバー
-2. **NowSecure / Veracode を導入できれば DAST もカバー**（予算次第）
-3. **Apple Privacy Manifest 検証を CI に追加**
-4. **Frida + Objection の手動レビュー**を月次で
+For iOS, instead of ZAP:
+1. **Make MobSF mandatory in CI** (OSS, automated) → covers ~95% of static vulnerabilities + misconfigurations
+2. **Introduce NowSecure / Veracode if possible to also cover DAST** (budget permitting)
+3. **Add Apple Privacy Manifest validation to CI**
+4. **Manual review with Frida + Objection** monthly
 
-これらを `_reusable-security.yml` の `mobsf` ジョブで自動化済み。商用ツール導入時はジョブを追加するだけで OK。
+These are automated via the `mobsf` job in `_reusable-security.yml`. When introducing commercial tools, simply add a job.

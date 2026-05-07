@@ -1,33 +1,33 @@
-<!-- このテンプレートは自動で読み込まれます。dev 以外への PR は緊急 hotfix を除き禁止です。 -->
+<!-- This template is loaded automatically. PRs targeting branches other than dev are prohibited except for emergency hotfixes. -->
 
-## 関連 issue
+## Related Issue
 
-closes #<子 issue>
-parent: #<親 issue>
+closes #<child issue>
+parent: #<parent issue>
 
-## 変更概要
+## Summary of Changes
 
-<!-- 1〜3 文。なぜ必要か、何が変わるか。 -->
+<!-- 1–3 sentences: why this is needed and what changes. -->
 
-## 変更点（チェックリスト）
+## Changes (Checklist)
 
-- [ ] 機能仕様
-- [ ] テスト追加 / 更新
-- [ ] ドキュメント更新
-- [ ] マイグレーション（あれば）
+- [ ] Feature implementation
+- [ ] Tests added / updated
+- [ ] Documentation updated
+- [ ] Migration (if applicable)
 
-## 影響範囲
+## Impact Scope
 
-- 影響ファイル:
-- 影響機能:
-- 後方互換性: あり / なし（理由）
+- Affected files:
+- Affected features:
+- Backward compatibility: yes / no (reason)
 
-## E2E 影響
+## E2E Impact
 
-- [ ] あり → Playwright / Maestro 実行済み
-- [ ] なし
+- [ ] Yes → Playwright / Maestro run completed
+- [ ] No
 
-## レーン
+## Lane
 
 - lane: N
 - analyst: @analyst-N
@@ -35,17 +35,17 @@ parent: #<親 issue>
 - e2e-reviewer: @e2e-reviewer-N
 - reviewer: @reviewer-N
 
-## 規約遵守
+## Convention Compliance
 
-- [ ] biome format / lint 通過
-- [ ] vitest 通過
-- [ ] tsc --noEmit 通過
-- [ ] gitleaks 通過
-- [ ] JSDoc / TSDoc 完備
-- [ ] Hono Clean Architecture 4 層分離
-- [ ] Nix flake のみで動作確認
-- [ ] AI 風デザイン要素なし、Lucide Icons のみ
+- [ ] biome format / lint passed
+- [ ] vitest passed
+- [ ] tsc --noEmit passed
+- [ ] gitleaks passed
+- [ ] JSDoc / TSDoc complete
+- [ ] Hono Clean Architecture 4-layer separation
+- [ ] Verified to work under Nix flake only
+- [ ] No AI-style design elements; Lucide Icons only
 
-## レビュー依頼
+## Review Request
 
-target: dev（ハーネス標準）
+target: dev (harness standard)

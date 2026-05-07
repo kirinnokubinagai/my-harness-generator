@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# 概要: ローカルチェックアウトから直接 ~/.claude/skills/ にインストールする（plugin install しない場合の代替）。
-#       推奨は: /plugin marketplace add <repo> + /plugin install my-harness-harness-generator
-#       ~/.claude/ に直接インストールする（bootstrap を経由しない）。
-#       既存ファイルは上書き（最新テンプレに同期）するので、ジェネレータ更新後の反映に使う。
+# Summary: Installs directly from a local checkout to ~/.claude/skills/ (alternative to plugin install).
+#          Recommended approach: /plugin marketplace add <repo> + /plugin install my-harness-harness-generator
+#          Installs directly to ~/.claude/ (bypasses bootstrap).
+#          Overwrites existing files (syncs to the latest template), so use this after generator updates.
 #
-# 使い方:
+# Usage:
 #   bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/install-skills-globally.sh
-#   bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/install-skills-globally.sh --no-hooks   # hooks 登録をスキップ
+#   bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/install-skills-globally.sh --no-hooks   # skip hook registration
 #
-# やること:
-#   1. templates/skills/harness-* を ~/.claude/skills/ に上書きコピー
-#   2. ~/.claude/settings.json に UserPromptSubmit / Stop hook を jq でマージ登録
-#   3. 完了後は Claude Code を再起動するか /clear で再ロード
+# What it does:
+#   1. Copies templates/skills/harness-* to ~/.claude/skills/ (overwrite)
+#   2. Merges UserPromptSubmit / Stop hooks into ~/.claude/settings.json using jq
+#   3. After completion, restart Claude Code or run /clear to apply changes
 
 set -euo pipefail
 
@@ -37,24 +37,24 @@ for src_skill in "$HARNESS_DIR/templates/skills"/harness-*; do
   cp "$src_skill/SKILL.md" "$CLAUDE_SKILLS_DIR/$skill_name/SKILL.md"
   INSTALLED=$((INSTALLED + 1))
 done
-echo "  → $INSTALLED 個の harness-* skill を install"
+echo "  → $INSTALLED harness-* skill(s) installed"
 
-# my-harness-init / my-harness-generator も同期（既存があれば上書き）
+# Also sync my-harness-init / my-harness-generator (overwrite if they exist)
 for top_skill in my-harness-init my-harness-generator; do
   if [ -f "$HARNESS_DIR/templates/skills/$top_skill/SKILL.md" ]; then
     mkdir -p "$CLAUDE_SKILLS_DIR/$top_skill"
     cp "$HARNESS_DIR/templates/skills/$top_skill/SKILL.md" "$CLAUDE_SKILLS_DIR/$top_skill/SKILL.md"
-    echo "  → $top_skill を install/更新"
+    echo "  → $top_skill installed/updated"
   fi
 done
 
-# hooks を ~/.claude/settings.json にマージ登録
+# Merge hooks into ~/.claude/settings.json
 if [ "$SKIP_HOOKS" -eq 0 ]; then
   SETTINGS="$HOME/.claude/settings.json"
   mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
   if ! command -v jq >/dev/null 2>&1; then
-    echo "  ::warning:: jq が無いため hooks 登録をスキップ。手動で settings.json に追記してください。"
+    echo "  ::warning:: jq not found — skipping hook registration. Add hooks to settings.json manually."
   else
     USER_HOOK="bash $HARNESS_DIR/hooks/log-user-prompt.sh"
     STOP_HOOK="bash $HARNESS_DIR/hooks/log-claude-output.sh"
@@ -84,15 +84,15 @@ if [ "$SKIP_HOOKS" -eq 0 ]; then
         else .hooks.Stop += [{"hooks": [{"type": "command", "command": $sp}]}]
       end
       ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
-    echo "  → ~/.claude/settings.json に UserPromptSubmit / Stop hook を登録"
+    echo "  → UserPromptSubmit / Stop hooks registered in ~/.claude/settings.json"
   fi
 fi
 
 cat <<EOS
 
-==== install-skills-globally 完了 ====
-  install されたディレクトリ: $CLAUDE_SKILLS_DIR/harness-* と my-harness-init / my-harness-generator
-  hooks 登録: ~/.claude/settings.json
-  ※ Claude Code を再起動するか /clear を実行して反映してください
-======================================
+==== install-skills-globally complete ====
+  Installed to: $CLAUDE_SKILLS_DIR/harness-* and my-harness-init / my-harness-generator
+  Hooks registered: ~/.claude/settings.json
+  * Restart Claude Code or run /clear to apply changes
+==========================================
 EOS

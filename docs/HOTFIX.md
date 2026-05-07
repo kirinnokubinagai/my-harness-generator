@@ -1,43 +1,43 @@
-# Hotfix ワークフロー（質問9への回答）
+# Hotfix Workflow
 
-## 基本方針
+## Guiding Principle
 
-通常フローは feat → dev → stage → main だが、本番事故の緊急修正は時間制約上この順を踏めない。
-以下の **限定的な例外フロー** を採用する。
+The normal flow is feat → dev → stage → main. However, for emergency fixes in production, time constraints make following this order impractical.
+The following **limited exception flow** is used.
 
-## フロー
+## Flow
 
-1. **issue 起票**: `hotfix/` ラベルを付け、親 issue を作らず単独で作成。SLA は 24 時間。
-2. **worktree 作成**: `main` から派生。
+1. **Create issue**: Add the `hotfix/` label and create as a standalone issue without a parent. SLA is 24 hours.
+2. **Create worktree**: Branch from `main`.
    ```bash
    git worktree add lanes/hotfix-<issue> -b hotfix/<issue> main
    ```
-3. **修正 + 最小テスト**: 影響範囲を最小化、新規機能追加は厳禁。pre-commit / pre-push の husky は必須。
+3. **Fix + minimal tests**: Minimize the scope of impact; adding new features is strictly prohibited. husky pre-commit / pre-push hooks are required.
 4. **PR 1: hotfix/<issue> → main**
-   - 人間（あなた）の緊急承認が必要
-   - 通過ゲート: format / lint / unit test / typecheck / Trivy
-   - OWASP ZAP / E2E は **post-merge 即時実施**（ブロッキングしない代わりに、不合格時は即ロールバック）
-5. **逆流マージ（rebase 禁止、必ずマージコミット）**:
+   - Human (you) emergency approval is required
+   - Gates: format / lint / unit test / typecheck / Trivy
+   - OWASP ZAP / E2E **run immediately post-merge** (non-blocking, but a failure triggers an immediate rollback)
+5. **Back-merge (rebase prohibited; merge commits only)**:
    ```bash
    # main → stage
    git checkout stage && git merge --no-ff main
    # stage → dev
    git checkout dev && git merge --no-ff stage
    ```
-6. **post-mortem**: 24 時間以内に親 issue を作成し、再発防止策を子 issue で展開。
+6. **Post-mortem**: Create a parent issue within 24 hours and develop preventive measures as child issues.
 
-## 通常フローとの差分
+## Differences from Normal Flow
 
-| 項目 | 通常 | Hotfix |
-|------|------|--------|
-| 起点ブランチ | dev | main |
-| PR 先 | dev | main |
-| stage 経由 | 必須 | スキップ可（緊急時） |
-| ZAP/E2E | pre-merge | post-merge 即時 |
-| 親/子 issue | 必須 | post-mortem で事後作成 |
+| Item | Normal | Hotfix |
+|------|--------|--------|
+| Base branch | dev | main |
+| PR target | dev | main |
+| Stage gate | Required | Skippable (emergency only) |
+| ZAP/E2E | pre-merge | post-merge immediately |
+| Parent/child issue | Required | Created post-mortem |
 
-## 禁止事項
+## Prohibited
 
-- `git reset --hard`, `git rebase`, `git push --force`, `--force-with-lease` も原則禁止。
-- main を直接編集しない（必ず hotfix ブランチを切る）。
-- 逆流をスキップしない（dev/stage に修正が含まれないと再発する）。
+- `git reset --hard`, `git rebase`, `git push --force`, and `--force-with-lease` are also prohibited in principle.
+- Never edit main directly (always cut a hotfix branch).
+- Never skip the back-merge (without it, the fix won't reach dev/stage and the bug will recur).

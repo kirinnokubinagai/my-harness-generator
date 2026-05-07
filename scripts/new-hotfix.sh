@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# main 起点で hotfix worktree を作成
+# Creates a hotfix worktree from main
 set -euo pipefail
 ISSUE="${1:?issue number required}"
 SLUG="${2:?slug required}"

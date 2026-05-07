@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 概要: Claude Code の Stop フックで呼ばれ、Claude の最後の応答を抽出して
-#       <project>/dev/docs/talk/<date>.md に自動追記する（マスク済）。
+# Summary: Called by the Claude Code Stop hook. Extracts Claude's last response from the
+#          transcript and appends it (masked) to <project>/dev/docs/talk/<date>.md.
 #
-# 公式 stdin JSON スキーマ:
+# Official stdin JSON schema:
 #   {
 #     "session_id": "...",
-#     "transcript_path": "...",   ← この jsonl から最後の assistant message を抽出
+#     "transcript_path": "...",   <- extract last assistant message from this jsonl
 #     "cwd": "...",
 #     "permission_mode": "...",
 #     "hook_event_name": "Stop",
@@ -36,7 +36,7 @@ done
 HARNESS_GENERATOR_DIR="${CLAUDE_PLUGIN_ROOT:-${HARNESS_GENERATOR_DIR:-$HOME/my-harness-generator}}"
 MASK="$HARNESS_GENERATOR_DIR/scripts/mask-secrets.sh"
 
-# transcript jsonl から最後の assistant message のテキストを抽出
+# Extract the last assistant message text from the transcript jsonl
 LAST_TEXT=""
 if command -v jq >/dev/null 2>&1; then
   LAST_TEXT=$(jq -r '

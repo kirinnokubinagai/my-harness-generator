@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 概要: ハーネスのワンコマンド対話セットアップ。
+# Summary: One-command interactive harness setup.
 #
-# 使い方:
-#   bash bootstrap.sh <project-root>                    # 対話モード
-#   bash bootstrap.sh <project-root> --config <file>    # 非対話モード（/my-harness-init から呼ぶ）
+# Usage:
+#   bash bootstrap.sh <project-root>                    # interactive mode
+#   bash bootstrap.sh <project-root> --config <file>    # non-interactive mode (called from /my-harness-init)
 #
-# 設定ファイル形式（.my-harness/.config 互換、SKILL.md と同じスキーマ）:
+# Config file format (.my-harness/.config compatible, same schema as SKILL.md):
 #   PROJECT_NAME / ROOT
 #   USE_WEB + WEB_KIND (nextjs|tanstack)
 #   USE_IOS + IOS_KIND (swift|expo|flutter)
@@ -19,12 +19,13 @@
 #   USE_CODEX + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
 #   CODEX_SESSION / ON_CODEX_AUTH_FAIL (pause|fail)
 #   USE_GLOBAL_CLAUDE / USE_GITHUB_ISSUES
+#   PROJECT_LANG (en|ja, default en)
 
 set -euo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# ===== 引数パース =====
+# ===== Argument parsing =====
 ROOT=""
 CONFIG_FILE=""
 while [ $# -gt 0 ]; do
@@ -41,7 +42,7 @@ ROOT="${ROOT:-$PWD}"
 mkdir -p "$ROOT"
 cd "$ROOT"
 
-# ===== 対話 helpers =====
+# ===== Interactive helpers =====
 ask() {
   local prompt="$1"; local default="$2"; local answer
   printf "%s [%s]: " "$prompt" "$default" >&2
@@ -61,16 +62,16 @@ ask_choice() {
     for c in "${choices[@]}"; do
       [ "$a" = "$c" ] && { echo "$c"; return; }
     done
-    echo "  → 下記から選んでください: ${choices[*]}" >&2
+    echo "  → Please choose from: ${choices[*]}" >&2
   done
 }
 
 if [ -n "$CONFIG_FILE" ]; then
   if [ ! -f "$CONFIG_FILE" ]; then
-    echo "::error:: --config で指定されたファイルがありません: $CONFIG_FILE" >&2
+    echo "::error:: Config file specified with --config not found: $CONFIG_FILE" >&2
     exit 1
   fi
-  echo "[bootstrap] 非対話モード: $CONFIG_FILE から読み込み"
+  echo "[bootstrap] Non-interactive mode: loading from $CONFIG_FILE"
   # shellcheck disable=SC1090
   source "$CONFIG_FILE"
   PROJECT_NAME="${PROJECT_NAME:-$(basename "$ROOT")}"
@@ -100,85 +101,89 @@ if [ -n "$CONFIG_FILE" ]; then
   ON_CODEX_AUTH_FAIL="${ON_CODEX_AUTH_FAIL:-pause}"
   USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
   USE_GITHUB_ISSUES="${USE_GITHUB_ISSUES:-yes}"
+  PROJECT_LANG="${PROJECT_LANG:-en}"
 else
   echo "=================================="
-  echo " 汎用ハーネス ワンコマンドセットアップ"
+  echo " Harness One-Command Setup"
   echo "=================================="
-  echo "  作業ディレクトリ: $ROOT"
+  echo "  Working directory: $ROOT"
   echo
 
-  PROJECT_NAME=$(ask "プロジェクト名" "$(basename "$ROOT")")
+  # Phase 0 — Language
+  PROJECT_LANG=$(ask_choice "Output language for this project" "en" en ja)
+
+  PROJECT_NAME=$(ask "Project name" "$(basename "$ROOT")")
 
   echo
-  echo "── プラットフォーム ──"
-  USE_WEB=$(ask_yn "Web を作る" "y")
+  echo "── Platforms ──"
+  USE_WEB=$(ask_yn "Build a Web app" "y")
   if [ "$USE_WEB" = "yes" ]; then
-    WEB_KIND=$(ask_choice "  フレームワーク" "nextjs" nextjs tanstack)
+    WEB_KIND=$(ask_choice "  Framework" "nextjs" nextjs tanstack)
   else
     WEB_KIND=nextjs
   fi
-  USE_IOS=$(ask_yn "iOS を作る" "y")
+  USE_IOS=$(ask_yn "Build an iOS app" "y")
   if [ "$USE_IOS" = "yes" ]; then
-    IOS_KIND=$(ask_choice "  実装" "swift" swift expo flutter)
+    IOS_KIND=$(ask_choice "  Implementation" "swift" swift expo flutter)
   else
     IOS_KIND=swift
   fi
-  USE_ANDROID=$(ask_yn "Android を作る" "y")
+  USE_ANDROID=$(ask_yn "Build an Android app" "y")
   if [ "$USE_ANDROID" = "yes" ]; then
-    ANDROID_KIND=$(ask_choice "  実装" "kotlin" kotlin expo flutter)
+    ANDROID_KIND=$(ask_choice "  Implementation" "kotlin" kotlin expo flutter)
   else
     ANDROID_KIND=kotlin
   fi
-  USE_DESKTOP=$(ask_yn "Desktop を作る" "y")
+  USE_DESKTOP=$(ask_yn "Build a Desktop app" "y")
   if [ "$USE_DESKTOP" = "yes" ]; then
-    DESKTOP_KIND=$(ask_choice "  フレームワーク" "tauri" tauri electron)
-    DESKTOP_OS=$(ask "  対応 OS（カンマ区切り）" "macos,windows,linux")
+    DESKTOP_KIND=$(ask_choice "  Framework" "tauri" tauri electron)
+    DESKTOP_OS=$(ask "  Target OS (comma-separated)" "macos,windows,linux")
   else
     DESKTOP_KIND=tauri
     DESKTOP_OS=macos,windows,linux
   fi
 
   if [ "$USE_WEB" = "no" ] && [ "$USE_IOS" = "no" ] && [ "$USE_ANDROID" = "no" ] && [ "$USE_DESKTOP" = "no" ]; then
-    echo "::error:: 1 つ以上のプラットフォームを選択してください" >&2
+    echo "::error:: Please select at least one platform" >&2
     exit 1
   fi
 
   echo
-  echo "── バックエンド ──"
-  USE_BACKEND=$(ask_yn "バックエンドを作る" "y")
+  echo "── Backend ──"
+  USE_BACKEND=$(ask_yn "Build a backend" "y")
   if [ "$USE_BACKEND" = "yes" ]; then
-    BACKEND_KIND=$(ask_choice "  言語/フレームワーク" "hono" hono gin rust)
+    BACKEND_KIND=$(ask_choice "  Language/Framework" "hono" hono gin rust)
   else
     BACKEND_KIND=hono
   fi
-  USE_DB=$(ask_yn "DB を使う" "y")
+  USE_DB=$(ask_yn "Use a database" "y")
   if [ "$USE_DB" = "yes" ]; then
-    DB_KIND=$(ask_choice "  DB の種類" "d1" d1 postgres mysql sqlite)
+    DB_KIND=$(ask_choice "  Database type" "d1" d1 postgres mysql sqlite)
   else
     DB_KIND=d1
   fi
-  USE_EMAIL=$(ask_yn "メール（Resend、パスワードリセット含む）を使う" "n")
-  AUTH_KIND=$(ask_choice "認証どこまで" "none" none password oauth)
+  USE_EMAIL=$(ask_yn "Use email (Resend, including password reset)" "n")
+  AUTH_KIND=$(ask_choice "Authentication level" "none" none password oauth)
 
   echo
-  echo "── テスト / CI ──"
-  E2E_SCOPE=$(ask_choice "E2E スコープ" "web" web mobile both none)
-  USE_CLAUDE_ACTION=$(ask_yn "PR レビューに Claude Code Action を使う" "y")
+  echo "── Tests / CI ──"
+  E2E_SCOPE=$(ask_choice "E2E scope" "web" web mobile both none)
+  USE_CLAUDE_ACTION=$(ask_yn "Use Claude Code Action for PR review" "y")
   if [ "$USE_CLAUDE_ACTION" = "yes" ]; then
-    CLAUDE_AUTH=$(ask_choice "  認証方式" "oauth" api oauth)
+    CLAUDE_AUTH=$(ask_choice "  Auth method" "oauth" api oauth)
   else
     CLAUDE_AUTH=oauth
   fi
 
   echo
-  echo "── Codex 連携（任意）──"
-  USE_CODEX=$(ask_yn "Codex 連携を使う（第二意見・画像生成・subagent 委譲）" "n")
+  echo "── Codex integration (optional) ──"
+  USE_CODEX=$(ask_yn "Use Codex integration (second opinion / image generation / subagent delegation)" "n")
   if [ "$USE_CODEX" = "yes" ]; then
-    CODEX_SESSION=$(ask "  Codex session 名" "my-harness-init")
-    USE_CODEX_ENGINEER=$(ask_yn "  engineer を Codex に任せる" "y")
-    USE_CODEX_E2E_REVIEWER=$(ask_yn "  e2e-reviewer を Codex に任せる" "y")
-    USE_CODEX_REVIEWER=$(ask_yn "  reviewer を Codex に任せる" "y")
-    ON_CODEX_AUTH_FAIL=$(ask_choice "  認証/サブスク切れ時の挙動" "pause" pause fail)
+    CODEX_SESSION=$(ask "  Codex session name" "my-harness-init")
+    USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer to Codex" "y")
+    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer to Codex" "y")
+    USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer to Codex" "y")
+    ON_CODEX_AUTH_FAIL=$(ask_choice "  Behavior on auth/subscription failure" "pause" pause fail)
   else
     CODEX_SESSION=my-harness-init
     USE_CODEX_ENGINEER=no
@@ -188,12 +193,12 @@ else
   fi
 
   echo
-  echo "── その他 ──"
-  USE_GLOBAL_CLAUDE=$(ask_yn "Claude グローバル設定を引き継ぐ" "y")
-  USE_GITHUB_ISSUES=$(ask_yn "GitHub Issue 駆動で進める（n ならローカル docs/task/）" "y")
+  echo "── Other ──"
+  USE_GLOBAL_CLAUDE=$(ask_yn "Inherit global Claude settings" "y")
+  USE_GITHUB_ISSUES=$(ask_yn "Use GitHub Issue-driven workflow (n = local docs/task/)" "y")
 fi
 
-# ===== USE_PLAYWRIGHT / USE_MAESTRO を E2E_SCOPE から派生 =====
+# ===== Derive USE_PLAYWRIGHT / USE_MAESTRO from E2E_SCOPE =====
 case "${E2E_SCOPE:-web}" in
   web)         USE_PLAYWRIGHT=yes; USE_MAESTRO=no  ;;
   mobile)      USE_PLAYWRIGHT=no;  USE_MAESTRO=yes ;;
@@ -201,18 +206,19 @@ case "${E2E_SCOPE:-web}" in
   none|*)      USE_PLAYWRIGHT=no;  USE_MAESTRO=no  ;;
 esac
 
-# ===== USE_CODEX=no のとき個別フラグも強制 no（master switch 優先）=====
+# ===== When USE_CODEX=no, force individual flags to no (master switch takes priority) =====
 if [ "$USE_CODEX" != "yes" ]; then
   USE_CODEX_ENGINEER=no
   USE_CODEX_E2E_REVIEWER=no
   USE_CODEX_REVIEWER=no
 fi
 
-# ===== 設定保存（統一: .my-harness/.config）=====
+# ===== Save configuration (.my-harness/.config) =====
 mkdir -p .my-harness lanes
 cat > .my-harness/.config <<EOF
 PROJECT_NAME=$PROJECT_NAME
 ROOT=$ROOT
+PROJECT_LANG=${PROJECT_LANG:-en}
 USE_WEB=$USE_WEB
 WEB_KIND=$WEB_KIND
 USE_IOS=$USE_IOS
@@ -244,20 +250,20 @@ USE_GITHUB_ISSUES=$USE_GITHUB_ISSUES
 EOF
 
 echo
-echo "=== 設定確定 ==="
+echo "=== Configuration confirmed ==="
 cat .my-harness/.config
 echo
 
-# ===== 1. bare git の作成 =====
+# ===== 1. Create bare git repository =====
 if [ ! -d .bare ]; then
-  echo "[bootstrap] bare repository を初期化"
+  echo "[bootstrap] Initializing bare repository"
   git init --bare .bare
 fi
 [ -f .git ] || printf 'gitdir: ./.bare\n' > .git
 
-# ===== 2. main / stage / dev ブランチを保証 =====
+# ===== 2. Ensure main / stage / dev branches exist =====
 if ! git --git-dir=.bare rev-parse --verify refs/heads/main >/dev/null 2>&1; then
-  echo "[bootstrap] 初期コミットと main ブランチを作成"
+  echo "[bootstrap] Creating initial commit and main branch"
   git --git-dir=.bare symbolic-ref HEAD refs/heads/main
   git read-tree --empty
   EMPTY=$(git write-tree)
@@ -268,47 +274,47 @@ fi
 ensure_branch() {
   local branchName="$1"
   if ! git --git-dir=.bare rev-parse --verify "refs/heads/$branchName" >/dev/null 2>&1; then
-    echo "[bootstrap] ブランチ '$branchName' を main から作成"
+    echo "[bootstrap] Creating branch '$branchName' from main"
     git --git-dir=.bare branch "$branchName" main
   fi
 }
 ensure_branch stage
 ensure_branch dev
 
-# ===== 3. worktree =====
+# ===== 3. Worktrees =====
 git worktree prune
 ensure_worktree() {
   local name="$1"
   if [ -f "$name/.git" ]; then return 0; fi
   if [ -e "$name" ]; then
-    echo "::warning:: '$name' が既に存在しますが worktree マーカが見つかりません。スキップ"
+    echo "::warning:: '$name' already exists but no worktree marker found. Skipping."
     return 0
   fi
-  echo "[bootstrap] worktree '$name' を作成"
+  echo "[bootstrap] Creating worktree '$name'"
   git worktree add --force "$name" "$name"
 }
 ensure_worktree main
 ensure_worktree stage
 ensure_worktree dev
 
-# ===== 4. 共通ファイル / プラットフォーム / Claude 設定 配布 =====
-echo "[bootstrap] 共通ファイルを配布"
+# ===== 4. Distribute common files / platform templates / Claude config =====
+echo "[bootstrap] Distributing common files"
 bash "$HARNESS_DIR/scripts/setup-common.sh" "$ROOT"
 
-echo "[bootstrap] プラットフォーム別テンプレを配布"
+echo "[bootstrap] Distributing platform-specific templates"
 bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 
-echo "[bootstrap] Claude 設定を配置 (USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE)"
+echo "[bootstrap] Placing Claude config (USE_GLOBAL_CLAUDE=$USE_GLOBAL_CLAUDE)"
 bash "$HARNESS_DIR/scripts/setup-claude.sh" "$ROOT"
 
-# ===== 5. ハーネス自体を dev/.my-harness にコピー =====
+# ===== 5. Copy harness itself to dev/.my-harness =====
 mkdir -p dev/.my-harness
 rsync -a --exclude='.git' --exclude='.config' "$HARNESS_DIR/" dev/.my-harness/
 cp .my-harness/.config dev/.my-harness/.config
 
-# ===== 6. dev で初期 scaffold をコミット =====
+# ===== 6. Commit initial scaffold on dev =====
 if ! git -C dev log --oneline 2>/dev/null | grep -q "chore: harness scaffold"; then
-  echo "[bootstrap] dev で初期 scaffold コミットを作成"
+  echo "[bootstrap] Creating initial scaffold commit on dev"
   ( cd dev
     git add -A
     if ! git diff --cached --quiet; then
@@ -318,38 +324,40 @@ if ! git -C dev log --oneline 2>/dev/null | grep -q "chore: harness scaffold"; t
   )
 fi
 
-# ===== 7. init-state.json を書き出し（/my-harness-init からの再開用）=====
+# ===== 7. Write init-state.json (for resume support in /my-harness-init) =====
 mkdir -p .my-harness
 cat > .my-harness/init-state.json <<EOF
 {
   "schema_version": "1",
   "project_name": "$PROJECT_NAME",
   "root": "$ROOT",
+  "projectLang": "${PROJECT_LANG:-en}",
   "current_phase": "bootstrap-completed",
-  "phases_completed": ["setup", "what", "platform", "backend", "data-model", "visual", "bootstrap"],
+  "phases_completed": ["language", "setup", "what", "platform", "backend", "data-model", "visual", "bootstrap"],
   "next_action": "issue-task-generation",
-  "next_action_command": "/my-harness-init を継続（フェーズ 6.3 issue/task 生成へ）",
+  "next_action_command": "Continue /my-harness-init (proceed to phase 6.3 issue/task generation)",
   "working_directory": "$ROOT",
   "resume_after_bootstrap_directory": "$ROOT/dev",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
-echo "[bootstrap] init-state.json を書き出し → .my-harness/init-state.json"
+echo "[bootstrap] init-state.json written → .my-harness/init-state.json"
 
 cat <<EOS
 
 ==================================
- ハーネス構築完了
+ Harness setup complete
 ==================================
-構成:
+Configuration:
   Web=$USE_WEB ($WEB_KIND)  iOS=$USE_IOS ($IOS_KIND)
   Android=$USE_ANDROID ($ANDROID_KIND)  Desktop=$USE_DESKTOP ($DESKTOP_KIND)
   Backend=$USE_BACKEND ($BACKEND_KIND)  DB=$USE_DB ($DB_KIND)
   Auth=$AUTH_KIND  E2E=$E2E_SCOPE
   Codex=$USE_CODEX (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
-タスク管理: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue 駆動" || echo "ローカル docs/task/ 駆動")
+  Language=$PROJECT_LANG
+Task management: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue-driven" || echo "Local docs/task/-driven")
 
-次のステップ（ターミナルで実行）:
+Next steps (run in terminal):
 
   cd $ROOT/dev
   direnv allow
@@ -361,10 +369,10 @@ cat <<EOS
   bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
   bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 
-そして dev/ 配下で Claude Code を再起動し、新セッションで:
+Then restart Claude Code under dev/ and in a new session run:
 
-  /harness-team-lead              # 4 レーン並列で issue 一気に進める（推奨）
-  /harness-new-feature <issue#>   # 個別 feature 着手
-  /my-harness-init                # 中断からの再開（init-state.json 自動検出）
+  /harness-team-lead              # Run all 4 lanes in parallel (recommended)
+  /harness-new-feature <issue#>   # Start an individual feature
+  /my-harness-init                # Resume from a checkpoint (auto-detects init-state.json)
 
 EOS

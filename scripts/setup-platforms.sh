@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 概要: bootstrap.env の選択に応じて web / ios / android / db / email のテンプレを配布する。
+# Summary: Distributes web / ios / android / db / email templates based on bootstrap.env selections.
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="${1:?root required}"
@@ -10,7 +10,7 @@ source .my-harness/.config
 
 # Web
 if [ "$USE_WEB" = "yes" ]; then
-  echo "[platforms] Web を配布"
+  echo "[platforms] Distributing Web templates"
   rsync -a --ignore-existing "$HARNESS_DIR/templates/web/" dev/
   if [ "$USE_PLAYWRIGHT" = "yes" ]; then
     rsync -a --ignore-existing "$HARNESS_DIR/templates/playwright/" dev/
@@ -19,37 +19,37 @@ fi
 
 # iOS
 if [ "$USE_IOS" = "yes" ]; then
-  echo "[platforms] iOS を配布"
+  echo "[platforms] Distributing iOS templates"
   rsync -a --ignore-existing "$HARNESS_DIR/templates/ios/" dev/ios/
 fi
 
 # Android
 if [ "$USE_ANDROID" = "yes" ]; then
-  echo "[platforms] Android (Kotlin) を配布"
+  echo "[platforms] Distributing Android (Kotlin) templates"
   rsync -a --ignore-existing "$HARNESS_DIR/templates/android/" dev/android/
 fi
 
-# Maestro（モバイル E2E が選ばれている場合のみ）
+# Maestro (only when mobile E2E is selected)
 if [ "$USE_MAESTRO" = "yes" ]; then
   rsync -a --ignore-existing "$HARNESS_DIR/templates/maestro/" dev/
 fi
 
-# DB（D1 のみ対応）
+# DB (D1 only)
 if [ "$DB_KIND" = "d1" ]; then
-  echo "[platforms] Cloudflare D1 + Drizzle を配布"
+  echo "[platforms] Distributing Cloudflare D1 + Drizzle templates"
   rsync -a --ignore-existing "$HARNESS_DIR/templates/db/d1/" dev/
 fi
 
-# Email（Resend のみ対応）
+# Email (Resend only)
 if [ "$USE_EMAIL" = "yes" ]; then
-  echo "[platforms] Resend メール機能を配布"
+  echo "[platforms] Distributing Resend email templates"
   rsync -a --ignore-existing "$HARNESS_DIR/templates/email/resend/" dev/
 fi
 
-# package.json をオプションに応じて生成
+# Generate package.json based on selected options
 bash "$HARNESS_DIR/scripts/generate-package-json.sh" "$ROOT"
 
-# Claude Code Action 認証分岐の workflow を配置
+# Place the Claude Code Action workflow with the correct auth branch
 bash "$HARNESS_DIR/scripts/configure-claude-action.sh" "$ROOT"
 
-echo "[platforms] 完了"
+echo "[platforms] Done"

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# 概要: 親 issue 内で複数の子 issue が同時に Drizzle マイグレーションを生成していないかチェックする。
-#       同一親配下の feat ブランチで drizzle/ 配下の SQL を 2 つ以上の枝が触っていたら警告して終了する。
-# 使い方: bash .harness/scripts/check-migration-conflict.sh <parent-issue-number>
+# Summary: Checks whether multiple child issues under a parent issue are simultaneously
+#          generating Drizzle migrations. If two or more branches under the same parent
+#          touch files in drizzle/, emits a warning and exits with an error.
+# Usage: bash .harness/scripts/check-migration-conflict.sh <parent-issue-number>
 set -euo pipefail
 PARENT="${1:?parent issue number required}"
 cd "$(git rev-parse --show-toplevel)"
 
-# 親に紐づく子 issue から派生したブランチを GitHub から取得
+# Retrieve branches derived from child issues linked to the parent via GitHub
 CHILDREN=$(gh issue view "$PARENT" --json body --jq '.body' | grep -oE '#[0-9]+' | tr -d '#' || true)
 
 OFFENDERS=()
@@ -15,14 +16,14 @@ for c in $CHILDREN; do
   [ -z "$BR" ] && continue
   TOUCHED=$(git diff --name-only origin/dev..."origin/$BR" -- drizzle/ 2>/dev/null | wc -l | tr -d ' ')
   if [ "$TOUCHED" != "0" ]; then
-    OFFENDERS+=("$BR(#$c) drizzle/ ファイル数=$TOUCHED")
+    OFFENDERS+=("$BR(#$c) drizzle/ file count=$TOUCHED")
   fi
 done
 
 if [ "${#OFFENDERS[@]}" -gt 1 ]; then
-  echo "::error:: 親 #$PARENT 配下で複数の子 issue がマイグレーションを生成しています:"
+  echo "::error:: Multiple child issues under parent #$PARENT are generating migrations:"
   for o in "${OFFENDERS[@]}"; do echo "  - $o"; done
-  echo "対処: マイグレーションは 1 子 issue で集中して書いてください（順序衝突防止）。"
+  echo "Fix: Consolidate all migrations into a single child issue (prevents ordering conflicts)."
   exit 1
 fi
 

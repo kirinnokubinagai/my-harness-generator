@@ -1,21 +1,21 @@
-# エンジニア規約（質問14・15・17・18）
+# Engineer Standards
 
-## コーディング（質問14）
+## Coding
 
-### 命名と説明
+### Naming and Documentation
 
-- 変数・定数名は読み手が一目で理解できる名詞。短縮形・連想ゲームは禁止。
-- すべての変数・定数に **JSDoc/TSDoc コメント** を付ける。
-- **関数内コメントは禁止**。説明が必要なら関数を分割する。
-- 関数・型・モジュールは **TSDoc を必須**。`@param` `@returns` `@throws` `@example` を埋める。
+- Variable and constant names must be nouns that a reader can understand at a glance. Abbreviations and guesswork are prohibited.
+- All variables and constants must have **JSDoc/TSDoc comments**.
+- **Inline comments inside function bodies are prohibited**. If explanation is needed, split the function.
+- Functions, types, and modules **require TSDoc**. Fill in `@param`, `@returns`, `@throws`, and `@example`.
 
 ```ts
 /**
- * メールアドレスとパスワードからユーザーを作成する
+ * Creates a user from an email address and password.
  *
- * @param input - ユーザー登録に必要な入力（Zod 検証済み）
- * @returns 作成されたユーザー。重複時は Result.err
- * @throws DatabaseError - DB 接続失敗時
+ * @param input - Input required for user registration (Zod-validated)
+ * @returns The created user. On duplicate, returns Result.err
+ * @throws DatabaseError - On DB connection failure
  */
 export async function createUser(input: CreateUserInput): Promise<Result<User>> { ... }
 ```
@@ -24,119 +24,129 @@ export async function createUser(input: CreateUserInput): Promise<Result<User>> 
 
 ```
 src/
-├── domain/          # エンティティ、値オブジェクト、リポジトリ I/F
-├── application/     # ユースケース（オーケストレーション）
-├── infrastructure/  # Drizzle 実装、外部 API、Hono ハンドラ
-└── interfaces/      # Hono ルーター、入出力 DTO（Zod）
+├── domain/          # Entities, value objects, repository interfaces
+├── application/     # Use cases (orchestration)
+├── infrastructure/  # Drizzle implementations, external APIs, Hono handlers
+└── interfaces/      # Hono routers, input/output DTOs (Zod)
 ```
 
-依存方向: `interfaces → application → domain ← infrastructure`。
-domain は外側に依存しない。infrastructure は domain の I/F を実装する。
+Dependency direction: `interfaces → application → domain ← infrastructure`.
+domain does not depend on outer layers. infrastructure implements domain interfaces.
 
-### Nix 完全依存（impure 禁止）
+### Nix Pure (impure commands prohibited)
 
-- `flake.nix` で Node.js / pnpm / Biome / Playwright / Maestro / Trivy / Semgrep をピン留め。
-- `nix develop` 以外の手段でツールを入れない（`brew install` 禁止）。
-- CI も `nix develop --command pnpm ci` で実行。
-- 例外は Claude Code / Codex / GitHub CLI のみ。
-- **direnv 必須**: `.envrc` に `use flake` を書き、`direnv allow` でディレクトリ移動時に自動で nix shell に入る運用とする。
-  これにより人間も AI も `nix develop` の打ち忘れによる impure 実行を防げる。
+- Pin Node.js / pnpm / Biome / Playwright / Maestro / Trivy / Semgrep in `flake.nix`.
+- Do not install tools by any means other than `nix develop` (`brew install` is prohibited).
+- CI also runs via `nix develop --command pnpm ci`.
+- Exceptions: Claude Code / Codex / GitHub CLI only.
+- **direnv required**: write `use flake` in `.envrc` and run `direnv allow`; the nix shell activates automatically when entering the directory.
+  This prevents both humans and AI from accidentally running impure commands due to forgetting `nix develop`.
 
-### ハードコード禁止（厳格）
+### No Hardcoded Values (strictly enforced)
 
-以下はコミット段階で `husky pre-commit` の `forbidden-patterns` チェックが弾く（`.harness/scripts/check-forbidden-patterns.sh`）。
+The following are blocked at commit time by the `husky pre-commit` `forbidden-patterns` check (`.harness/scripts/check-forbidden-patterns.sh`):
 
-- 環境変数として扱うべき値の **文字列リテラル直書き**
-  対象キー: `JWT_SECRET` / `DATABASE_URL` / `*_API_KEY` / `*_TOKEN` / `STRIPE_SECRET` /
+- **String literal hardcoding** of values that should be environment variables.
+  Target keys: `JWT_SECRET` / `DATABASE_URL` / `*_API_KEY` / `*_TOKEN` / `STRIPE_SECRET` /
   `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `CLOUDFLARE_API_TOKEN` / `AWS_*` / `GITHUB_TOKEN` /
   `SUPABASE_*` / `SENTRY_DSN` / `REDIS_URL` / `SMTP_*` / `SESSION_SECRET` / `ENCRYPTION_KEY` / `WEBHOOK_SECRET`
-- `https://user:password@host` のような **URL 内資格情報**
-- localhost 以外のホストを指す **本番想定 DSN（`postgres://...` 等）の直書き**
-- `.env`（および `.env.local` / `.env.production` 等）の **ファイルそのもののコミット**
-  → 許可されるのは `.env.example` のみ
+- **URL credentials** such as `https://user:password@host`
+- **Production DSNs** pointing to non-localhost hosts (e.g., `postgres://...`) hardcoded directly
+- **Committing `.env` files themselves** (including `.env.local` / `.env.production`, etc.)
+  → Only `.env.example` is allowed
 
-加えて以下のパターンは値そのものが弾かれる（`gitleaks` + 独自ルール `.gitleaks.toml`）。
+Additionally, the following patterns are blocked by value (`gitleaks` + custom rules `.gitleaks.toml`):
 
-- Stripe ライブ鍵（`sk_live_...`）
-- OpenAI 鍵（`sk-...` / `sk-proj-...`）
-- Anthropic 鍵（`sk-ant-...`）
-- AWS アクセスキー ID（`AKIA...`）
-- GCP サービスアカウント JSON（`"type":"service_account"`）
-- Cloudflare API トークン
-- GitHub トークン（`ghp_...` / `gho_...` / `ghu_...` / `ghs_...` / `ghr_...`）
-- JWT 三段ドット文字列（`eyJ...eyJ...`）
-- PEM 形式秘密鍵ブロック
+- Stripe live keys (`sk_live_...`)
+- OpenAI keys (`sk-...` / `sk-proj-...`)
+- Anthropic keys (`sk-ant-...`)
+- AWS Access Key IDs (`AKIA...`)
+- GCP service account JSON (`"type":"service_account"`)
+- Cloudflare API tokens
+- GitHub tokens (`ghp_...` / `gho_...` / `ghu_...` / `ghs_...` / `ghr_...`)
+- JWT three-segment strings (`eyJ...eyJ...`)
+- PEM private key blocks
 
-許可される書き方の例:
+Example of an allowed pattern:
 
 ```ts
-/** JWT 署名鍵。環境変数で必ず注入する。未設定なら起動時に例外を投げる。 */
-const jwtSigningSecret = process.env.JWT_SECRET ?? (() => { throw new Error('JWT_SECRET が未設定です'); })();
+/** JWT signing key. Must always be injected via environment variable. Throws at startup if unset. */
+const jwtSigningSecret = process.env.JWT_SECRET ?? (() => { throw new Error('JWT_SECRET is not set'); })();
 ```
 
-### 説明文・コメントは日本語
+### All Descriptions and Comments in $PROJECT_LANG
 
-- TSDoc / JSDoc / ファイル先頭の概要コメントはすべて **日本語で記述する**。
-  英語混在を許容するのは固有名詞・型名・コマンド名・URL のみ。
-- コミットメッセージの本文も日本語で書く（type プレフィックスは英語の Conventional Commits）。
-  例: `feat(auth): メールアドレスでのログイン機能を追加`
-- PR の説明・issue の説明・レビューコメントもすべて日本語。
-- README / docs もすべて日本語。多言語化が必要な場合のみ英語を併記する。
+Read `PROJECT_LANG` from `.my-harness/.config`. Write the following in that language:
 
-## デザイン / UX / Accessibility（質問15）
+- TSDoc / JSDoc / file-level summary comments
+- Commit message body, PR descriptions, issue descriptions, review comments
 
-参考: <https://www.shokasonjuku.com/ux-psychology>
+Only proper nouns, type names, command names, and URLs may remain in English.
 
-### 47 原則のうち最重要 10 を必須適用
+When `PROJECT_LANG=en`:
+- TSDoc: "Creates a user from email and password."
+- Commit body: "Add email login feature"
+- Error messages: "JWT_SECRET is not set"
 
-1. **Hick の法則**: 選択肢を絞る（1 画面 1 主アクション）。
-2. **Fitts の法則**: タップ領域 ≥ 44×44pt、重要 CTA は親指が届く位置。
-3. **Miller の法則**: グルーピングは 7 ± 2 を超えない。
-4. **Jakob の法則**: 既存の慣習を踏襲（独自 UI を避ける）。
-5. **Aesthetic-Usability 効果**: 見た目の整いを軽視しない。
-6. **Peak-End ルール**: 最後の体験（成功フィードバック）を丁寧に。
-7. **Doherty 閾値**: 操作フィードバック 400ms 以内。
-8. **コントラスト**: WCAG AA 4.5:1（本文）/ 3:1（大文字）。
-9. **キーボード操作**: フォーカスリング非削除、Tab 順を論理的に。
-10. **prefers-reduced-motion**: 必ず尊重。
+When `PROJECT_LANG=ja`:
+- TSDoc: "メールアドレスとパスワードからユーザーを作成する"
+- Commit body: "メールアドレスでのログイン機能を追加"
+- Error messages: "JWT_SECRET が未設定です"
 
-### 禁止（AI っぽさ排除）
+## Design / UX / Accessibility
 
-- グラデーション（特に紫〜青〜ピンク）、ネオン、グロー、宇宙背景、浮遊パーティクル。
-- 「AI Powered」等の装飾バッジ。
+Reference: <https://www.shokasonjuku.com/ux-psychology>
 
-### アイコン
+### Top 10 of 47 Principles (Required)
 
-- 絵文字禁止、`lucide-react` のみ使用。`aria-label` 必須（アイコンのみのボタン）。
+1. **Hick's Law**: Reduce choices (1 screen, 1 primary action).
+2. **Fitts's Law**: Tap targets ≥ 44×44pt; important CTAs within thumb reach.
+3. **Miller's Law**: Groupings should not exceed 7 ± 2.
+4. **Jakob's Law**: Follow existing conventions (avoid custom UI).
+5. **Aesthetic-Usability Effect**: Do not underestimate visual polish.
+6. **Peak-End Rule**: Make the final experience (success feedback) thoughtful.
+7. **Doherty Threshold**: Action feedback within 400ms.
+8. **Contrast**: WCAG AA 4.5:1 (body text) / 3:1 (large text).
+9. **Keyboard operation**: Do not remove focus rings; Tab order must be logical.
+10. **prefers-reduced-motion**: Always respect it.
 
-## E2E（質問17）
+### Prohibited (eliminate AI-like appearance)
 
-| 対象 | ツール | 配置 |
-|------|--------|------|
+- Gradients (especially purple → blue → pink), neon, glow, space backgrounds, floating particles.
+- Decorative badges such as "AI Powered".
+
+### Icons
+
+- Emoji is prohibited; use `lucide-react` only. `aria-label` is required for icon-only buttons.
+
+## E2E
+
+| Target | Tool | Location |
+|--------|------|----------|
 | Web | Playwright | `tests/e2e/web/` |
 | Mobile | Maestro | `tests/e2e/mobile/*.yaml` |
 
-- 主要ユーザーフロー（signup, login, 主要 CRUD, paywall, 課金）は必ず網羅。
-- データはテスト専用 DB を seed。テスト後にクリーンアップ。
-- スクショ + ビデオを失敗時のみ保存。
+- Major user flows (signup, login, core CRUD, paywall, billing) must be covered.
+- Use a dedicated test DB with seed data. Clean up after tests.
+- Save screenshots + video only on failure.
 
-## レビュアー規約（質問18）
+## Reviewer Standards
 
-reviewer は **エンジニア規約への違反検出** が最優先タスク。
+Reviewer's top priority is **detecting violations of engineer conventions**.
 
-### チェックリスト（順守確認）
+### Checklist (compliance verification)
 
-- [ ] `any` / `else` / `console.log` / 関数内コメント がない
-- [ ] すべての変数・定数・関数に JSDoc/TSDoc がある
-- [ ] 命名が読み手にとって自明である
-- [ ] 1 関数 1 責務、ネスト ≤ 3 層
-- [ ] Hono は Clean Architecture 4 層分離を守っている
-- [ ] DB 操作は Drizzle ORM、`drizzle-kit push` 未使用
-- [ ] Zod で全入力を検証、エラーメッセージは日本語
-- [ ] 環境変数で機密管理、ハードコード無し
-- [ ] Lucide Icons 使用、絵文字なし、AI 風デザイン要素なし
-- [ ] Nix flake で固定、impure な参照なし
-- [ ] テストが正常系/異常系/境界値を含む
-- [ ] エラーは Result 型 or カスタム例外、メッセージは日本語
+- [ ] No `any` / `else` / `console.log` / inline comments in function bodies
+- [ ] All variables, constants, and functions have JSDoc/TSDoc
+- [ ] Naming is self-evident to the reader
+- [ ] 1 function = 1 responsibility, nesting ≤ 3 levels
+- [ ] Hono follows Clean Architecture 4-layer separation
+- [ ] DB operations use Drizzle ORM; `drizzle-kit push` is not used
+- [ ] All input is validated with Zod; error messages are in `$PROJECT_LANG`
+- [ ] Secrets managed via environment variables; no hardcoded values
+- [ ] Lucide Icons used; no emoji, no AI-style design elements
+- [ ] Pinned via Nix flake; no impure references
+- [ ] Tests cover normal cases, error cases, and boundary values
+- [ ] Errors use Result type or custom exceptions; messages are in `$PROJECT_LANG`
 
-不備があれば analyst 経由で engineer に修正依頼を出す。
+If violations are found, request fixes from engineer via analyst.

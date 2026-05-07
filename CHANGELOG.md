@@ -8,30 +8,30 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
 ### Added (Plugin first release)
 
-- Claude Code plugin としてパッケージ化（`marketplace.json` + `plugin.json`）
-- 20 個の skills:
-  - 最上位 2: `my-harness-generator`, `my-harness-init`
-  - 規約 10: `harness-tdd`, `harness-hono-clean-arch`, `harness-drizzle-rules`, `harness-nix-pure`,
+- Packaged as a Claude Code plugin (`marketplace.json` + `plugin.json`)
+- 20 skills:
+  - Top-level 2: `my-harness-generator`, `my-harness-init`
+  - Convention 10: `harness-tdd`, `harness-hono-clean-arch`, `harness-drizzle-rules`, `harness-nix-pure`,
     `harness-design-rules`, `harness-jsdoc`, `harness-git-discipline`, `harness-no-hardcoded-secrets`,
     `harness-mask`, `harness-codex-consult`
-  - shell ラッパー 8: `harness-new-feature`, `harness-new-hotfix`, `harness-resolve-conflict`,
+  - Shell wrappers 8: `harness-new-feature`, `harness-new-hotfix`, `harness-resolve-conflict`,
     `harness-sync-features`, `harness-check-codex-auth`, `harness-check-secrets`,
     `harness-setup-secrets`, `harness-branch-protection`
-- 5 個の agents（4 レーン並列開発用）: `harness-team-lead`, `harness-analyst`, `harness-engineer`,
+- 5 agents (for 4-lane parallel development): `harness-team-lead`, `harness-analyst`, `harness-engineer`,
   `harness-e2e-reviewer`, `harness-reviewer`
-- 2 個の hooks（`hooks.json`）:
-  - `UserPromptSubmit`: ユーザー入力を mask-secrets.sh で自動マスクして dev/docs/talk/<日付>.md に追記
-  - `Stop`: Claude の最終応答を transcript から抽出してマスク後追記
-- 22 本の shell スクリプト（bootstrap / codex-ask / mask-secrets / 各種 setup / hooks 等）
-- 機密マスキング（9 種パターン: API キー / AWS / メール / 電話 / カード / JWT / PEM / URL認証 / KEY=value 形式）
-- bootstrap の `--config <file>` 非対話モード（`/my-harness-init` から呼び出すため）
-- Codex CLI session resume による真のマルチターン対話
-- USE_GITHUB_ISSUES=no 対応（`docs/task/auto/<id>.md` フォールバック）
-- USE_GLOBAL_CLAUDE 切替（個人 global 引き継ぎ / プロジェクト独立配置）
-- iOS / Android テンプレート、Cloudflare D1 + Drizzle、Resend、Playwright + Maestro
+- 2 hooks (`hooks.json`):
+  - `UserPromptSubmit`: Automatically masks user input with mask-secrets.sh and appends to dev/docs/talk/<date>.md
+  - `Stop`: Extracts Claude's final response from transcript, masks it, and appends
+- 22 shell scripts (bootstrap / codex-ask / mask-secrets / various setup / hooks, etc.)
+- Secret masking (9 patterns: API keys / AWS / email / phone / card / JWT / PEM / URL credentials / KEY=value format)
+- bootstrap `--config <file>` non-interactive mode (for calling from `/my-harness-init`)
+- True multi-turn dialogue via Codex CLI session resume
+- USE_GITHUB_ISSUES=no support (`docs/task/auto/<id>.md` fallback)
+- USE_GLOBAL_CLAUDE toggle (inherit personal global / isolated project placement)
+- iOS / Android templates, Cloudflare D1 + Drizzle, Resend, Playwright + Maestro
 
 ### Architecture
-- skills 中心: 詳細ルールは個別 skill に分割し、Claude が状況に応じて lazy load
-- shell は skill 経由で呼ばれる設計（Claude が引数を覚えなくて良い）
-- hook で機械的に talk を記録（Claude の書き忘れを保険）
-- pre-commit で gitleaks + check-forbidden-patterns が二重防御
+- Skills-centric: detailed rules split into individual skills, lazy-loaded by Claude as needed
+- Shell scripts are called via skills (Claude doesn't need to remember arguments)
+- Hooks mechanically record conversations (insurance against Claude forgetting to log)
+- pre-commit runs gitleaks + check-forbidden-patterns as double defense

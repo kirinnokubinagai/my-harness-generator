@@ -247,6 +247,7 @@ When the orchestrating session itself becomes heavy (after 5–10 issues), `harn
 The interview produces `<root>/.my-harness/.config`:
 
 ```bash
+PROJECT_LANG=en               # output language for descriptions, comments, and docs (en | ja)
 PROJECT_NAME=todo-app
 USE_WEB=yes
 WEB_KIND=nextjs               # only when USE_WEB=yes (nextjs | tanstack)

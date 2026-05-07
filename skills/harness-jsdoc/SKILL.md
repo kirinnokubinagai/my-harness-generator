@@ -1,11 +1,16 @@
 ---
 name: harness-jsdoc
-description: Requires JSDoc / TSDoc on every variable, constant, function, and type. Prohibits inline comments inside function bodies. All descriptions must be written in Japanese (the generated project's default output language convention). Fires when the user says "write a function", "add a comment", "type definition", "write a description", or similar.
+description: Requires JSDoc / TSDoc on every variable, constant, function, and type. Prohibits inline comments inside function bodies. All descriptions must be written in the project language (PROJECT_LANG from .my-harness/.config, default en). Fires when the user says "write a function", "add a comment", "type definition", "write a description", or similar.
 ---
 
 # harness-jsdoc
 
-All code in the harness requires **JSDoc / TSDoc**. Inline comments inside function bodies are prohibited. **All descriptions must be written in Japanese** (this is the generated project's default output language convention).
+All code in the harness requires **JSDoc / TSDoc**. Inline comments inside function bodies are prohibited. **All descriptions must be written in `$PROJECT_LANG`** (read from `<root>/.my-harness/.config`, default: `en`).
+
+```bash
+PROJECT_LANG=$(grep -E "^PROJECT_LANG=" "$ROOT/.my-harness/.config" 2>/dev/null | cut -d= -f2)
+PROJECT_LANG="${PROJECT_LANG:-en}"
+```
 
 ## Non-negotiable rules
 
@@ -15,20 +20,21 @@ All code in the harness requires **JSDoc / TSDoc**. Inline comments inside funct
 | Types / classes / interfaces | TSDoc required |
 | Variables / constants | Explain intent with a JSDoc comment |
 | **Inline comments in function bodies** | **Prohibited** (split the function if you need to explain it) |
-| Language | **Japanese** (proper nouns, type names, commands, and URLs may be in English) |
+| Language | **`$PROJECT_LANG`** (proper nouns, type names, commands, and URLs may be in English) |
 
 ## How to write functions
 
+When `PROJECT_LANG=en`:
 ```ts
 /**
- * メールアドレスとパスワードからユーザーを作成する。
+ * Creates a user from an email address and password.
  *
- * 重複メールチェックは呼び出し前に済んでいることを前提とする。
- * パスワードは bcrypt cost 12 でハッシュ化される。
+ * Assumes duplicate email check is done before calling.
+ * Password is hashed with bcrypt cost 12.
  *
- * @param input - ユーザー登録に必要な入力（Zod 検証済み）
- * @returns 作成されたユーザー。失敗時は Result.err
- * @throws DatabaseError - DB 接続失敗時
+ * @param input - Input required for user registration (Zod-validated)
+ * @returns The created user. On failure, Result.err
+ * @throws DatabaseError - On DB connection failure
  * @example
  * ```ts
  * const user = await createUser({ email, password, displayName });
@@ -40,8 +46,38 @@ export async function createUser(input: CreateUserInput): Promise<Result<User>> 
 }
 ```
 
+When `PROJECT_LANG=ja`:
+```ts
+/**
+ * メールアドレスとパスワードからユーザーを作成する。
+ *
+ * 重複メールチェックは呼び出し前に済んでいることを前提とする。
+ * パスワードは bcrypt cost 12 でハッシュ化される。
+ *
+ * @param input - ユーザー登録に必要な入力（Zod 検証済み）
+ * @returns 作成されたユーザー。失敗時は Result.err
+ * @throws DatabaseError - DB 接続失敗時
+ */
+export async function createUser(input: CreateUserInput): Promise<Result<User>> {
+  // No inline comments. Everything goes in the TSDoc above.
+}
+```
+
 ## Variables / constants
 
+When `PROJECT_LANG=en`:
+```ts
+/** Maximum retry count */
+const MAX_RETRY_COUNT = 3;
+
+/** Session TTL in milliseconds */
+const SESSION_TTL_MS = 3600000;
+
+/** User authentication state */
+const isAuthenticated = checkAuth();
+```
+
+When `PROJECT_LANG=ja`:
 ```ts
 /** 最大リトライ回数 */
 const MAX_RETRY_COUNT = 3;
@@ -55,14 +91,15 @@ const isAuthenticated = checkAuth();
 
 ## Types / interfaces
 
+When `PROJECT_LANG=en`:
 ```ts
 /**
- * ユーザーリポジトリの契約。
+ * Contract for the user repository.
  *
- * 実装は infrastructure 層に置く。domain は実装に依存しない。
+ * Implementation lives in the infrastructure layer. Domain does not depend on the implementation.
  */
 export interface UserRepository {
-  /** ID で 1 件取得。存在しない場合は null */
+  /** Fetch a single record by ID. Returns null if not found. */
   findById(id: UserId): Promise<User | null>;
 }
 ```
@@ -72,15 +109,15 @@ export interface UserRepository {
 ```ts
 // ❌ Bad
 function process(user: User) {
-  // ユーザーをチェック
+  // check user
   if (!user.isActive) return null;
-  // 結果を返す
+  // return result
   return user;
 }
 
 // ✅ Good — split the function and put everything in TSDoc
 /**
- * ユーザーがアクティブなら取り出す。非アクティブなら null。
+ * Returns the user if active, null if inactive.
  */
 function selectIfActive(user: User): User | null {
   return user.isActive ? user : null;
@@ -93,28 +130,28 @@ Good names eliminate the need for comments:
 
 ```ts
 // ❌ Needs a comment to be understood
-const x = users.filter(u => u.a > 0);  // アクティブなユーザー
+const x = users.filter(u => u.a > 0);  // active users
 
 // ✅ Self-explanatory
 const activeUsers = users.filter((user) => user.activatedAt !== null);
 ```
 
-## Japanese is required (generated project's default language convention)
+## Language conventions by PROJECT_LANG
 
-| Location | Language |
-|----------|----------|
-| TSDoc descriptions | Japanese |
-| File-level summary comments | Japanese |
-| Error messages | Japanese (e.g. `throw new Error('メールアドレスの形式が正しくありません')`) |
-| Commit message body | Japanese (type prefix follows English Conventional Commits) |
-| PR descriptions | Japanese |
-| Issue descriptions | Japanese |
-| README / docs | Japanese |
+| Location | en | ja |
+|----------|----|----|
+| TSDoc descriptions | English | Japanese |
+| File-level summary comments | English | Japanese |
+| Error messages | English (e.g. `throw new Error('Invalid email format')`) | Japanese (e.g. `throw new Error('メールアドレスの形式が正しくありません')`) |
+| Commit message body | English | Japanese (type prefix follows English Conventional Commits) |
+| PR descriptions | English | Japanese |
+| Issue descriptions | English | Japanese |
+| README / docs | English | Japanese |
 
 ## Checklist
 
 - [ ] All functions / types / public constants have TSDoc
 - [ ] No inline comments inside function bodies
 - [ ] Names convey intent without comments
-- [ ] All descriptions are in Japanese
-- [ ] Error messages are in Japanese
+- [ ] All descriptions are in `$PROJECT_LANG`
+- [ ] Error messages are in `$PROJECT_LANG`

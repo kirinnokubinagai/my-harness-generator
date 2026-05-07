@@ -1,38 +1,38 @@
 ---
-name: 子 issue（task）
-about: 親 issue から分割された 1 タスク（300 行以内）
+name: Child issue (task)
+about: A single task split from a parent issue (≤ 300 lines of change)
 title: "[task] "
 labels: child
 ---
 
-parent: #<親 issue>
-lane: <1〜4>
+parent: #<parent issue>
+lane: <1–4>
 
-## 概要
+## Summary
 
-<!-- 1〜2 文 -->
+<!-- 1–2 sentences -->
 
-## 背景
+## Background
 
-## 変更対象ファイル（コンフリクト防止のため事前宣言）
+## Files to Change (declared in advance to prevent conflicts)
 
 - `src/...`
 - `tests/...`
 
-## 受け入れ基準（Acceptance Criteria）
+## Acceptance Criteria
 
 - [ ]
 - [ ]
 
-## 影響範囲 / 副作用
+## Impact / Side Effects
 
-## E2E 影響
+## E2E Impact
 
-- [ ] Playwright で確認が必要
-- [ ] Maestro で確認が必要
-- [ ] 不要
+- [ ] Verification with Playwright required
+- [ ] Verification with Maestro required
+- [ ] Not required
 
-## 規約セルフチェック
+## Convention Self-Check
 
-- [ ] 変更行数 ≤ 300
-- [ ] 担当ファイルが他子 issue と重複しない
+- [ ] Lines changed ≤ 300
+- [ ] Owned files do not overlap with other child issues

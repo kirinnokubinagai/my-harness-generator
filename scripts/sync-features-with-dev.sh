@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 概要: dev に新しいコミットが入った（特に hotfix back-merge 後）あと、
-#       全 feature worktree に対して `merge --no-ff origin/dev` を流して同期する。
-#       rebase / reset は禁止。衝突は engineer に対話的に解消させる。
-# 使い方: bash .harness/scripts/sync-features-with-dev.sh
+# Summary: After new commits land on dev (e.g. after a hotfix back-merge),
+#          runs `merge --no-ff origin/dev` on all feature worktrees to sync them.
+#          Rebase / reset are prohibited. Conflicts must be resolved interactively by the engineer.
+# Usage: bash .harness/scripts/sync-features-with-dev.sh
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel | sed 's,/dev$,,')
@@ -17,7 +17,7 @@ for wt in lanes/feat-*; do
   (
     cd "$wt"
     if ! git merge --no-ff origin/dev -m "merge: sync with origin/dev (no rebase)"; then
-      echo "::warning:: $wt: 衝突発生。engineer がマージコミットで解消してください（rebase/reset 禁止）"
+      echo "::warning:: $wt: conflict detected. Engineer must resolve via merge commit (rebase/reset prohibited)"
       EXIT_CODE=2
     fi
   ) || EXIT_CODE=$?

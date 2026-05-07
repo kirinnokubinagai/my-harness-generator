@@ -27,7 +27,7 @@ Pre-commit mechanically blocks these (any slip-through is a bug):
 ```ts
 // ✅ Via environment variable
 const jwtSecret = process.env.JWT_SECRET ?? (() => {
-  throw new Error('JWT_SECRET が未設定です');
+  throw new Error('JWT_SECRET is not set');
 })();
 
 // ✅ Cloudflare Workers binding
@@ -81,7 +81,7 @@ const requiredEnvVars = [
 ];
 for (const name of requiredEnvVars) {
   if (!process.env[name]) {
-    throw new Error(`環境変数 ${name} が未設定です`);
+    throw new Error(`Environment variable ${name} is not set`);
   }
 }
 ```

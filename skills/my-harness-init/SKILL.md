@@ -109,7 +109,7 @@ For each phase:
 At the completion of each phase, always write the following. `current_phase` is the **next** phase name to advance to; `phases_completed` is the list of **already finished** phase names:
 
 ```bash
-# 例: フェーズ 2 (platform) 完了時 → 次は backend
+# Example: after Phase 2 (platform) completes → next is backend
 ROOT=<root>
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$ROOT/.my-harness"
@@ -117,11 +117,12 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
   "schema_version": "1",
   "project_name": "<PROJECT_NAME>",
+  "projectLang": "en",
   "root": "$ROOT",
   "current_phase": "backend",
-  "phases_completed": ["setup", "what", "platform"],
+  "phases_completed": ["language", "setup", "what", "platform"],
   "next_action": "interview",
-  "next_action_command": "/my-harness-init を継続（フェーズ 3 backend へ）",
+  "next_action_command": "Continue /my-harness-init (Phase 3: backend)",
   "working_directory": "$ROOT",
   "timestamp": "$TIMESTAMP"
 }
@@ -129,7 +130,7 @@ EOF
 ```
 
 Phase names (in order):
-- `setup` → `what` → `platform` → `backend` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
+- `language` → `setup` → `what` → `platform` → `backend` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
 
 `data-model` is skipped when USE_DB=no. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
 
@@ -168,7 +169,40 @@ If found:
 3. y → Resume from the first question of that phase (continue using existing `docs/spec/` and `docs/talk/`)
 4. n → Confirm with the user (discard and start fresh, or specify a different directory)
 
-If not found: proceed to the Setup phase below as a new init.
+If not found: proceed to Phase 0 below as a new init.
+
+---
+
+### Phase 0: Language (new init only)
+
+**Ask one question:**
+
+1. **"What language should all descriptions, comments, and output be written in?"** (choices: `en` / `ja`, default: `en`)
+   - `en`: English (TSDoc, commit messages, error messages, docs — all in English)
+   - `ja`: Japanese (TSDoc, commit messages, error messages, docs — all in Japanese)
+
+Save to `.my-harness/.config` (first entry, before all other keys):
+```bash
+PROJECT_LANG=<en|ja>
+```
+
+Update `init-state.json`:
+```bash
+cat > "$ROOT/.my-harness/init-state.json" <<EOF
+{
+  "schema_version": "1",
+  "project_name": "",
+  "projectLang": "${PROJECT_LANG:-en}",
+  "root": "$ROOT",
+  "current_phase": "setup",
+  "phases_completed": ["language"],
+  "next_action": "interview",
+  "next_action_command": "Continue /my-harness-init (Phase: setup)",
+  "working_directory": "$ROOT",
+  "timestamp": "$TIMESTAMP"
+}
+EOF
+```
 
 ---
 
@@ -204,6 +238,7 @@ Save the answers:
 mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/dev/docs/talk <root>/dev/docs/task
 
 cat > <root>/.my-harness/.config <<EOF
+PROJECT_LANG=<en|ja>
 PROJECT_NAME=<slug>
 ROOT=<root>
 USE_CODEX=<yes|no>
@@ -668,21 +703,23 @@ The harness auto-firing skills enforce:
 <Initialize the MVP feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
 ```
 
-After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree:
+After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree. Write the commit message in `$PROJECT_LANG`:
 
 ```bash
 cd "<root>/dev"
 git add README.md CLAUDE.md
+# If PROJECT_LANG=en:
+git -c user.name="harness-bot" -c user.email="harness@local" \
+  commit --no-verify -m "docs: generate initial README.md and CLAUDE.md from spec"
+# If PROJECT_LANG=ja:
 git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
 ```
 
-(Note: the commit message is in Japanese — this is the generated project's default language convention.)
-
 From this point on, engineers update these files with each feature addition and the reviewer checks consistency.
 
 
-#### 6.5 Update init-state.json + stop + guide user to dev (important)
+#### 6.6 Update init-state.json + stop + guide user to dev (important)
 
 Once issue / task generation is complete, update `<root>/.my-harness/init-state.json` to **`current_phase: "completed"`**:
 
@@ -694,9 +731,10 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
   "schema_version": "1",
   "project_name": "<PROJECT_NAME>",
+  "projectLang": "${PROJECT_LANG:-en}",
   "root": "$ROOT",
   "current_phase": "completed",
-  "phases_completed": ["setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],
+  "phases_completed": ["language", "setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],
   "next_action": "implementation",
   "next_action_command": "/harness-team-lead (or /harness-new-feature <issue#>)",
   "working_directory": "$ROOT/dev",

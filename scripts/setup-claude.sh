@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# 概要: ハーネス用の Claude 設定を整備する。
-#       常に行うこと:
-#         - ~/.claude/skills/harness-* をハーネステンプレから上書きインストール
-#         - ~/.claude/agents/harness-* も同様（既存はそのまま、無いものだけ追加）
-#         - ~/.claude/settings.json にユーザー入力ログ用フックを **マージ** 登録
-#       USE_GLOBAL_CLAUDE=no のとき追加で行うこと:
-#         - dev/.claude/CLAUDE.md にハーネス専用の薄い指示を配置
-#         - dev/.claude/settings.json にも hook を登録
-#         - dev/.claude/skills/, dev/.claude/agents/ にコピー（独立配置）
+# Summary: Sets up Claude configuration for the harness.
+#          Always does:
+#            - Installs harness-* skills from the harness template into ~/.claude/skills/ (overwrite)
+#            - Installs harness-* agents similarly (adds missing ones, keeps existing)
+#            - Merges the user input log hooks into ~/.claude/settings.json (non-destructive)
+#          Additionally when USE_GLOBAL_CLAUDE=no:
+#            - Places a thin harness-specific CLAUDE.md in dev/.claude/
+#            - Registers hooks in dev/.claude/settings.json as well
+#            - Copies skills and agents to dev/.claude/ (independent placement)
 
 set -euo pipefail
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,7 +19,7 @@ if [ -f "$ROOT/.my-harness/.config" ]; then
 fi
 USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
 
-# ===== 共通: ハーネス skills / agents をインストール =====
+# ===== Common: Install harness skills / agents =====
 install_harness_skills_into() {
   local target_dir="$1"
   local installed=0
@@ -34,7 +34,7 @@ install_harness_skills_into() {
       installed=$((installed + 1))
     done
   fi
-  echo "  → $target_dir に $installed 個の harness-* skill"
+  echo "  → $installed harness-* skill(s) installed to $target_dir"
 }
 
 install_harness_agents_into() {
@@ -48,16 +48,16 @@ install_harness_agents_into() {
       installed=$((installed + 1))
     done
   fi
-  echo "  → $target_dir に $installed 個の harness-* agent"
+  echo "  → $installed harness-* agent(s) installed to $target_dir"
 }
 
-# settings.json に hook をマージ登録（既存設定は破壊しない）
+# Merge hooks into settings.json without destroying existing settings
 merge_hook_into_settings() {
   local settings_path="$1"
   mkdir -p "$(dirname "$settings_path")"
   [ -f "$settings_path" ] || echo '{}' > "$settings_path"
   if ! command -v jq >/dev/null 2>&1; then
-    echo "  ::warning:: jq が無いため $settings_path に手動追記してください: hooks.UserPromptSubmit / Stop"
+    echo "  ::warning:: jq not found — add hooks to $settings_path manually: hooks.UserPromptSubmit / Stop"
     return 0
   fi
   local user_prompt_hook="bash $HARNESS_DIR/hooks/log-user-prompt.sh"
@@ -89,48 +89,48 @@ merge_hook_into_settings() {
       else .hooks.Stop += [{"hooks": [{"type": "command", "command": $sp}]}]
     end
     ' "$settings_path" > "$tmp" && mv "$tmp" "$settings_path"
-  echo "  → $settings_path に hook を登録"
+  echo "  → hooks registered in $settings_path"
 }
 
-# ===== 1. グローバルに skills + hooks をインストール（USE_GLOBAL_CLAUDE 不問）=====
-echo "[setup-claude] グローバル ~/.claude/skills/ に harness-* skills をインストール"
+# ===== 1. Install skills + hooks globally (regardless of USE_GLOBAL_CLAUDE) =====
+echo "[setup-claude] Installing harness-* skills to global ~/.claude/skills/"
 install_harness_skills_into "$HOME/.claude/skills"
 
-echo "[setup-claude] グローバル ~/.claude/settings.json に hook を登録"
+echo "[setup-claude] Registering hooks in global ~/.claude/settings.json"
 merge_hook_into_settings "$HOME/.claude/settings.json"
 
-# ===== 2. USE_GLOBAL_CLAUDE=yes ならここまで =====
+# ===== 2. If USE_GLOBAL_CLAUDE=yes, stop here =====
 if [ "$USE_GLOBAL_CLAUDE" = "yes" ]; then
-  echo "[setup-claude] グローバル設定を引き継ぎます（dev/.claude/ への独立配置はスキップ）"
+  echo "[setup-claude] Inheriting global settings (skipping independent placement in dev/.claude/)"
   cat <<EOS
 
-==== Claude Code 再起動が必要 ====
-新しい harness-* skill と hooks を有効にするため、
-Claude Code を再起動するか、現在のセッションで /clear を実行してください。
-==================================
+==== Claude Code restart required ====
+To activate the new harness-* skills and hooks,
+restart Claude Code or run /clear in the current session.
+======================================
 EOS
   exit 0
 fi
 
-# ===== 3. USE_GLOBAL_CLAUDE=no: dev/.claude/ に独立配置 =====
+# ===== 3. USE_GLOBAL_CLAUDE=no: place independently in dev/.claude/ =====
 DEST="$ROOT/dev/.claude"
 mkdir -p "$DEST/skills" "$DEST/agents"
 
-# 薄い CLAUDE.md（skill 中心の指示）
+# Thin CLAUDE.md (skill-oriented instructions)
 if [ ! -f "$DEST/CLAUDE.md" ]; then
   cp "$HARNESS_DIR/templates/claude/CLAUDE.thin.md" "$DEST/CLAUDE.md"
-  echo "[setup-claude] dev/.claude/CLAUDE.md（薄い skill 指向版）を配置"
+  echo "[setup-claude] Placed dev/.claude/CLAUDE.md (thin skill-oriented version)"
 fi
 
-# settings.json: hook をプロジェクトローカルにも登録（global と独立に動かしたい場合）
+# Register hooks in project-local settings.json as well (independent of global)
 [ -f "$DEST/settings.json" ] || echo '{}' > "$DEST/settings.json"
 merge_hook_into_settings "$DEST/settings.json"
 
-# skills / agents コピー
+# Copy skills and agents
 install_harness_skills_into "$DEST/skills"
 install_harness_agents_into "$DEST/agents"
 
-# my-harness-init の skill もプロジェクトに同梱しておく（オフラインでも /my-harness-init が使える）
+# Also bundle my-harness-init skill with the project (available offline)
 if [ -d "$HOME/.claude/skills/my-harness-init" ]; then
   mkdir -p "$DEST/skills/my-harness-init"
   cp "$HOME/.claude/skills/my-harness-init/SKILL.md" "$DEST/skills/my-harness-init/SKILL.md" 2>/dev/null || true
@@ -138,13 +138,13 @@ fi
 
 cat <<EOS
 
-[setup-claude] 完了。
-  - グローバル ~/.claude/skills/ に harness-* と各種 hook 登録済み
-  - プロジェクト独立配置: $DEST 配下に CLAUDE.md / skills / agents / settings.json
-  - 個人の ~/.claude/* も Claude Code 仕様上マージされる点に注意
+[setup-claude] Done.
+  - Global ~/.claude/skills/ has harness-* skills and hooks registered
+  - Independent project placement: CLAUDE.md / skills / agents / settings.json under $DEST
+  - Note: Personal ~/.claude/* is also merged by Claude Code per its specification
 
-==== Claude Code 再起動が必要 ====
-新しい dev/.claude/CLAUDE.md と skills / hooks を完全に有効化するため、
-Claude Code を再起動するか /clear を実行してください。
-==================================
+==== Claude Code restart required ====
+To fully activate the new dev/.claude/CLAUDE.md, skills, and hooks,
+restart Claude Code or run /clear.
+======================================
 EOS
