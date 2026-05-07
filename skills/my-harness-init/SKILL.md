@@ -1,6 +1,6 @@
 ---
 name: my-harness-init
-description: Runs the full new-project pipeline end-to-end: interview → spec generation → harness auto-setup. Claude asks only the minimum direct questions, optionally consults Codex for a second opinion, generates logos and UI mocks via Codex using gpt-image-2, then runs bootstrap.sh in non-interactive mode to launch the project. Fires when the user runs /my-harness-init or wants to start a new project from scratch.
+description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills into the user's idea and produces a structured discoverySheet, Phase 3 fires AskUserQuestion only for decisions still ambiguous after discovery (architecture, package manager, platforms, frameworks, backend, database, email, e2e), Phases 4–7 cover features / data model / visual / bootstrap. Triggered by /my-harness-init.
 ---
 
 # /my-harness-init
@@ -29,7 +29,7 @@ Inside Claude Code, run:
 
 ### Activate the new skills
 
-Restart Claude Code (or run `/clear` in the current session) so that the newly registered skills and hooks are loaded.
+Restart Claude Code (or run `/clear`) so newly registered skills and hooks load.
 
 ### Start a new project
 
@@ -37,7 +37,7 @@ Restart Claude Code (or run `/clear` in the current session) so that the newly r
 /my-harness-init
 ```
 
-Claude will guide you through the interview phase one question at a time. If `.my-harness/init-state.json` already exists in the current directory (or a parent), the skill auto-detects it and offers to resume from where you left off.
+If `.my-harness/init-state.json` already exists in the cwd or a parent, the skill auto-detects it and offers to resume.
 
 ### Keeping the plugin up to date
 
@@ -45,22 +45,29 @@ Claude will guide you through the interview phase one question at a time. If `.m
 /plugin marketplace update
 ```
 
-> **Never `git clone` this repository to use the plugin.** Cloning freezes you to a single revision and bypasses the plugin update mechanism. Always install and update through the Claude Code plugin commands above.
+> **Never `git clone` this repository to use the plugin.** Cloning freezes you to a single revision and bypasses the plugin update mechanism.
 
 ---
 
-A slash command that starts from "I have a vague idea of what to build" and, through conversation, locks in **only the information needed to set up the system**, then **immediately builds the harness** from that spec.
+## Design principles (read this every run)
 
-## Design principles
+This skill replaces blind structured questionnaires with a **two-step interview**:
 
-- **Only ask about things that directly determine system decisions.** Marketing, brand strategy, and long-term vision are off-limits.
-- **Keep questions concrete.** If Claude improvises abstract questions ("brand world-view", "tone", "device focus", etc.), conversations balloon unnecessarily. The SKILL.md fixes the exact question wording.
+1. **An open discovery conversation** (Phase 2) where Claude asks free-form, drilling questions and maintains a structured `discoverySheet` internally — this is where requirements actually crystallize.
+2. **Targeted disambiguation** (Phase 3) using `AskUserQuestion` only for decisions the discoverySheet has **not** already resolved.
+
+**Cardinal rules — applied every turn:**
+
+- **Never ask a question whose answer is already implied by what the user said.** Before composing any prompt, re-read the discoverySheet and skip questions whose field is already populated.
+- **Drill down at least one level.** If a user answer is vague ("a chat app"), the immediate next question must narrow the space ("ephemeral or stored history? group or 1:1? media or text only?").
 - **One question per turn.** Batch questions are prohibited.
-- **Offer easy-to-answer choices.** Prefer y/n or enumerated options over free-text answers.
+- **Discovery before structured choice.** Phase 2 must happen before Phase 3. Do not jump to `AskUserQuestion` until the discoverySheet meets the exit criteria below.
+- **Bilingual parity.** Every user-facing prompt and explanation has both an `LANG=en` and `LANG=ja` variant. After Phase 0, render only the chosen language.
+- **No marketing / brand strategy / 5-year vision.** Stay system-relevant.
 
 ## Who executes this skill
 
-This skill is a procedure that **Claude (you)** executes. Codex is an external supplementary LLM — Claude calls it by **launching `codex-ask.sh` via Bash**, reads the response, and incorporates it. Codex does not interact with the user directly on Claude's behalf.
+This skill is a procedure that **Claude (you)** executes. Codex is an external supplementary LLM — Claude calls it by **launching `codex-ask.sh` via Bash**, reads the response, and incorporates it. Codex does not interact with the user directly.
 
 ## Prerequisites
 
@@ -75,7 +82,7 @@ This skill is a procedure that **Claude (you)** executes. Codex is an external s
 | `<root>/dev/docs/design/` | Logos / OG images / UI mocks | Yes |
 | `<root>/dev/docs/talk/` | Conversation logs (masked) | Yes |
 | `<root>/dev/docs/task/` | Tasks (when USE_GITHUB_ISSUES=no) | Yes |
-| `<root>/.my-harness/` | Internal work files (Codex session IDs, etc.) | Excluded via gitignore |
+| `<root>/.my-harness/` | Internal work files (Codex session IDs, init-state, discoverySheet, etc.) | Excluded via gitignore |
 
 ## Secret masking (strictly enforced)
 
@@ -86,68 +93,57 @@ If any of the following appear in user conversation, they must be masked before 
 | API keys / tokens (`sk-...`, `sk-ant-...`, `ghp_...`, `xoxb-...`, etc.) | `<MASKED:api-key>` |
 | AWS access keys (`AKIA...`) | `<MASKED:aws-key>` |
 | Passwords | `<MASKED:password>` |
-| Email addresses (personally identifiable) | `<MASKED:email>` |
+| Email addresses | `<MASKED:email>` |
 | Credentials embedded in URLs (`https://user:pass@...`) | `<MASKED:url-cred>` |
 | Phone numbers | `<MASKED:phone>` |
 | Credit card numbers | `<MASKED:cc>` |
 | PEM private keys | `<MASKED:private-key>` |
 | JWT three-part dot strings | `<MASKED:jwt>` |
 
-Apply before writing to `docs/talk/` or `docs/spec/`. When in doubt, confirm with the user. The git pre-commit hook with `gitleaks` + `check-forbidden-patterns.sh` provides a second layer of defense.
+Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitleaks` + `check-forbidden-patterns.sh`) provides a second layer.
 
-## Flow (5 phases)
+---
 
-For each phase:
-1. Ask the user **only the fixed questions below**, one per turn
-2. Append the response (after masking) to both `docs/spec/<phase>.md` and `docs/talk/<phase>.md`
-3. If USE_CODEX=yes and at the end of the phase, run one Codex consult (optional, not mandatory)
-4. At the end of the phase, confirm with the user: "Ready to continue?"
-5. **Update `<root>/.my-harness/init-state.json`** (for pause/resume support)
+## Flow (8 phases)
+
+`language` → `setup` → `discovery` → `disambiguation` → `features` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
+
+`data-model` is skipped when the disambiguation phase determines no DB. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
 
 ### Managing init-state.json (for pause/resume)
 
-At the completion of each phase, always write the following. `current_phase` is the **next** phase name to advance to; `phases_completed` is the list of **already finished** phase names:
+At the completion of each phase, write the following. `current_phase` is the **next** phase to advance to; `phases_completed` is the list of **already finished** phases:
 
 ```bash
-# Example: after Phase 2 (platform) completes → next is backend
 ROOT=<root>
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$ROOT/.my-harness"
 cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "project_name": "<PROJECT_NAME>",
   "lang": "en",
   "root": "$ROOT",
-  "current_phase": "backend",
-  "phases_completed": ["language", "setup", "what", "platform"],
+  "current_phase": "<next phase>",
+  "phases_completed": ["language", "setup", "discovery"],
   "next_action": "interview",
-  "next_action_command": "Continue /my-harness-init (Phase 3: backend)",
+  "next_action_command": "Continue /my-harness-init (Phase: <next>)",
   "working_directory": "$ROOT",
+  "discoverySheet": { /* Phase 2 schema, populated as it grows */ },
   "timestamp": "$TIMESTAMP"
 }
 EOF
 ```
 
-Phase names (in order):
-- `language` → `setup` → `what` → `platform` → `backend` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
+### Pause/resume
 
-`data-model` is skipped when USE_DB=no. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
+When the user says "pause", "stop", or similar:
+- Update `init-state.json` and `discoverySheet` to the latest state, tell the user where it was saved and the resume command, then stop.
 
-### Pause/resume support
+When the user comes back:
+- Read `<root>/.my-harness/init-state.json` and check `current_phase`. Resume from the first question of that phase. Existing `docs/spec/` and `docs/talk/` are carried forward.
 
-When the user says "pause for a bit", "stop", or similar:
-- Update `init-state.json` to the latest state at the current phase boundary, tell the user where it was saved and what command to resume with, then stop.
-
-When the user comes back (e.g. runs `/my-harness-init` again):
-- Read `<root>/.my-harness/init-state.json` and check `current_phase`
-- Resume from the first question of that phase (existing docs/spec and docs/talk are carried forward)
-
----
-
-### At startup: auto-detecting init-state.json
-
-When `/my-harness-init` is called, **first** check whether `.my-harness/init-state.json` exists in the user's cwd or any parent directory:
+### At startup: auto-detect init-state.json
 
 ```bash
 find_existing_state() {
@@ -163,491 +159,590 @@ find_existing_state() {
 }
 ```
 
-If found:
-1. Read `current_phase`
-2. Ask the user: "You were last at the `<current_phase>` phase. Resume from where you left off? (y/n)"
-3. y → Resume from the first question of that phase (continue using existing `docs/spec/` and `docs/talk/`)
-4. n → Confirm with the user (discard and start fresh, or specify a different directory)
-
-If not found: proceed to Phase 0 below as a new init.
+If found, ask: "You were last at the `<current_phase>` phase. Resume? (y/n)". `y` → resume; `n` → confirm discard or different directory. If not found → start at Phase 0.
 
 ---
 
-### Phase 0: Language (new init only)
+## Phase 0 — Language
 
-**First question:**
+**Ask once:**
 
 > "Should I speak Japanese with you, or English? (`en` or `ja`, default `en`)"
 
-- `en`: All output in English (TSDoc, commit messages, error messages, docs — all in English)
-- `ja`: All output in Japanese (TSDoc, commit messages, error messages, docs — all in Japanese)
+Persist `LANG=en|ja`. From here every prompt renders **only** in the chosen language.
 
-From this point, all conversation, all generated docs, JSDoc text, error messages, and issue templates use the chosen language. **Every prompt in Phase 1 and beyond must be delivered in the language chosen here.**
+**Acknowledgment:**
 
-**Acknowledgment after Phase 0 (language-aware — pick the matching variant):**
+- `LANG=en`: "Got it — I'll continue in English. Let's pin down a few setup details, then we'll have a real conversation about what you're building."
+- `LANG=ja`: "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りします。"
 
-- If `LANG=en`:
-  > "Got it — I'll continue in English from here. Let's move on to the setup questions."
-- If `LANG=ja`:
-  > "はい、ここから先は日本語で進めます。では、セットアップの質問に移ります。"
-
-Save to `.my-harness/.config` (first entry, before all other keys):
-```bash
+Save to `.my-harness/.config` (first entry):
+```
 LANG=<en|ja>
 ```
 
-Update `init-state.json`:
-```bash
-cat > "$ROOT/.my-harness/init-state.json" <<EOF
-{
-  "schema_version": "1",
-  "project_name": "",
-  "lang": "${LANG:-en}",
-  "root": "$ROOT",
-  "current_phase": "setup",
-  "phases_completed": ["language"],
-  "next_action": "interview",
-  "next_action_command": "Continue /my-harness-init (Phase: setup)",
-  "working_directory": "$ROOT",
-  "timestamp": "$TIMESTAMP"
-}
-EOF
-```
+Update `init-state.json` with `current_phase: "setup"`, `phases_completed: ["language"]`.
 
 ---
 
-### Setup phase (startup + selections, new init only)
+## Phase 1 — Minimal setup (only orthogonal flags)
 
-Confirm each of the following **one question at a time**. For each question, use the **`LANG=en`** block when `LANG=en`, and the **`LANG=ja`** block when `LANG=ja`.
+Ask the following one at a time. **Do not ask the project name here** — let it emerge from Phase 2's conversation. Only re-ask at the end of Phase 2 if it has not surfaced.
 
----
+### Setup Q1: Project root directory
 
-#### Setup Q1: Project root directory
-
-**LANG=en prompt:**
-> "Where should the project live? (default: `~/projects/<project-name>` once you set a name, or `~/projects/my-project` as a placeholder)"
+**LANG=en:**
+> "Where should the project live on disk? (default: `~/projects/<name>` once a name is settled, or `~/projects/my-project` as placeholder)"
 >
-> **What this controls:** This becomes the parent directory on disk. All source code, git worktrees, and spec files are created inside it. The `dev/` worktree where you do day-to-day work lives at `<root>/dev`. If the directory does not exist it will be created automatically. Default is `~/projects/<name>` — a sensible choice for most setups.
+> **What this controls:** Parent directory for source, worktrees, spec files. `<root>/dev` is the day-to-day worktree. Auto-created if missing.
 
-**LANG=ja prompt:**
-> "プロジェクトをどこに作成しますか？（デフォルト: `~/projects/<プロジェクト名>`）"
+**LANG=ja:**
+> "プロジェクトをどこに作成しますか？（デフォルト: `~/projects/<プロジェクト名>`、未定なら `~/projects/my-project`）"
 >
-> **この設定が影響する箇所:** ディスク上の親ディレクトリになります。ソースコード・gitワークツリー・spec ファイルはすべてここに作成されます。日常作業は `<root>/dev` ワークツリーで行います。ディレクトリが存在しない場合は自動作成されます。
+> **これが影響する箇所:** ソース・ワークツリー・spec の親ディレクトリ。`<root>/dev` が日常作業用。無ければ自動作成。
 
----
+### Setup Q2: Codex integration
 
-#### Setup Q2: Project name
-
-**LANG=en prompt:**
-> "What is the project name? (optional — press Enter to use `harness-project-<random6>`)"
->
-> **What this controls:**
-> - Becomes the **directory name** under your chosen root (e.g., `~/projects/todo-app`).
-> - Becomes the **`name` field in `package.json`** of the generated project.
-> - Used as the **display name** in the auto-generated `dev/README.md` and `dev/CLAUDE.md`.
-> - The lowercase-hyphen form is used as the **git branch namespace** (`feat/<name>-<n>`, `hotfix/<name>-<n>`) and as the **default Codex session name** when Codex consultations happen.
->
-> Providing a name is **strongly recommended** for real projects. If omitted, the fallback `harness-project-<random6>` is fine for throwaway tests but produces ugly branch names and directory paths.
-
-**LANG=ja prompt:**
-> "プロジェクト名を入力してください（省略すると `harness-project-<ランダム6文字>` が使われます）"
->
-> **この設定が影響する箇所:**
-> - 選択したルートパス直下の **ディレクトリ名** になります（例: `~/projects/todo-app`）。
-> - 生成プロジェクトの **`package.json` の `name` フィールド** になります。
-> - 自動生成される `dev/README.md` と `dev/CLAUDE.md` の **表示名** として使われます。
-> - 小文字ハイフン形式が **git ブランチ名前空間**（`feat/<name>-<n>`）と **Codex セッション名** に使われます。
->
-> 実際のプロジェクトには名前の設定を**強く推奨**します。省略時の `harness-project-<ランダム6文字>` はテスト用途には十分ですが、ブランチ名やパスが分かりにくくなります。
-
-**Internal slug derivation (never shown to user):** After the user answers, derive `PROJECT_SLUG` automatically:
-```bash
-# lowercase, spaces→hyphens, strip non-alnum except hyphens
-PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g')
-```
-Do **not** show the word "slug" anywhere in the conversation.
-
----
-
-#### Setup Q3: Codex integration
-
-**LANG=en prompt:**
+**LANG=en:**
 > "Use Codex for AI-assisted design and code review? (y/n, default: n)"
 >
-> **What this controls:** Codex (OpenAI's CLI) can be called at the end of each phase to get a second opinion, and is used during Phase 5 to generate logo and UI mock images via `gpt-image-2`.
->
-> **Codex is completely optional.** If you say `n`, the plugin still works end-to-end:
-> - The interview proceeds in Claude alone.
-> - Logo and UI mock generation are skipped (you can supply your own images later).
-> - Engineer / e2e-reviewer / reviewer subagents run in Claude — no Codex delegation.
-> - All bootstrap, branch protection, CI, hooks, and 4-lane parallel features work unchanged.
-> - You can always re-enable Codex later by editing `.my-harness/.config` and setting `USE_CODEX=yes`.
+> **What this controls:** Codex (OpenAI CLI) supplies second opinions, generates logos and UI mocks via `gpt-image-2`. Completely optional — `n` works end-to-end with Claude alone. Re-enable later via `.my-harness/.config`.
 
-**LANG=ja prompt:**
+**LANG=ja:**
 > "Codex（OpenAI CLI）を使ったAI支援デザイン・コードレビューを有効にしますか？ (y/n、デフォルト: n)"
 >
-> **この設定が影響する箇所:** 各フェーズ終了時にセカンドオピニオンとして Codex を呼び出せます。フェーズ5ではロゴや UI モック画像を `gpt-image-2` で生成します。
->
-> **Codex は完全にオプションです。** `n` を選んでもプラグインはすべて動作します:
-> - インタビューは Claude だけで進みます。
-> - ロゴ・UI モックの自動生成はスキップされます（後から自分で用意できます）。
-> - エンジニア / e2e-reviewer / reviewer サブエージェントは Claude で実行されます。
-> - ブートストラップ・ブランチ保護・CI・フック・4レーン並列実装はすべて変わらず動作します。
-> - 後から `.my-harness/.config` で `USE_CODEX=yes` に変更すれば有効化できます。
+> **これが影響する箇所:** Codex はセカンドオピニオン生成と `gpt-image-2` でのロゴ・UIモック生成を行います。完全任意で、`n` でも全機能が Claude 単体で動作します。後から `.my-harness/.config` で `USE_CODEX=yes` に変更可能。
 
-**If USE_CODEX=no:** Skip Q3a, Q3b, Q3c, Q3d entirely. Set all three `USE_CODEX_*` flags to `no` automatically.
+#### If USE_CODEX=yes — sub-toggles
 
-**If USE_CODEX=yes:** Proceed to Q3a through Q3d below.
+##### Q2a: Codex auth check
 
----
-
-#### Setup Q3a: Codex auth check (only when USE_CODEX=yes)
-
-Run immediately after the user answers `y` to Q3:
 ```bash
 bash ~/my-harness-generator/scripts/check-codex-auth.sh
 ```
-- `not-installed` → Guide user to `npm i -g @openai/codex`; re-ask Q3
-- `not-logged-in` → Ask user to run `codex login`. After 3 failures, automatically set USE_CODEX=no and continue
-- `logged-in` → Confirm to the user (language-aware):
-  - **LANG=en:** "Codex is ready. I'll resume Codex conversations in session `<PROJECT_SLUG>-init` so multi-turn dialog persists."
-  - **LANG=ja:** "Codex の認証を確認しました。マルチターン対話が維持されるよう、セッション `<PROJECT_SLUG>-init` で Codex との会話を継続します。"
+- `not-installed` → guide user to `npm i -g @openai/codex`; re-ask Q2
+- `not-logged-in` → ask user to `codex login`; after 3 failures auto-set USE_CODEX=no
+- `logged-in` → confirm:
+  - **LANG=en:** "Codex is ready. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
+  - **LANG=ja:** "Codex の認証を確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
 
-`CODEX_SESSION` is derived automatically as `<PROJECT_SLUG>-init`. This is never asked as a question.
+`CODEX_SESSION = <PROJECT_SLUG>-init`. Never asked.
 
-Note: during implementation (after `/harness-team-lead`), each subagent spawn gets its own fresh Codex session — sessions are never shared across subagent boundaries. A new spawn for the same role and issue always starts a new session (except when resuming after a `blocked-codex-auth` pause, where the paused session id is explicitly inherited).
+##### Q2b: Delegate engineer to Codex?
 
-注: 実装フェーズ（`/harness-team-lead` 以降）では、各サブエージェントのスポーンは独自の新しい Codex セッションを取得します。セッションはサブエージェントの境界を越えて共有されません。同じロール・issue に対する新しいスポーンは常に新しいセッションを開始します（`blocked-codex-auth` 一時停止後の再開時を除く — その場合は一時停止時のセッション ID が明示的に引き継がれます）。
+- **LANG=en:** "Delegate the engineer (implementation) subagent to Codex? (y/n, default: y — Codex is strong at code generation)"
+- **LANG=ja:** "エンジニア（実装）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコード生成が得意)"
+
+##### Q2c: Delegate e2e-reviewer to Codex?
+
+- **LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: n — Claude runs Playwright/Maestro locally regardless; `y` only routes the failure-report synthesis to Codex)"
+- **LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: n — Playwright/Maestro は常に Claude がローカル実行。`y` は失敗レポート合成のみを Codex に依頼)"
+
+##### Q2d: Delegate reviewer to Codex?
+
+- **LANG=en:** "Delegate the reviewer (convention review) subagent to Codex? (y/n, default: y)"
+- **LANG=ja:** "reviewer（規約レビュー）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y)"
+
+If USE_CODEX=no, all three sub-flags forced to `no`.
+
+### Setup Q3: Inherit global CLAUDE.md
+
+**LANG=en:**
+> "Inherit your global `~/.claude/CLAUDE.md` in this project? (y/n, default: y)"
+>
+> **What this controls:** `n` writes `dev/.claude/settings.json` with `claudeMdExcludes` listing your absolute `~/.claude/CLAUDE.md` path so the project starts isolated from your personal global instructions.
+
+**LANG=ja:**
+> "個人グローバル `~/.claude/CLAUDE.md` をこのプロジェクトに引き継ぎますか？ (y/n、デフォルト: y)"
+>
+> **これが影響する箇所:** `n` を選ぶと `dev/.claude/settings.json` の `claudeMdExcludes` に絶対パス指定で `~/.claude/CLAUDE.md` を登録し、Claude Code がこのプロジェクトでは個人指示を読み込まないようにします。
+
+Persist `USE_GLOBAL_CLAUDE=yes|no`.
+
+### Setup Q4: Task management
+
+**LANG=en:**
+> "Track tasks via GitHub Issues, or as local markdown in `dev/docs/task/`? (`issues` / `local`, default: `local`)"
+
+**LANG=ja:**
+> "タスク管理は GitHub Issues、それとも `dev/docs/task/` のローカルマークダウン？ (`issues` / `local`、デフォルト: `local`)"
+
+After these are answered, update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 
-#### Setup Q3b: Delegate engineer to Codex? (only when USE_CODEX=yes)
+## Phase 2 — Open discovery conversation (the centerpiece)
 
-**LANG=en:** "Delegate the engineer (implementation) subagent to Codex? (y/n, default: y — Codex is strong at code generation)"
+This is the longest and most important phase. **Plan for 10–30 turns** — do not bail early.
 
-**LANG=ja:** "エンジニア（実装）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコード生成が得意です)"
+Phase 2 starts with one open question and continues as a free-form, multi-turn conversation until the **exit criteria** below are met. There are no scripted questions here — Claude reads each answer, updates the internal `discoverySheet`, and composes the next question dynamically based on what is still missing or still vague.
+
+### Internal `discoverySheet` (the state Claude maintains)
+
+Persist as `discoverySheet` inside `<root>/.my-harness/init-state.json`. Update after **every** user reply.
+
+```json
+{
+  "discoverySheet": {
+    "projectName": "...",
+    "oneLineDescription": "...",
+    "primaryUser": "...",
+    "secondaryUsers": ["..."],
+    "topUserActions": ["...", "...", "..."],
+    "scaleExpectation": {
+      "users": "1-100|100-10k|10k-1M|1M+",
+      "dataSize": "MB|GB|TB",
+      "concurrency": "low|medium|high"
+    },
+    "latencyTolerance": "ms|seconds|minutes",
+    "offlineSupport": "none|cache-only|full-offline",
+    "syncModel": "none|optimistic|eventual|strong",
+    "privacy": {
+      "pii": "none|minimal|sensitive|regulated",
+      "compliance": ["gdpr", "hipaa", "soc2", "pci", "none"]
+    },
+    "architectureHints": "client-server|client-serverless|p2p-pure|p2p-hybrid|undecided",
+    "persistenceHints": "relational|document|kv|file|hybrid|undecided",
+    "uiSurfaceHints": ["web", "ios", "android", "desktop"],
+    "openQuestions": ["..."]
+  }
+}
+```
+
+Initialize all fields to empty / `undecided` at Phase 2 start.
+
+### Exit criteria
+
+End Phase 2 when **(a) OR (b)**:
+
+(a) The user explicitly says they're done ("that's all", "that's enough", "もう十分", "以上で").
+
+(b) The discoverySheet has at minimum **all of**:
+- `oneLineDescription`
+- `primaryUser`
+- `topUserActions` (≥ 3)
+- `scaleExpectation` (all three sub-fields)
+- `latencyTolerance`
+- `offlineSupport`
+- `syncModel`
+- `privacy.pii` and `privacy.compliance`
+- `architectureHints`
+- `persistenceHints`
+
+If `projectName` is still empty when (b) hits, ask once before exit:
+- **LANG=en:** "Before we move on, what should we call this project? (becomes directory name, package.json `name`, branch namespace)"
+- **LANG=ja:** "ここまでで決めた範囲を踏まえて、プロジェクト名は何にしますか？（ディレクトリ名・package.json の `name`・ブランチ名前空間に使われます）"
+
+### Opening prompt
+
+- **LANG=en:** "Tell me about what you're building. Don't worry about format — start anywhere that feels natural. I'll ask follow-up questions and we'll narrow it down together."
+- **LANG=ja:** "作りたいものについて自由に話してください。形式は気にせず、自然に始まる場所から。フォローアップの質問をしながら一緒に絞り込んでいきましょう。"
+
+### How Claude asks open questions and drills down
+
+After every user reply, run this internal checklist **before composing the next question**:
+
+1. **Mask** the reply (apply secret-masking rules) and append to `dev/docs/talk/02-discovery.md`.
+2. **Update the discoverySheet.** For every field the reply just touched, fill it in or refine it. Persist.
+3. **Drill check:** "Have I drilled at least one level deep on this?" If the answer is vague (one sentence, no specifics), the next question MUST narrow.
+4. **Coverage check:** "Which discoverySheet fields are still empty or vague?" The next question targets the most consequential one — typically the one that unlocks subsequent decisions (e.g., scale before persistence; offline before sync model; privacy before backend choice).
+5. **No-redundancy check:** "Have I already asked something close to this?" Skip if yes.
+6. **One thing at a time:** ask exactly one question.
+
+### Drill-down examples
+
+The point is not to accept first answers as final. Examples:
+
+- User: "It's a chat app."
+  - Bad next question: "What features do you want?" (jumps too far)
+  - Good next question (en): "Group or 1:1? Ephemeral or stored history? Media or text only?"
+  - Good next question (ja): "グループチャットですか、1:1ですか？履歴は残しますか、消えますか？テキストだけですか、画像・動画もですか？"
+- User: "Some kind of marketplace."
+  - Good (en): "Two-sided marketplace? Who pays — buyers, sellers, both? Goods, services, or digital? How do listings get discovered?"
+  - Good (ja): "二者間マーケットプレイスですか？支払うのは買い手・売り手・両方？商品・サービス・デジタル？出品はどう見つけてもらいますか？"
+- User: "Just for me, maybe a few friends."
+  - Good (en): "If I assume 1–100 users for the first year, does that match? And is the data only useful to you (private), or do friends see each other's stuff (shared)?"
+  - Good (ja): "初年度は 1〜100 ユーザー想定でいいですか？データは自分専用（プライベート）ですか、友人同士で見える（共有）ですか？"
+- User: "Should work on the subway."
+  - Good (en): "So full offline write/read, then sync when online? Or read-only cache while offline?"
+  - Good (ja): "オフラインでも書き込み・読み込みOK、繋がった時に同期？それともオフライン時は閲覧のみキャッシュ？"
+
+### Open-question stems Claude can adapt
+
+- **What does the user actually do with this?** ("walk me through a typical session, step by step")
+- **Who's the primary user?** ("If only one type of person uses this, who?")
+- **Who pays for the infrastructure?** (rules out free-tier-only / steers toward serverless vs always-on)
+- **How do users find each other / find content?** (search, social graph, link-share, public feed)
+- **Does the data have to stay on-device or in a region?** (privacy, residency)
+- **What happens when two users edit the same thing at once?** (sync model)
+- **What's the worst-case latency the user will tolerate?** (drives architecture)
+- **How big does it get in year one? Year three?** (scale)
+- **Is there anything regulated about the data?** (HIPAA, GDPR, PCI, SOC2)
+- **Is there a reason this can't run on a normal client + server?** (this surfaces P2P intuitions naturally)
+
+### Mid-conversation pulse-checks
+
+Every ~5 turns, summarize the discoverySheet back to the user in one or two sentences and ask "Is that right? Anything to adjust?". Update the sheet from the correction.
+
+### Exit ritual
+
+When exit criteria met, **show the discoverySheet to the user as a formatted summary** (not raw JSON — use a numbered list grouped by topic) and ask:
+
+- **LANG=en:** "Here's what I have. Anything to correct or add before we move to the structured choices?"
+- **LANG=ja:** "ここまでの整理です。次の構造化された質問に進む前に、修正・追加はありますか？"
+
+If the user corrects, update sheet and repeat ritual. Once confirmed, persist final discoverySheet, write `dev/docs/spec/02-discovery.md` (the formatted summary), update `init-state.json` to `current_phase: "disambiguation"`, and proceed to Phase 3.
+
+If USE_CODEX=yes, run a Codex consult at the end:
+```bash
+~/my-harness-generator/scripts/codex-ask.sh --role analyst \
+  --out <root>/.my-harness/codex-phase2.md \
+  "DiscoverySheet: <paste JSON>. Point out logical contradictions, ambiguities, or missing items."
+```
 
 ---
 
-#### Setup Q3c: Delegate e2e-reviewer to Codex? (only when USE_CODEX=yes)
+## Phase 3 — Disambiguation via `AskUserQuestion`
 
-**LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: n)"
->
-> **What this controls:** E2E tests (Playwright / Maestro) always run **locally inside the worktree** — Claude executes `nix develop --command pnpm exec playwright test ...` and/or `nix develop --command maestro test ...` directly. Codex never runs Playwright or Maestro itself.
->
-> When `n` (default): Claude runs the tests AND synthesizes the structured failure report.
-> When `y`: Claude still runs the tests locally; **the only thing Codex does** is take the raw test output (failures, console errors, network errors, screenshot paths) and synthesize the structured failure report (file / test / expected / actual / hypothesis). Codex acts as the report writer / diagnostician.
->
-> **Why default `n`:** Claude is already in the worktree, has direct file and log access, and generates the same structured report without an extra round-trip. Codex delegation is worth it only if you specifically want a second-opinion diagnosis.
+For each decision below, **first re-read the discoverySheet**. Only fire `AskUserQuestion` when the sheet has **not** already locked the answer.
 
-**LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: n)"
->
-> **この設定が影響する箇所:** E2E テスト（Playwright / Maestro）は**常にワークツリー内でローカル実行**されます — Claude が `nix develop --command pnpm exec playwright test ...` や `nix develop --command maestro test ...` を直接実行します。Codex が Playwright や Maestro を実行することは一切ありません。
->
-> `n`（デフォルト）の場合: Claude がテストを実行し、構造化された失敗レポートも合成します。
-> `y` の場合: Claude が引き続きテストをローカルで実行します。**Codex が行うのは唯一つ** — 生のテスト出力（失敗・コンソールエラー・ネットワークエラー・スクリーンショットパス）を受け取り、構造化された失敗レポート（ファイル / テスト / 期待値 / 実際値 / 仮説）を合成することだけです。Codex はレポートライター・診断者として機能します。
->
-> **デフォルトが `n` の理由:** Claude はすでにワークツリー内にあり、ファイルやログに直接アクセスでき、追加のラウンドトリップなしに同じ構造化レポートを生成できます。Codex 委任が有効なのは、第二意見による診断を特に求める場合だけです。
+When the sheet already implies a decision, say it explicitly and skip:
+- **LANG=en:** "From our conversation I already know `<decision> = <value>` (because you said `<reason>`). Skipping that question."
+- **LANG=ja:** "先ほどの会話から `<決定> = <値>` は確定していると判断しました（`<理由>` のため）。この質問はスキップします。"
 
----
+Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question, max 4 questions per turn. Use `multiSelect: true` where appropriate. Use `preview` (single-select only) for choices that need comparison. Mark the recommended choice as `(Recommended)` and put it first.
 
-#### Setup Q3d: Delegate reviewer to Codex? (only when USE_CODEX=yes)
+### Decision 1 — Architecture (only when `architectureHints == "undecided"`)
 
-**LANG=en:** "Delegate the reviewer (convention review) subagent to Codex? (y/n, default: y — Codex is strong at code review)"
+Single-select. Use `preview` to show one-line ASCII diagrams.
 
-**LANG=ja:** "reviewer（規約レビュー）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコードレビューが得意です)"
+| Choice | Preview |
+|--------|---------|
+| `Client + REST/GraphQL backend (Recommended)` | `[Client] ⇄ HTTPS ⇄ [Backend API] ⇄ [DB]` |
+| `Client + serverless functions` | `[Client] ⇄ HTTPS ⇄ [Edge fn] ⇄ [DB]` |
+| `Pure P2P (no central server)` | `[Peer A] ⇄ DHT/relay ⇄ [Peer B]` |
+| `P2P + coordinator/bootstrap server (hybrid)` | `[Peer A] ⇄ [Coord] ⇄ [Peer B]   data: peer↔peer direct` |
 
----
+**LANG=en question:** "Which overall architecture? Pick one — preview shows the data-flow shape."
 
-#### Setup Q4: Task management
+**LANG=ja question:** "全体アーキテクチャを選んでください。プレビューはデータの流れ図です。"
 
-**LANG=en prompt:**
-> "How should tasks be tracked? (`issues` = GitHub Issues, `local` = markdown files in `dev/docs/task/`, default: `local`)"
->
-> **What this controls:** With `issues`, tasks are created as GitHub Issues with lane assignments and you need a GitHub repo. With `local`, tasks are markdown files with front matter stored in the repo — no GitHub dependency, works offline, and the files are git-tracked alongside your spec.
+Persist `ARCHITECTURE=client-server|client-serverless|p2p-pure|p2p-hybrid`.
 
-**LANG=ja prompt:**
-> "タスク管理の方法を選んでください。(`issues` = GitHub Issues、`local` = `dev/docs/task/` のマークダウン、デフォルト: `local`)"
->
-> **この設定が影響する箇所:** `issues` を選ぶと GitHub Issues にレーン割り当てつきで作成されます（GitHub リポジトリが必要）。`local` を選ぶとフロントマター付きマークダウンとしてリポジトリ内に保存されます。オフラインで動き、spec と一緒に git 管理されます。
+### Decision 2 — Package manager (always)
 
----
+Single-select.
 
-#### Setup Q5: Inherit global CLAUDE.md
+| Choice | Note |
+|--------|------|
+| `pnpm (Recommended — fastest cold install, content-addressable store)` | mature, monorepo-friendly |
+| `bun` | faster runtime, native test runner, single binary |
+| `npm` | universal, slowest |
+| `yarn` | classic alternative |
 
-**LANG=en prompt:**
-> **Inherit your global `~/.claude/CLAUDE.md`?** [y/n, default: y]
->
-> **What this controls:** Your `~/.claude/CLAUDE.md` (user-level instructions) is loaded into every Claude Code session by default — including in this project. If you want this project to be **isolated** from your personal instructions (e.g., you have global preferences that don't fit this project's conventions), say `n`. The plugin will write `dev/.claude/settings.json` with `claudeMdExcludes` set to your absolute `~/.claude/CLAUDE.md` path, which Claude Code respects natively. Defaults to `y` because most users want their personal preferences active everywhere.
+**LANG=en:** "Which Node package manager?"
+**LANG=ja:** "Node のパッケージマネージャーは？"
 
-**LANG=ja prompt:**
-> **個人グローバル `~/.claude/CLAUDE.md` を引き継ぎますか？** [y/n、デフォルト: y]
->
-> **これが何を制御するか:** `~/.claude/CLAUDE.md`（個人レベルの指示）は通常すべての Claude Code セッションで読み込まれ、このプロジェクトにも影響します。プロジェクトを個人指示から**隔離**したい場合（例: グローバル設定がこのプロジェクトの規約と相性が悪い）は `n`。プラグインが `dev/.claude/settings.json` に `claudeMdExcludes` を書き込み、絶対パス指定で `~/.claude/CLAUDE.md` の読み込みを無効化します（Claude Code 公式機能）。多くのユーザーは個人設定を全プロジェクトで有効にしたいので既定は `y`。
+Persist `PACKAGE_MANAGER=pnpm|bun|npm|yarn`.
 
-Persist as `USE_GLOBAL_CLAUDE=yes|no` in `.my-harness/init-state.json` and write to `.my-harness/.config` at finalization time.
+### Decision 3 — Platforms (always, multiSelect)
 
----
+`multiSelect: true`. Choices: `web`, `desktop`, `mobile`. At least one required (re-ask if empty).
 
-Save the answers:
+**LANG=en:** "Which platforms? (one or more)"
+**LANG=ja:** "対応プラットフォームは？（複数選択可）"
+
+Persist `USE_WEB`, `USE_DESKTOP`, `USE_MOBILE` (intermediate; the per-mobile-OS flags come below).
+
+### Decision 4 — Web framework (only when `web` selected)
+
+Single-select with `preview`.
+
+| Choice | Preview |
+|--------|---------|
+| `Next.js (Recommended)` | `app/`, `app/api/`, RSC, edge or node runtime |
+| `TanStack Start` | `routes/`, file-based, fully typed, type-safe loaders |
+| `SvelteKit` | `src/routes/`, server hooks, light footprint |
+
+Persist `WEB_KIND=nextjs|tanstack|sveltekit`.
+
+### Decision 5 — Mobile platform split (only when `mobile` selected)
+
+`multiSelect`: `iOS`, `Android`. At least one.
+
+#### Decision 5a — iOS framework (only when iOS chosen)
+
+| Choice | Note |
+|--------|------|
+| `Swift / SwiftUI (Recommended for iOS-only)` | native, App Store standard |
+| `Expo (React Native)` | cross-platform with Android, JS/TS shared |
+| `Flutter` | Dart, cross-platform, custom rendering |
+
+Persist `IOS_KIND=swift|expo|flutter`.
+
+#### Decision 5b — Android framework (only when Android chosen)
+
+| Choice | Note |
+|--------|------|
+| `Kotlin / Compose (Recommended for Android-only)` | native, Play Store standard |
+| `Expo (React Native)` | cross-platform with iOS |
+| `Flutter` | Dart, cross-platform |
+
+Persist `ANDROID_KIND=kotlin|expo|flutter`.
+
+If both iOS and Android are chosen and select the same cross-platform framework (Expo or Flutter), tell the user they share one codebase. If they pick different cross-platform frameworks, warn and suggest aligning.
+
+### Decision 6 — Desktop framework + OS (only when `desktop` selected)
+
+Framework single-select with `preview`:
+
+| Choice | Preview |
+|--------|---------|
+| `Tauri (Recommended — small footprint, Rust shell)` | `src-tauri/`, `~10MB binaries` |
+| `Electron` | full Node.js, ~120MB binaries, mature ecosystem |
+
+Persist `DESKTOP_KIND=tauri|electron`.
+
+OS multiSelect: `macOS`, `Windows`, `Linux` (default all). Persist `DESKTOP_OS`.
+
+### Decision 7 — Backend framework (only when `ARCHITECTURE in {client-server, p2p-hybrid}`)
+
+Skip when `ARCHITECTURE in {client-serverless, p2p-pure}`.
+
+| Choice | Note |
+|--------|------|
+| `Hono on Cloudflare Workers (Recommended)` | edge, TypeScript, sub-50ms cold start |
+| `Go (Gin)` | mature, fast, large standard library |
+| `Rust (Axum)` | typed, performant, steep ramp |
+
+Persist `BACKEND_KIND=hono|gin|rust`.
+
+For `p2p-hybrid`, the backend is a lightweight coordinator/bootstrap server (signaling, peer discovery, optional auth). Tell the user this in the question copy.
+
+### Decision 8 — Database (skip when `persistenceHints == "file"` or `ARCHITECTURE == "p2p-pure"`)
+
+| Choice | Note |
+|--------|------|
+| `Cloudflare D1 (Recommended for hono/edge)` | SQLite at edge, paired well with Workers |
+| `PostgreSQL` | full SQL, JSON, recommended for gin/rust |
+| `MySQL` | full SQL alternative |
+| `SQLite (local)` | embedded, single-file |
+
+Recommendation flips based on `BACKEND_KIND`:
+- `hono` → D1
+- `gin` / `rust` → PostgreSQL
+- `p2p-hybrid` with light backend → D1 or SQLite
+- No backend → SQLite or file
+
+Persist `DB_KIND=d1|postgres|mysql|sqlite|none` (none when skipped).
+
+### Decision 9 — Email (always, single-select)
+
+| Choice | Note |
+|--------|------|
+| `Resend (Recommended)` | modern API, React Email templates |
+| `SendGrid` | enterprise standard |
+| `none` | no transactional email |
+
+Persist `USE_EMAIL=yes|no` and `EMAIL_KIND=resend|sendgrid|none`.
+
+### Decision 10 — Authentication (always, single-select; skip if discoverySheet implies)
+
+| Choice | Note |
+|--------|------|
+| `OAuth (Recommended for consumer apps)` | social sign-in, less password handling |
+| `Password (email + password)` | full control, more compliance burden |
+| `none` | no auth |
+
+Persist `AUTH_KIND=none|password|oauth`.
+
+### Decision 11 — E2E testing (always, multiSelect)
+
+`multiSelect` choices:
+
+- `Playwright (web/desktop)`
+- `Maestro (mobile)`
+- `none`
+
+Filter to the user's chosen platforms (don't offer Playwright if no web/desktop, don't offer Maestro if no mobile). Persist `E2E_SCOPE=web|mobile|both|none`, derived `USE_PLAYWRIGHT` / `USE_MAESTRO`.
+
+### Decision 12 — Claude Code Action (always)
+
+Single-select y/n via AskUserQuestion if not implied.
+
+- `Yes — automated PR review (Recommended)`
+- `No`
+
+Persist `USE_CLAUDE_ACTION=yes|no`. If yes, follow up with auth method:
+
+- `OAuth (Recommended)`
+- `API key`
+
+Persist `CLAUDE_AUTH=api|oauth`.
+
+### After Phase 3
+
+Save the consolidated config to `<root>/.my-harness/.config`:
 
 ```bash
 mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/dev/docs/talk <root>/dev/docs/task
 
 cat > <root>/.my-harness/.config <<EOF
 LANG=<en|ja>
-PROJECT_NAME=<name as entered by user>
-PROJECT_SLUG=<derived lowercase-hyphen form, never shown to user>
+PROJECT_NAME=<from discoverySheet.projectName>
+PROJECT_SLUG=<derived lowercase-hyphen>
 ROOT=<root>
 USE_CODEX=<yes|no>
-CODEX_SESSION=<PROJECT_SLUG>-init  # Only written when USE_CODEX=yes
-USE_CODEX_ENGINEER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude implements
-USE_CODEX_E2E_REVIEWER=<yes|no>    # Only meaningful when USE_CODEX=yes; default no — Claude runs E2E tests locally AND synthesizes the report; yes = Claude runs tests, Codex synthesizes the failure report
-USE_CODEX_REVIEWER=<yes|no>        # Only meaningful when USE_CODEX=yes; if no, Claude does review
-ON_CODEX_AUTH_FAIL=pause           # Default pause: notify user and wait on auth/subscription failure; fail = immediate error
+CODEX_SESSION=<PROJECT_SLUG>-init
+USE_CODEX_ENGINEER=<yes|no>
+USE_CODEX_E2E_REVIEWER=<yes|no>
+USE_CODEX_REVIEWER=<yes|no>
+ON_CODEX_AUTH_FAIL=pause
 USE_GITHUB_ISSUES=<yes|no>
-USE_GLOBAL_CLAUDE=<yes|no>         # no → dev/.claude/settings.json written with claudeMdExcludes for ~/.claude/CLAUDE.md
+USE_GLOBAL_CLAUDE=<yes|no>
+USE_WEB=<yes|no>
+WEB_KIND=<nextjs|tanstack|sveltekit>
+USE_IOS=<yes|no>
+IOS_KIND=<swift|expo|flutter>
+USE_ANDROID=<yes|no>
+ANDROID_KIND=<kotlin|expo|flutter>
+USE_DESKTOP=<yes|no>
+DESKTOP_KIND=<tauri|electron>
+DESKTOP_OS=macos,windows,linux
+USE_BACKEND=<yes|no>
+BACKEND_KIND=<hono|gin|rust>
+USE_DB=<yes|no>
+DB_KIND=<d1|postgres|mysql|sqlite|none>
+USE_EMAIL=<yes|no>
+EMAIL_KIND=<resend|sendgrid|none>
+AUTH_KIND=<none|password|oauth>
+E2E_SCOPE=<web|mobile|both|none>
+USE_PLAYWRIGHT=<yes|no>
+USE_MAESTRO=<yes|no>
+USE_CLAUDE_ACTION=<yes|no>
+CLAUDE_AUTH=<api|oauth>
+PACKAGE_MANAGER=<pnpm|bun|npm|yarn>
+ARCHITECTURE=<client-server|client-serverless|p2p-pure|p2p-hybrid>
 EOF
 ```
+
+The two new keys `PACKAGE_MANAGER` and `ARCHITECTURE` go at the **end** of the file so older readers stay compatible.
 
 When USE_CODEX=yes, register the active session pointer:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --set-active <root>
 ```
 
----
-
-### Phase 1: What to build
-
-**Fixed questions (one per turn — never improvise). Use the LANG=en variant when `LANG=en`, and the LANG=ja variant when `LANG=ja`.**
-
-**Question 1:**
-- **LANG=en:** "In one sentence, what are you building?" (e.g. task management app / inventory SaaS / blog site / internal tool)
-- **LANG=ja:** "一文で教えてください。何を作りますか？" （例: タスク管理アプリ / 在庫管理SaaS / ブログサイト / 社内ツール）
-
-**Question 2:**
-
-- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue listing until you have nothing more to add."
-- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
-
-**What this controls (en + ja):**
-
-> Each feature listed here becomes one or more issues / task files in your project. You're not committing to specific implementation order — that comes at /harness-team-lead time. The list is just the truth about what v1 means to you. Take your time.
->
-> ここで挙げた機能はそれぞれ 1 つ以上の issue / task ファイルになります。実装順序を今決める必要はありません — それは `/harness-team-lead` のタイミングで行います。このリストは「v1 として何が必要か」という事実を記録するためのものです。じっくり考えてください。
-
-That's it. Do **not** ask "who uses it / personas / why existing services don't work / what success looks like in 5 years". Who uses it will surface naturally in Phase 3 (authentication) and Phase 5 (visual impression) as concrete choices — asking abstractly adds no value.
-
-Save to: `dev/docs/spec/01-what.md` / `dev/docs/talk/01-what.md`
-
-If USE_CODEX=yes, run a Codex consult at the end:
+`PROJECT_SLUG` derivation (internal, never shown):
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role analyst \
-  --out <root>/.my-harness/codex-phase1.md \
-  "Project summary: <one sentence>. v1 feature list: <enumerated>. Point out any logical contradictions, ambiguities, or missing items."
+PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g')
 ```
 
----
+Save phase 1+3 results to `dev/docs/spec/03-decisions.md` and `dev/docs/talk/03-decisions.md`. Update `init-state.json` to `current_phase: "features"`.
 
-### Phase 2: Platform + framework
-
-**Ask as a single multi-select, then follow up per selected platform.** Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.
-
-#### 2.0 Platform selection (single question)
-
-**LANG=en prompt:**
-> "Which platforms? Select one or more (comma-separated): `web`, `desktop`, `mobile`"
->
-> **What this controls:** Each selected platform creates its own subdirectory in the generated project (e.g., `dev/web/`, `dev/ios/`, `dev/android/`, `dev/desktop/`) with its own framework setup, CI workflow, and lane assignment. You can combine any subset — web-only is fine, web+mobile is fine, desktop+mobile without web is fine.
-
-**LANG=ja prompt:**
-> "対応プラットフォームをすべて選んでください（カンマ区切り）: `web`, `desktop`, `mobile`"
->
-> **この設定が影響する箇所:** 選択したプラットフォームごとに専用のサブディレクトリ（例: `dev/web/`、`dev/ios/`、`dev/android/`、`dev/desktop/`）が生成され、それぞれ独自のフレームワーク設定・CI ワークフロー・レーン割当が行われます。任意の組み合わせが可能です。web のみ、web+mobile、desktop+mobile（web なし）なども問題ありません。
-
-After the user answers, render a checklist preview (Claude outputs this, not a prompt):
-
-```
-Selected:
-[x] Web        (if chosen)
-[x] Desktop    (if chosen)
-[x] Mobile     (if chosen — iOS and/or Android will be clarified next)
-```
-
-Then proceed with **only the follow-up questions for selected platforms**, in the order: Web → Desktop → Mobile. Skip any platform not selected entirely.
-
-#### 2.1 Web framework (only when web was selected)
-
-**LANG=en:** "Which web framework? (`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
-
-**LANG=ja:** "Web フレームワークを選んでください。(`nextjs` = Next.js 16 App Router / `tanstack` = TanStack Start)"
-
-#### 2.2 Desktop framework + OS (only when desktop was selected)
-
-**LANG=en step 1:** "Which desktop framework? (`tauri` = Rust shell + web frontend, lightweight / `electron` = Node.js shell + web frontend, rich ecosystem)"
-
-**LANG=ja step 1:** "デスクトップフレームワークを選んでください。(`tauri` = Rust シェル + Web フロントエンド、軽量 / `electron` = Node.js シェル + Web フロントエンド、エコシステム豊富)"
-
-**LANG=en step 2:** "Which OS targets? Select one or more (comma-separated): `macos`, `windows`, `linux` (default: all)"
-
-**LANG=ja step 2:** "対象 OS を選んでください（カンマ区切り）: `macos`, `windows`, `linux`（デフォルト: すべて）"
-
-#### 2.3 Mobile: iOS / Android split (only when mobile was selected)
-
-**LANG=en step 1:** "Which mobile platforms? Select one or more (comma-separated): `ios`, `android`"
-
-**LANG=ja step 1:** "対応するモバイルプラットフォームを選んでください（カンマ区切り）: `ios`, `android`"
-
-**LANG=en step 2 (only when ios selected):** "Which iOS implementation? (`swift` = Swift + SwiftUI native / `expo` = React Native Expo / `flutter` = Flutter)"
-
-**LANG=ja step 2 (only when ios selected):** "iOS の実装方法を選んでください。(`swift` = Swift + SwiftUI ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
-
-**LANG=en step 3 (only when android selected):** "Which Android implementation? (`kotlin` = Kotlin + Jetpack Compose native / `expo` = React Native Expo / `flutter` = Flutter)"
-
-**LANG=ja step 3 (only when android selected):** "Android の実装方法を選んでください。(`kotlin` = Kotlin + Jetpack Compose ネイティブ / `expo` = React Native Expo / `flutter` = Flutter)"
-
-#### Validation
-
-- At least one platform must be selected (re-ask if none)
-- If both iOS and Android are selected and both choose `expo` or both choose `flutter` → **inform the user they share a single codebase** (one directory under `mobile/`)
-- iOS `swift` + Android `kotlin` combination → separate codebases (`ios/` and `android/`)
-- iOS and Android choosing different cross-platform frameworks (e.g. `expo` vs `flutter`) → warn about the inconsistency and suggest aligning to one
-
-Save to: `dev/docs/spec/02-platform.md` / `dev/docs/talk/02-platform.md`
-
-Append to `.my-harness/.config`:
-```bash
-USE_WEB=<yes|no>
-WEB_KIND=<nextjs|tanstack>          # Only when USE_WEB=yes
-USE_IOS=<yes|no>
-IOS_KIND=<swift|expo|flutter>       # Only when USE_IOS=yes
-USE_ANDROID=<yes|no>
-ANDROID_KIND=<kotlin|expo|flutter>  # Only when USE_ANDROID=yes
-USE_DESKTOP=<yes|no>
-DESKTOP_KIND=<tauri|electron>       # Only when USE_DESKTOP=yes
-DESKTOP_OS=macos,windows,linux      # Only when USE_DESKTOP=yes
-```
-
-**Important (bug prevention)**: A framework choice is **only asked when that platform's y/n is yes**. A choice for one platform must never bleed into another (e.g. choosing DESKTOP_KIND=tauri does not set IOS_KIND to anything).
-
----
-
-### Phase 3: Backend configuration
-
-**Fixed questions (one per turn). Use the LANG=en phrasing when `LANG=en`, and LANG=ja phrasing when `LANG=ja`.**
-
-1. **LANG=en:** "Build a backend? (y/n — frontend-only or serverless-only projects can answer no)"
-   **LANG=ja:** "バックエンドを作りますか？ (y/n — フロントエンドのみ、またはサーバーレスのみのプロジェクトは no でも構いません)"
-
-2. If y — **LANG=en:** "Which backend language/framework? (`hono` = TypeScript + Hono on Cloudflare Workers / `gin` = Go + Gin / `rust` = Rust + axum)"
-   If y — **LANG=ja:** "バックエンドの言語・フレームワークを選んでください。(`hono` = TypeScript + Hono on Cloudflare Workers / `gin` = Go + Gin / `rust` = Rust + axum)"
-
-3. **LANG=en:** "Need a database? (y/n)"
-   **LANG=ja:** "データベースは必要ですか？ (y/n)"
-
-4. If y — **LANG=en:** "Which database? (`d1` = Cloudflare D1 / `postgres` = PostgreSQL / `mysql` = MySQL / `sqlite` = SQLite — recommended: `d1` for hono, `postgres` for gin/rust)"
-   If y — **LANG=ja:** "データベースを選んでください。(`d1` = Cloudflare D1 / `postgres` = PostgreSQL / `mysql` = MySQL / `sqlite` = SQLite — 推奨: hono には `d1`、gin/rust には `postgres`)"
-
-5. **LANG=en:** "Need email sending? (y/n — yes sets up Resend for password reset etc.)"
-   **LANG=ja:** "メール送信機能は必要ですか？ (y/n — yes を選ぶとパスワードリセット等のために Resend をセットアップします)"
-
-6. **LANG=en:** "How much authentication do you need? (`none` / `password` / `oauth`)"
-   **LANG=ja:** "認証の種類を選んでください。(`none` = なし / `password` = パスワード認証 / `oauth` = OAuth)"
-
-7. **LANG=en:** "How much E2E testing? (`web` = Playwright / `mobile` = Maestro / `both` / `none`)"
-   **LANG=ja:** "E2E テストの範囲を選んでください。(`web` = Playwright / `mobile` = Maestro / `both` = 両方 / `none` = なし)"
-
-8. **LANG=en:** "Use Claude Code Action in CI for automated PR review? (y/n)"
-   **LANG=ja:** "CI で Claude Code Action を使った自動 PR レビューを有効にしますか？ (y/n)"
-
-9. If y — **LANG=en:** "Authentication method for Claude Code Action? (`api` = API key / `oauth` = OAuth app)"
-   If y — **LANG=ja:** "Claude Code Action の認証方法を選んでください。(`api` = API キー / `oauth` = OAuth アプリ)"
-
-Save to: `dev/docs/spec/03-backend.md` / `dev/docs/talk/03-backend.md`
-
-Append to `.my-harness/.config`:
-```bash
-USE_BACKEND=<yes|no>
-BACKEND_KIND=<hono|gin|rust>        # Only when USE_BACKEND=yes
-USE_DB=<yes|no>
-DB_KIND=<d1|postgres|mysql|sqlite>  # Only when USE_DB=yes
-USE_EMAIL=<yes|no>
-AUTH_KIND=<none|password|oauth>
-E2E_SCOPE=<web|mobile|both|none>
-USE_PLAYWRIGHT=<yes|no>             # yes when E2E_SCOPE is web|both
-USE_MAESTRO=<yes|no>                # yes when E2E_SCOPE is mobile|both
-USE_CLAUDE_ACTION=<yes|no>
-CLAUDE_AUTH=<api|oauth>             # Only when USE_CLAUDE_ACTION=yes
-```
-
-**Important (bug prevention)**: A BACKEND_KIND choice must never bleed into other variables (e.g. choosing BACKEND_KIND=rust does not affect DESKTOP_KIND — they are fully independent).
-
-If USE_CODEX=yes, verify from an architect perspective:
+If USE_CODEX=yes, run an architect consult:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
   --out <root>/.my-harness/codex-phase3.md \
-  "Platform: <Web/iOS/Android/Desktop>. Backend: <DB/Email/Auth/E2E>. Point out design validity and tradeoffs."
+  "DiscoverySheet + decisions: <paste config>. Point out design validity, tradeoffs, and any contradictions."
 ```
 
 ---
 
-### Phase 4: Data model (only when USE_DB=yes; skip if no)
+## Phase 4 — Features (v1 list)
 
-**Fixed questions (use the variant matching `LANG`)**:
+**Question (one per turn):**
 
-1. **LANG=en:** "List 3–7 entities for your data model." (e.g. User / Task / Comment)
-   **LANG=ja:** "データモデルのエンティティを 3〜7 個リストアップしてください。"（例: User / Task / Comment）
+- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue until you have nothing more to add."
+- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
 
-2. **LANG=en:** "Bullet out the main fields for each entity."
-   **LANG=ja:** "各エンティティの主なフィールドを箇条書きで教えてください。"
+After the user lists features, **drill at least 2 follow-ups per feature**:
 
-3. **LANG=en:** "Describe relationships between entities in mermaid ER style." (e.g. User 1—N Task)
-   **LANG=ja:** "エンティティ間のリレーションシップを mermaid ER スタイルで説明してください。"（例: User 1—N Task）
+1. **Access path:** "How does the user reach this feature? (route, button, gesture)"
+   - **LANG=ja:** "どこからこの機能にたどり着きますか？（URL・ボタン・ジェスチャー）"
+2. **Failure modes:** "What goes wrong, and what does the user see when it does?"
+   - **LANG=ja:** "失敗するパターンは？そのときユーザーには何が見えますか？"
+3. **Observability:** "Do we need analytics or alerting on this feature? If yes, which event/metric?"
+   - **LANG=ja:** "分析やアラートは必要ですか？必要なら、どのイベント・指標？"
 
-4. **LANG=en:** "Which fields contain PII?" (email, phone, address, etc.)
-   **LANG=ja:** "個人情報（PII）を含むフィールドはどれですか？"（メール・電話番号・住所など）
+Save to: `dev/docs/spec/04-features.md` / `dev/docs/talk/04-features.md`.
 
-Claude assembles a mermaid ER diagram from the answers and saves it to `dev/docs/spec/04-data-model.md`.
+Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what v1 means.
 
-If USE_CODEX=yes, run an architect normalization check.
+If USE_CODEX=yes:
+```bash
+~/my-harness-generator/scripts/codex-ask.sh --role analyst \
+  --out <root>/.my-harness/codex-phase4.md \
+  "v1 feature list with access paths, failure modes, observability requirements: <paste>. Point out gaps."
+```
+
+Update `init-state.json` to `current_phase: "data-model"` (or `"visual"` if `USE_DB=no` AND `ARCHITECTURE=p2p-pure`).
 
 ---
 
-### Phase 5: Visual (logo + key screen UI mocks)
+## Phase 5 — Data model (only when `USE_DB=yes` OR persistence is non-trivial)
 
-**Absolute image format rules**:
-- **PNG only**. SVG is **prohibited** as a generated image format. Transparent PNG (alpha background) is allowed.
-- Resolution: logos at minimum 1024×1024; UI mocks at the resolution specified below
-- After generation, **always auto-open with the `open` command** (macOS) so the user can review immediately:
+Skip entirely when `DB_KIND=none` AND `persistenceHints=file`. Otherwise:
+
+**Questions (one per turn — use the variant matching `LANG`):**
+
+1. **LANG=en:** "List 3–7 entities for your data model." (e.g. User / Task / Comment)
+   **LANG=ja:** "データモデルのエンティティを 3〜7 個リストアップしてください。"
+2. **LANG=en:** "Bullet out the main fields for each entity."
+   **LANG=ja:** "各エンティティの主なフィールドを箇条書きで教えてください。"
+3. **LANG=en:** "Describe relationships in mermaid ER style." (e.g. User 1—N Task)
+   **LANG=ja:** "エンティティ間のリレーションシップを mermaid ER スタイルで説明してください。"
+4. **LANG=en:** "Which fields contain PII?" (email, phone, address, etc.)
+   **LANG=ja:** "個人情報（PII）を含むフィールドはどれですか？"
+
+After the initial sketch, Claude assembles a **draft mermaid ER diagram** and shows it back, asking:
+- **LANG=en:** "Here's the ER diagram I drew from your sketch. Anything to edit?"
+- **LANG=ja:** "ご提示内容から ER 図を起こしました。修正点はありますか？"
+
+**Drill at least 1 round per entity** on:
+- **Lifecycle:** when does it get created / updated / deleted? (en/ja)
+- **Access patterns:** which queries hit it most often?
+- **Retention:** is the data kept forever, archived, or deleted on a schedule?
+
+Save the final mermaid + answers to `dev/docs/spec/05-data-model.md`.
+
+If USE_CODEX=yes, run an architect normalization check.
+
+Update `init-state.json` to `current_phase: "visual"`.
+
+---
+
+## Phase 6 — Visual (logo + key screen UI mocks)
+
+**Absolute image format rules:**
+- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is allowed.
+- Resolution: logos ≥ 1024×1024; UI mocks at the resolution specified below.
+- After generation, **always auto-open** so the user can review:
   - macOS: `open <path>`
   - Linux: `xdg-open <path>`
   - Windows: `start "" <path>`
-  - Claude detects the OS with `uname` and chooses the appropriate command
+  - Detect OS with `uname`.
 
-**Prompting strategy**: Trust Codex's designer capability — **give a high-level request and let it decide**.
+**Prompting strategy:** trust Codex's designer capability — give a high-level request and let it decide. Pass spec files via `--context dev/docs/spec/*.md` and keep the request brief.
 
-Claude does not over-specify. Pass the spec files via `--context dev/docs/spec/*.md` and keep the request brief: "Generate 3 logo concepts as PNG, save to ...". Color, shape, and layout decisions are left to Codex.
-
-Never write:
-- Code-style instructions (coordinates, pixel values, CSS properties, Tailwind classes, SVG paths, HTML tags)
+**Never write:**
+- Code-style instructions (coordinates, pixel values, CSS, Tailwind classes, SVG paths, HTML tags)
 - Over-specification of visual details
 
-Do write:
-- What to create (logo / screen name) and how many concepts
-- That the format is PNG, the save path, and the resolution (e.g. 1024×1024)
-- Assume Codex will read the context (spec files)
+**Do write:**
+- What to create and how many concepts
+- Format (PNG), save path, resolution
+- Assume Codex will read the context
 
-**Fixed questions** (one per turn, minimal — use the variant matching `LANG`):
+**Fixed questions** (one per turn — use the variant matching `LANG`):
 
 1. **LANG=en:** "Any color hint for the design? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
    **LANG=ja:** "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
 
 2. **LANG=en:** "List 3–5 screens you want mocked." (e.g. Login / Home / Detail / Settings)
-   **LANG=ja:** "UI モックを作成したい画面を 3〜5 個リストアップしてください。"（例: ログイン / ホーム / 詳細 / 設定）
+   **LANG=ja:** "UI モックを作成したい画面を 3〜5 個リストアップしてください。"
 
-That's it. Do **not** ask about logo direction, impression, or tone. Codex reads `dev/docs/spec/*.md` and decides on its own.
-
-#### Logo generation (when USE_CODEX=yes)
+### Logo generation (when USE_CODEX=yes)
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
@@ -671,30 +766,26 @@ Save to:
 - <root>/dev/docs/design/logo-3.png"
 ```
 
-After generation, immediately open all 3 concepts (macOS example):
-
+After generation, immediately open all 3 (macOS):
 ```bash
 open <root>/dev/docs/design/logo-1.png \
      <root>/dev/docs/design/logo-2.png \
      <root>/dev/docs/design/logo-3.png
 ```
 
-On Linux use `xdg-open` 3 times; on Windows use `start "" <path>` 3 times. Branch with `uname -s`.
-
-**File format verification** (run immediately after generation):
+**File format verification:**
 ```bash
 file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
 ```
-If anything other than PNG (SVG / JPEG, etc.) appears, ask Codex to regenerate. If SVG was generated, delete it and regenerate as PNG.
+If anything other than PNG appears, ask Codex to regenerate.
 
-User selects one concept → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not a symlink, for clean git management).
+User selects one → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not symlink).
 
-#### Interactive refinement (important)
+### Interactive refinement
 
-When the user gives refinement instructions like "**make concept 1 bluer**" or "**make the text in concept 2 larger**", **resume the same session and call codex-ask.sh again**:
+When user says "**make concept 1 bluer**", **resume the same session and call codex-ask.sh again**:
 
 ```bash
-# Additional prompt to the same session (codex-ask.sh auto-resumes)
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --out <root>/.my-harness/codex-logo-r1.md \
@@ -702,14 +793,11 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
 ```
 
 Key points:
-- **Never add `--reset-session`** (that destroys the session and loses prior context)
-- **Never re-attach `--context` with the spec** (it is already in the session)
-- Codex remembers what concept 1 looked like, so a delta instruction is enough to refine
-- Open the result again with `open` after each generation
+- **Never add `--reset-session`** (destroys context)
+- **Never re-attach `--context`** with the spec (it's already in session)
+- Repeat N times to iteratively refine. Once approved, copy to `logo-final.png`.
 
-Repeat this N times to **iteratively refine**. Once the user approves, copy the chosen concept to `logo-final.png`.
-
-#### UI mock generation (per screen)
+### UI mock generation (per screen)
 
 For each screen:
 
@@ -723,7 +811,6 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
 **You must use the image_gen tool (gpt-image-2) to generate PNG files directly.**
 - Writing HTML/CSS and using Playwright/Puppeteer to screenshot is **absolutely prohibited**
 - Writing SVG or rasterizing via \`<canvas>\` is also **prohibited**
-- Do not write code — **have the image generation AI draw it visually**
 
 Read the spec and the chosen logo, then design using your own judgment. Use Lucide Icons-style icons; no AI-style gradients.
 
@@ -737,133 +824,121 @@ Save to:
 - <root>/dev/docs/design/mock-<screen>-2.png"
 ```
 
-After generation, immediately open both concepts:
-```bash
-open <root>/dev/docs/design/mock-<screen>-{1,2}.png
-```
+Open both, run the same `file` PNG verification, user picks one. OG image / favicon follow the same approach (all PNG).
 
-Run the same `file` command PNG verification. 2 concepts per screen → user selects one. OG image / favicon follow the same approach (**all PNG**).
+### Iteration
 
-#### Interactive refinement for mocks
+If mocks reveal that requirements have changed, go back to phases 2–5 to update spec, return here, regenerate only affected mocks. **Maximum 3 iteration cycles.**
 
-Same as logos. When the user gives instructions like "**move the search bar to the top on the home screen**" or "**make the button on the detail screen round**", **resume the same session and call again**:
+When USE_CODEX=no, skip mock generation and record visual direction (primary color, impression, layout) as text in `dev/docs/design/brand.md`.
 
-```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --out <root>/.my-harness/codex-mock-home-r1.md \
-  "Move the search bar in home screen concept 1 to the top and regenerate. Overwrite the same path."
-```
-
-`--reset-session` prohibited; re-attaching `--context` prohibited (the session remembers prior turns). Repeat N times to finalize.
-
-#### Iteration (important)
-
-If the mocks reveal that requirements have changed, **go back to one of phases 1–4 to update the spec**. Return to this phase afterward and regenerate only the affected mocks. **Maximum 3 iteration cycles.**
-
-When USE_CODEX=no, skip mock generation and record the visual direction (primary color, impression, layout approach per screen) as text in `dev/docs/design/brand.md`. The user handles design manually later with Figma or similar.
-
-#### Completion criteria
+### Completion criteria
 
 - [ ] One logo concept finalized
 - [ ] Mocks selected for 3–5 key screens (USE_CODEX=yes only)
 - [ ] OG image / favicon generated
 - [ ] If spec changed during iteration, `docs/spec/*.md` is up to date
 
-Save to: `dev/docs/spec/05-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`
+Save to: `dev/docs/spec/06-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`.
 
 ---
 
-### Phase 6: Spec finalization + bootstrap + issue/task generation
+## Phase 7 — Spec finalization + bootstrap + issue/task generation
 
-#### 6.1 Final spec review
+### 7.1 Final spec review
 
-Read all of `dev/docs/spec/0[1-5]-*.md` and present a summary to the user for approval.
+Read all of `dev/docs/spec/0[1-6]-*.md` and present a summary to the user for approval.
 
-If USE_CODEX=yes, run a final cross-check with Codex code-reviewer:
+If USE_CODEX=yes, run final cross-check with Codex code-reviewer:
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh --role code-reviewer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/*.png -- \
-  "Point out any inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality."
+  "Point out inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality."
 ```
 
-If there are corrections, go back to one of phases 1–5 and then return here.
+If there are corrections, go back to phases 2–6 then return.
 
-#### 6.2 Bootstrap execution (non-interactive)
+### 7.2 Bootstrap execution (non-interactive)
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/bootstrap.sh "<root>" --config "<root>/.my-harness/.config"
 ```
 
-bootstrap scaffolds the dev worktree and creates the initial commit → `docs/spec/`, `docs/design/`, and `docs/talk/` are all included in git.
+bootstrap reads `PACKAGE_MANAGER` and `ARCHITECTURE` from `.my-harness/.config` and:
+- Uses the chosen package manager (pnpm/bun/npm/yarn) for all install / exec / run lines in generated `flake.nix`, husky setup, CI workflows, and the printed next-steps banner.
+- For `ARCHITECTURE=p2p-pure`, **skips** backend bootstrap entirely.
+- For `ARCHITECTURE=p2p-hybrid`, writes a minimal **coordinator/bootstrap server** stub.
+- For p2p modes, drops a starter at `dev/p2p/README.md` noting that the P2P transport library will be selected at `/harness-team-lead` time based on chosen platforms.
 
-#### 6.3 Issue / task generation (branching on USE_GITHUB_ISSUES)
+### 7.3 Issue / task generation
 
-Split the feature list from phase 1 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
+Split the v1 feature list from Phase 4 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
 
-- **USE_GITHUB_ISSUES=yes**: Create parent + child issues with `gh issue create` (including 4-lane assignments)
-- **USE_GITHUB_ISSUES=no**: Represent parent/child as files:
+- **USE_GITHUB_ISSUES=yes**: Create parent + child issues with `gh issue create` (with 4-lane assignments).
+- **USE_GITHUB_ISSUES=no**:
   ```
   <root>/dev/docs/task/parent/0001-<slug>.md
   <root>/dev/docs/task/child/0001-<feature>.md
   ```
   Each file uses front matter to express `parent: 0001` / `lane: 1–4` / `status: pending`.
 
-#### 6.4 Clear the active session pointer (if USE_CODEX=yes was set)
+### 7.4 Clear active session pointer (if USE_CODEX=yes)
 
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --clear-active
 ```
 
-#### 6.5 Generate dev/README.md and dev/CLAUDE.md for the first time
+### 7.5 Generate dev/README.md and dev/CLAUDE.md for the first time
 
-Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually creates** the following 2 files (reflecting the spec content):
+Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually creates** the following 2 files (reflecting spec content). Use `$PACKAGE_MANAGER` for the install / exec lines.
 
-##### Structure of `<root>/dev/README.md`
+#### `<root>/dev/README.md` (template)
 
 ```markdown
 # <PROJECT_NAME>
 
-<1–2 line summary from spec/01-what.md>
+<1–2 line summary from spec/02-discovery.md>
 
 ## Features
 
-<v1 feature list from spec/01-what.md as bullet points, each with `[ ] not implemented / [x] done` checkbox>
+<v1 feature list from spec/04-features.md as bullet checkboxes [ ] / [x]>
 
 ## Tech stack
 
+- Architecture: <ARCHITECTURE>
 - Frontend: <WEB_KIND if USE_WEB>, <IOS_KIND if USE_IOS>, ...
 - Backend: <BACKEND_KIND if USE_BACKEND>
 - DB: <DB_KIND if USE_DB>
 - Auth: <AUTH_KIND>
 - E2E: <E2E_SCOPE>
+- Package manager: <PACKAGE_MANAGER>
 
 ## Setup
 
 \`\`\`bash
 cd dev
 direnv allow
-nix develop --command pnpm install
-nix develop --command pnpm exec husky
+nix develop --command <PACKAGE_MANAGER> install
+nix develop --command <PACKAGE_MANAGER> exec husky
 \`\`\`
 
 ## Development flow
 
-The harness (my-harness-generator) orchestrates:
-- `/harness-team-lead` — drive all issues in parallel across 4 lanes at once
+The harness orchestrates:
+- `/harness-team-lead` — drive all issues in parallel across 4 lanes
 - `/harness-new-feature <issue#>` — start a specific issue
-- Re-run `/my-harness-init` — resume from where you left off (`init-state.json` is auto-detected)
+- Re-run `/my-harness-init` — resume from where you left off
 
 ## Environment variables
 
-<TBD — engineers append to this as implementation progresses>
+<TBD — engineers append as implementation progresses>
 
 ## License
 
 <TBD>
 ```
 
-##### Structure of `<root>/dev/CLAUDE.md`
+#### `<root>/dev/CLAUDE.md` (template)
 
 ```markdown
 # <PROJECT_NAME> — Instructions for Claude Code
@@ -872,39 +947,41 @@ This project runs on a harness generated by my-harness-generator.
 
 ## Project purpose
 
-<From spec/01-what.md>
+<From spec/02-discovery.md>
 
 ## Architecture
 
+- High-level shape: <ARCHITECTURE>
 - 4-layer Clean Architecture (domain / application / infrastructure / interfaces)
 - DB: <DB_KIND> + Drizzle ORM (when USE_DB=yes)
 - Auth: <AUTH_KIND>
+- Package manager: <PACKAGE_MANAGER>
 
 ## Data model
 
-<Copy the mermaid ER diagram from spec/04-data-model.md (only when DB is used)>
+<Copy mermaid ER diagram from spec/05-data-model.md (only when DB used)>
 
 ## Key screens / API
 
-<Key screen list from spec/05-visual.md and expected API endpoints>
+<Key screen list from spec/06-visual.md and expected API endpoints>
 
 ## Conventions
 
 The harness auto-firing skills enforce:
-- harness-tdd (t-wada / Kent Beck style TDD)
+- harness-tdd
 - harness-hono-clean-arch
 - harness-drizzle-rules (migrate-only)
 - harness-nix-pure
 - harness-design-rules (Lucide Icons only, no AI-style design)
-- harness-jsdoc (JSDoc/TSDoc required on all exports)
-- harness-git-discipline (no rebase / reset / force-push)
+- harness-jsdoc
+- harness-git-discipline
 - harness-no-hardcoded-secrets
 
 ## Agent responsibilities (4-lane parallel implementation)
 
 - team-lead: issue assignment (avoiding file conflicts), progress aggregation, user approval relay
 - analyst: in-lane orchestration, git add / commit / push / gh pr create
-- engineer: implementation only (no git operations; updates README/CLAUDE.md alongside implementation)
+- engineer: implementation only (no git ops; updates README/CLAUDE.md alongside code)
 - e2e-reviewer: runs Playwright/Maestro
 - reviewer: convention + docs consistency review
 
@@ -914,28 +991,23 @@ The harness auto-firing skills enforce:
 
 ## Current feature status
 
-<Initialize the v1 feature list from spec/01-what.md with `pending`; update to `done` as issues complete>
+<Initialize the v1 feature list from spec/04-features.md with `pending`; flip to `done` as issues complete>
 ```
 
-After Claude writes these 2 files to `dev/`, stage and commit them in the dev worktree. Write the commit message in `$LANG`:
+After Claude writes these 2 files to `dev/`, stage and commit in dev. Use `$LANG`:
 
 ```bash
 cd "<root>/dev"
 git add README.md CLAUDE.md
-# If LANG=en:
+# LANG=en:
 git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: generate initial README.md and CLAUDE.md from spec"
-# If LANG=ja:
+# LANG=ja:
 git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
 ```
 
-From this point on, engineers update these files with each feature addition and the reviewer checks consistency.
-
-
-#### 6.6 Update init-state.json + stop + guide user to dev (important)
-
-Once issue / task generation is complete, update `<root>/.my-harness/init-state.json` to **`current_phase: "completed"`**:
+### 7.6 Update init-state.json + stop + guide user to dev
 
 ```bash
 ROOT=<root>
@@ -943,12 +1015,12 @@ ISSUE_COUNT=<number of child issues generated>
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "project_name": "<PROJECT_NAME>",
   "lang": "${LANG:-en}",
   "root": "$ROOT",
   "current_phase": "completed",
-  "phases_completed": ["language", "setup", "what", "platform", "backend", "data-model", "visual", "bootstrap", "tasks"],
+  "phases_completed": ["language", "setup", "discovery", "disambiguation", "features", "data-model", "visual", "bootstrap", "tasks"],
   "next_action": "implementation",
   "next_action_command": "/harness-team-lead (or /harness-new-feature <issue#>)",
   "working_directory": "$ROOT/dev",
@@ -959,7 +1031,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 EOF
 ```
 
-Then **present the following message to the user and stop automatically** (do not proceed with any further work):
+Then **present the following message and stop automatically** (do not proceed). Use `$PACKAGE_MANAGER` in the placeholders.
 
 ```
 /my-harness-init complete
@@ -969,30 +1041,29 @@ Mocks:   <root>/dev/docs/design/
 Tasks:   <root>/dev/docs/task/  or GitHub Issues
 State:   <root>/.my-harness/init-state.json (current_phase=completed)
 
-From here, work happens in the dev worktree. Steps:
+From here, work happens in the dev worktree:
 
 1) In your terminal:
      cd <root>/dev
      direnv allow
-     pnpm install
-     pnpm exec husky
+     <PACKAGE_MANAGER> install
+     <PACKAGE_MANAGER> exec husky    # or: bun husky / npm exec husky / yarn husky
 
-2) Push to GitHub (whenever you're ready):
+2) Push to GitHub when ready:
      git remote add origin git@github.com:<owner>/<repo>.git
      git push --all origin
-     # Then set up branch protection and GitHub Secrets:
      bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
      bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 
 3) End this session, run `cd <root>/dev` in your terminal,
    then restart Claude Code. In the new session, run one of:
 
-     /harness-team-lead               # Drive all issues in parallel across 4 lanes (recommended)
+     /harness-team-lead               # Drive all issues in parallel across 4 lanes
      /harness-new-feature <issue#>    # Start a specific feature
-     /my-harness-init                 # Resume from where you left off (auto-detects init-state.json)
+     /my-harness-init                 # Resume from where you left off
 ```
 
-**Claude (you) stops here.** Do not proceed with any further work until the user starts a new session in dev/.
+**Claude (you) stops here.**
 
 ---
 
@@ -1000,47 +1071,50 @@ From here, work happens in the dev worktree. Steps:
 
 | Situation | role |
 |-----------|------|
-| Detect ambiguity or contradictions in requirements | analyst |
+| Detect ambiguity / contradictions in requirements | analyst |
 | Validate design, analyze tradeoffs | architect |
 | Design proposals / image generation | designer |
 | Logic review of spec documents | code-reviewer |
 | Security perspective | security-reviewer |
 
-**Do not use `critic` or `planner`** — they are product-strategy oriented and not directly tied to system decisions.
+**Do not use `critic` or `planner`** — they are product-strategy oriented.
 
 ## Failure fallbacks
 
-- `codex` not installed → automatically set USE_CODEX to no and continue with Claude alone
-- `codex login` not run → guide user; after 3 failures, fall back to no
-- `bootstrap.sh` fails → display stderr and let the user decide
-- Existing file conflict → ask user whether to continue / abort / specify a different directory
+- `codex` not installed → auto-set USE_CODEX=no, continue with Claude alone
+- `codex login` not run → guide user; after 3 failures fall back to no
+- `bootstrap.sh` fails → display stderr, let user decide
+- File conflict → ask user to continue / abort / specify a different directory
 
 ## Artifact layout summary
 
 ```
 <root>/
 ├── .my-harness/                       Internal work files (gitignored)
-│   ├── .config                          Selections (including USE_DESKTOP, etc.)
+│   ├── .config                          Selections (incl. PACKAGE_MANAGER, ARCHITECTURE)
+│   ├── init-state.json                  Phase + discoverySheet
 │   ├── codex-sessions/<KEY>.id          (gitignored)
 │   ├── codex-phase*.md                  (gitignored)
 │   └── codex.jsonl                      (gitignored)
 ├── dev/                                 Standard structure created by bootstrap
-│   └── docs/
-│       ├── spec/01-what.md ...          Masked requirements (5 files)
-│       ├── design/logo-*.png ...        Generated images
-│       ├── talk/01-*.md ...             Masked Q&A full text
-│       └── task/                        When USE_GITHUB_ISSUES=no
-│           ├── parent/0001-*.md
-│           └── child/0001-*.md
+│   ├── docs/
+│   │   ├── spec/02-discovery.md ...     Masked requirements
+│   │   ├── design/logo-*.png ...        Generated images
+│   │   ├── talk/02-discovery.md ...     Masked Q&A
+│   │   └── task/                        When USE_GITHUB_ISSUES=no
+│   │       ├── parent/0001-*.md
+│   │       └── child/0001-*.md
+│   └── p2p/README.md                    Only when ARCHITECTURE in p2p-pure|p2p-hybrid
 ├── stage/  main/  lanes/                Standard worktrees
 └── .bare/                               Bare git repo
 ```
 
-## How to conduct the conversation (Claude's behavior)
+## How to conduct the conversation (Claude's behavior, summary)
 
-- **Read only the question text written in this SKILL.md.** Do not improvise derivative questions ("Which device do you focus on?", "What's your brand's world view?", "What does success look like in 5 years?", etc.).
-- One question per turn. Batch questions prohibited.
-- Every turn: receive answer → mask → append to file. Always in this order.
-- If a string looks like it could be sensitive, say "I'll mask this" before writing it out.
-- At the end of each phase, present a summary and ask "Ready to continue?".
-- If the user says "stop", save the current state and halt.
+- **Phase 2 is a real conversation, not a checklist.** Open questions, drill, summarize, repeat. 10–30 turns is normal.
+- **Phase 3 only fires AskUserQuestion for decisions the discoverySheet has not already settled.** Skip with explicit notice when implied.
+- **One question per turn.** Always.
+- **Mask before persisting.** Always.
+- **Never improvise abstract questions** (brand world-view, 5-year vision, tone).
+- **Drill check after every reply.** "Have I gone at least one level deeper than the surface answer?"
+- **If the user says 'stop'**, save state and halt.

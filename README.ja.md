@@ -260,6 +260,9 @@ USE_CODEX_ENGINEER=yes        # engineer subagent を Codex に委譲（USE_CODE
 USE_CODEX_E2E_REVIEWER=no     # E2E レポート合成を Codex に委譲（デフォルト: no — Claude がローカルで実行）
 USE_CODEX_REVIEWER=yes        # 規約レビューを Codex に委譲
 ON_CODEX_AUTH_FAIL=pause      # 既定: 認証/サブスク切れ時にユーザー通知＋待機、re-login 後 resume。fail なら即失敗
+PACKAGE_MANAGER=pnpm          # pnpm | bun | npm | yarn — install/exec 行・flake.nix・husky・CI に反映
+ARCHITECTURE=client-server    # client-server | client-serverless | p2p-pure | p2p-hybrid
+                              # p2p-pure はバックエンド bootstrap をスキップ、p2p-hybrid は軽量 coordinator のみ
 ```
 
 非対話で再実行:

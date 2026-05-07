@@ -260,6 +260,9 @@ USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only w
 USE_CODEX_E2E_REVIEWER=no     # delegate E2E test report synthesis to Codex (default: no — Claude runs locally)
 USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
 ON_CODEX_AUTH_FAIL=pause      # default: pause + user notify + resume after re-login. "fail" → immediate fail
+PACKAGE_MANAGER=pnpm          # pnpm | bun | npm | yarn — drives install/exec lines, flake.nix, husky, CI
+ARCHITECTURE=client-server    # client-server | client-serverless | p2p-pure | p2p-hybrid
+                              # p2p-pure skips backend bootstrap; p2p-hybrid keeps a lightweight coordinator
 ```
 
 You can re-run bootstrap non-interactively:

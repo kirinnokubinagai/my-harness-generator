@@ -21,6 +21,9 @@
 #   USE_GITHUB_ISSUES
 #   USE_GLOBAL_CLAUDE (yes|no, default yes) — no writes dev/.claude/settings.json with claudeMdExcludes
 #   LANG (en|ja, default en)
+#   PACKAGE_MANAGER (pnpm|bun|npm|yarn, default pnpm) — used in install/exec lines, flake.nix, husky setup, CI workflows
+#   ARCHITECTURE (client-server|client-serverless|p2p-pure|p2p-hybrid, default client-server)
+#                — p2p-pure skips backend bootstrap entirely; p2p-hybrid writes a minimal coordinator/bootstrap stub
 
 set -euo pipefail
 
@@ -103,6 +106,8 @@ if [ -n "$CONFIG_FILE" ]; then
   USE_GITHUB_ISSUES="${USE_GITHUB_ISSUES:-yes}"
   USE_GLOBAL_CLAUDE="${USE_GLOBAL_CLAUDE:-yes}"
   LANG="${LANG:-en}"
+  PACKAGE_MANAGER="${PACKAGE_MANAGER:-pnpm}"
+  ARCHITECTURE="${ARCHITECTURE:-client-server}"
 else
   echo "=================================="
   echo " Harness One-Command Setup"
@@ -197,6 +202,8 @@ else
   echo "── Other ──"
   USE_GITHUB_ISSUES=$(ask_yn "Use GitHub Issue-driven workflow (n = local docs/task/)" "y")
   USE_GLOBAL_CLAUDE=$(ask_yn "Inherit global ~/.claude/CLAUDE.md in this project (n = write claudeMdExcludes to dev/.claude/settings.json)" "y")
+  PACKAGE_MANAGER=$(ask_choice "Node package manager" "pnpm" pnpm bun npm yarn)
+  ARCHITECTURE=$(ask_choice "Overall architecture" "client-server" client-server client-serverless p2p-pure p2p-hybrid)
 fi
 
 # ===== Derive USE_PLAYWRIGHT / USE_MAESTRO from E2E_SCOPE =====
@@ -213,6 +220,20 @@ if [ "$USE_CODEX" != "yes" ]; then
   USE_CODEX_E2E_REVIEWER=no
   USE_CODEX_REVIEWER=no
 fi
+
+# ===== Architecture-driven adjustments =====
+# p2p-pure: no central backend at all (skip backend bootstrap entirely).
+# p2p-hybrid: backend remains but is a lightweight coordinator/bootstrap server.
+case "${ARCHITECTURE:-client-server}" in
+  p2p-pure)
+    USE_BACKEND=no
+    ;;
+  p2p-hybrid)
+    # Keep backend on, treat as coordinator (labeled later in scaffold).
+    USE_BACKEND=yes
+    ;;
+  *) : ;;
+esac
 
 # ===== Save configuration (.my-harness/.config) =====
 mkdir -p .my-harness lanes
@@ -248,6 +269,8 @@ USE_CODEX_REVIEWER=$USE_CODEX_REVIEWER
 ON_CODEX_AUTH_FAIL=$ON_CODEX_AUTH_FAIL
 USE_GITHUB_ISSUES=$USE_GITHUB_ISSUES
 USE_GLOBAL_CLAUDE=${USE_GLOBAL_CLAUDE:-yes}
+PACKAGE_MANAGER=${PACKAGE_MANAGER:-pnpm}
+ARCHITECTURE=${ARCHITECTURE:-client-server}
 EOF
 
 echo
@@ -311,6 +334,44 @@ mkdir -p dev/.my-harness
 rsync -a --exclude='.git' --exclude='.config' "$HARNESS_DIR/" dev/.my-harness/
 cp .my-harness/.config dev/.my-harness/.config
 
+# ===== 5a. P2P scaffold =====
+# When ARCHITECTURE is p2p-pure or p2p-hybrid, drop a placeholder so the
+# /harness-team-lead phase can pick the right transport (libp2p / Iroh / Hypercore)
+# based on the chosen platforms. The actual library is selected later — here we
+# just persist the architectural intent and a README explaining what comes next.
+case "${ARCHITECTURE:-client-server}" in
+  p2p-pure|p2p-hybrid)
+    mkdir -p dev/p2p
+    if [ ! -f dev/p2p/README.md ]; then
+      cat > dev/p2p/README.md <<EOF
+# P2P transport (placeholder)
+
+ARCHITECTURE: ${ARCHITECTURE}
+
+This directory is a placeholder. The actual P2P transport library (libp2p for
+web/Node, Iroh for Rust, Hypercore for Node, or platform-specific equivalents)
+will be selected at \`/harness-team-lead\` time based on the chosen platforms
+and the persistence model.
+
+What is decided right now:
+- ARCHITECTURE = ${ARCHITECTURE}
+  - p2p-pure  : no central server. All state replicates peer-to-peer.
+  - p2p-hybrid: peers connect through a lightweight coordinator/bootstrap server
+                (\`dev/server/\` if BACKEND_KIND was chosen) for discovery and
+                rendezvous; data still flows peer-to-peer.
+
+What is decided at /harness-team-lead time:
+- Transport choice (libp2p / Iroh / Hypercore / WebRTC + DHT / etc.)
+- Identity model (Ed25519 keypair on first run / DID / external auth)
+- Replication model (CRDT / OT / log-based / file-based)
+- Discovery (mDNS / DHT / known-peer list / coordinator)
+
+Do not write transport code into this directory until those decisions land.
+EOF
+    fi
+    ;;
+esac
+
 # ===== 5b. Write dev/.claude/settings.json when USE_GLOBAL_CLAUDE=no =====
 if [ "${USE_GLOBAL_CLAUDE:-yes}" = "no" ]; then
   # Resolve absolute path to user's global CLAUDE.md.
@@ -369,26 +430,49 @@ cat > .my-harness/init-state.json <<EOF
 EOF
 echo "[bootstrap] init-state.json written → .my-harness/init-state.json"
 
+# ===== Compute package-manager invocations for the banner =====
+PM="${PACKAGE_MANAGER:-pnpm}"
+case "$PM" in
+  bun)
+    PM_INSTALL="bun install"
+    PM_EXEC="bun"
+    ;;
+  npm)
+    PM_INSTALL="npm install"
+    PM_EXEC="npm exec"
+    ;;
+  yarn)
+    PM_INSTALL="yarn install"
+    PM_EXEC="yarn"
+    ;;
+  pnpm|*)
+    PM_INSTALL="pnpm install"
+    PM_EXEC="pnpm exec"
+    ;;
+esac
+
 cat <<EOS
 
 ==================================
  Harness setup complete
 ==================================
 Configuration:
+  Architecture=${ARCHITECTURE:-client-server}
   Web=$USE_WEB ($WEB_KIND)  iOS=$USE_IOS ($IOS_KIND)
   Android=$USE_ANDROID ($ANDROID_KIND)  Desktop=$USE_DESKTOP ($DESKTOP_KIND)
   Backend=$USE_BACKEND ($BACKEND_KIND)  DB=$USE_DB ($DB_KIND)
   Auth=$AUTH_KIND  E2E=$E2E_SCOPE
   Codex=$USE_CODEX (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
   Language=$LANG
+  Package manager=$PM
 Task management: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue-driven" || echo "Local docs/task/-driven")
 
 Next steps (run in terminal):
 
   cd $ROOT/dev
   direnv allow
-  pnpm install
-  pnpm exec husky
+  $PM_INSTALL
+  $PM_EXEC husky
 
   git remote add origin git@github.com:<owner>/<repo>.git
   git push --all origin
