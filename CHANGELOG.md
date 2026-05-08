@@ -8,6 +8,10 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- `/my-harness-init` Phase 1 now asks how you want to authenticate Codex (ChatGPT subscription via `codex login`, or API key via `OPENAI_API_KEY`) immediately after `USE_CODEX=yes` is confirmed. The choice is persisted as `CODEX_AUTH=subscription|api-key` in `.my-harness/.config` and `init-state.json`. Auth-failure guidance (LANG=en + LANG=ja) branches on the chosen method: subscription failures instruct the user to run `codex login`; API key failures show exact `export` / `set -x` commands for bash/zsh/fish plus the persistent `~/.zshrc` path. After 3 consecutive failures the skill auto-sets `USE_CODEX=no` and offers to switch methods.
+- `bootstrap.sh` interactive mode asks `Codex auth method (subscription/api-key)` when `USE_CODEX=yes` and writes `CODEX_AUTH=...` to `.my-harness/.config`. Non-interactive mode defaults to `CODEX_AUTH=subscription` when not supplied. When `USE_CODEX=no`, `CODEX_AUTH` is written as empty.
+- `codex-ask.sh` now reads `CODEX_AUTH` from `.my-harness/.config` at startup and branches the rescue `next_action` field: `subscription` → "Run `codex login` then say `resume`"; `api-key` → "Re-export OPENAI_API_KEY (verify on https://platform.openai.com) then say `resume`". The stderr rescue hint follows the same branch.
+
 - `bootstrap.sh` now writes `<root>/start-dev.sh` — a portable launcher (`cd "$HERE/dev" && exec claude "$@"`) that starts a Claude Code session rooted at `<root>/dev/` in one command. The script ends with `exec claude` so signals (Ctrl+C) propagate cleanly to Claude.
 - `/my-harness-init` Phase 8.6 closing message now explicitly explains that Claude Code has no documented mid-session CWD-change mechanism. The message (bilingual: en + ja) directs the user to exit the current session and run `start-dev.sh` (or `cd <root>/dev && claude`) before running `/harness-team-lead`.
 - Bootstrap "next steps" banner replaced with one that highlights the session-restart requirement first, includes `vitest run` health-check, and shows `start-dev.sh` as the recommended entry point.

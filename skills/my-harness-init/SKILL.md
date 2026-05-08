@@ -292,16 +292,96 @@ Ask the following one at a time. **Do not ask the project name here** — let it
 
 #### If USE_CODEX=yes — sub-toggles
 
-##### Q2a: Codex auth check
+##### Q2a-pre: Codex authentication method
+
+**Immediately after USE_CODEX=yes is confirmed — before the auth check — ask this via `AskUserQuestion`:**
+
+```json
+{
+  "questions": [{
+    "question": "Codex authentication — which one do you want? / Codex の認証方法を選んでください",
+    "header": "Codex auth",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "ChatGPT subscription",
+        "description": "Use your ChatGPT Plus / Pro / Team / Enterprise login. Run `codex login` once; usage is bundled in your subscription. / ChatGPT Plus / Pro / Team / Enterprise のサブスク。`codex login` を一度実行すれば、利用は契約に含まれる。"
+      },
+      {
+        "label": "API key (pay-per-use)",
+        "description": "Use an OPENAI_API_KEY environment variable. Pay per token via the OpenAI API platform. / OPENAI_API_KEY 環境変数を使用。OpenAI API プラットフォーム経由でトークンごとに課金。"
+      }
+    ]
+  }]
+}
+```
+
+Map the selection:
+- `ChatGPT subscription` → `CODEX_AUTH=subscription`
+- `API key (pay-per-use)` → `CODEX_AUTH=api-key`
+
+Persist `CODEX_AUTH` immediately to `.my-harness/.config` and `init-state.json`.
+
+##### Q2a: Codex auth check (branches on CODEX_AUTH)
+
+**If `CODEX_AUTH=subscription`:**
 
 ```bash
 bash ~/my-harness-generator/scripts/check-codex-auth.sh
 ```
+
 - `not-installed` → guide user to `npm i -g @openai/codex`; re-ask Q2
-- `not-logged-in` → ask user to `codex login`; after 3 failures auto-set USE_CODEX=no
+- `not-logged-in` →
+  - **LANG=en:** "Please run `codex login` in another terminal, then type `done` here to re-check. (After 3 failures I'll set USE_CODEX=no and continue without Codex, or you can switch to the API key method.)"
+  - **LANG=ja:** "別のターミナルで `codex login` を実行してから、ここで `done` と入力して再確認してください。（3 回失敗した場合は USE_CODEX=no に設定して Codex なしで続行するか、API キー方式に切り替えてください。）"
+  - After 3 failures: suggest switching to `CODEX_AUTH=api-key` or setting `USE_CODEX=no`, then auto-set `USE_CODEX=no`.
 - `logged-in` → confirm:
-  - **LANG=en:** "Codex is ready. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
-  - **LANG=ja:** "Codex の認証を確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
+  - **LANG=en:** "Codex is authenticated via ChatGPT subscription. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
+  - **LANG=ja:** "ChatGPT サブスクリプションで Codex の認証を確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
+
+**If `CODEX_AUTH=api-key`:**
+
+Check whether `$OPENAI_API_KEY` is exported in the current shell:
+
+```bash
+bash -c 'echo "${OPENAI_API_KEY:-}"'
+```
+
+- If **non-empty** → confirm:
+  - **LANG=en:** "Codex API key detected. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
+  - **LANG=ja:** "Codex の API キーを確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
+- If **empty** → instruct the user to set it. Show the exact commands in LANG:
+  - **LANG=en:**
+    > "Please set your OpenAI API key, then type `done` to re-check. (After 3 failures I'll set USE_CODEX=no, or you can switch to the subscription method.)
+    >
+    > **bash / zsh:**
+    > ```
+    > export OPENAI_API_KEY=sk-...
+    > ```
+    > **fish:**
+    > ```
+    > set -x OPENAI_API_KEY sk-...
+    > ```
+    > **To persist across sessions (bash/zsh):**
+    > ```
+    > echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc
+    > ```"
+  - **LANG=ja:**
+    > "OpenAI の API キーを設定してから `done` と入力して再確認してください。（3 回失敗した場合は USE_CODEX=no にするか、サブスクリプション方式に切り替えてください。）
+    >
+    > **bash / zsh:**
+    > ```
+    > export OPENAI_API_KEY=sk-...
+    > ```
+    > **fish:**
+    > ```
+    > set -x OPENAI_API_KEY sk-...
+    > ```
+    > **セッションをまたいで保持する場合（bash/zsh）:**
+    > ```
+    > echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc
+    > ```"
+  - After 3 failures: suggest switching to `CODEX_AUTH=subscription` or setting `USE_CODEX=no`, then auto-set `USE_CODEX=no`.
 
 `CODEX_SESSION = <PROJECT_SLUG>-init`. Never asked.
 

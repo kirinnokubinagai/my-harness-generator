@@ -41,6 +41,34 @@
 
 set -euo pipefail
 
+# ===== Load CODEX_AUTH from .my-harness/.config (auto-resolve) =====
+# Determines which rescue message to show on auth failure:
+#   subscription → instruct user to run `codex login`
+#   api-key      → instruct user to re-export OPENAI_API_KEY
+_load_codex_auth() {
+  local cfg=""
+  if [ -f "$ACTIVE_POINTER" ]; then
+    local _root
+    _root=$(head -1 "$ACTIVE_POINTER" 2>/dev/null)
+    cfg="$_root/.my-harness/.config"
+  fi
+  if [ -z "$cfg" ] || [ ! -f "$cfg" ]; then
+    local d="$PWD"
+    while [ "$d" != "/" ]; do
+      if [ -f "$d/.my-harness/.config" ]; then
+        cfg="$d/.my-harness/.config"
+        break
+      fi
+      d=$(dirname "$d")
+    done
+  fi
+  if [ -n "$cfg" ] && [ -f "$cfg" ]; then
+    CODEX_AUTH=$(grep -E "^CODEX_AUTH=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2-)
+  fi
+}
+CODEX_AUTH="${CODEX_AUTH:-subscription}"
+_load_codex_auth
+
 # ===== Defaults =====
 ROLE=""
 MODEL=""        # Empty by default (defer to Codex CLI default model)
@@ -210,6 +238,13 @@ save_codex_auth_rescue() {
     _issue=$(echo "$SESSION_KEY" | grep -oE '\-([0-9]+)\-' | head -1 | tr -d '-')
     _lane=$(echo  "$SESSION_KEY" | grep -oE '\-([0-9]+)\-' | sed -n '2p' | tr -d '-')
   fi
+  # Determine the correct next_action message based on CODEX_AUTH setting.
+  local _next_action
+  if [ "${CODEX_AUTH:-subscription}" = "api-key" ]; then
+    _next_action="Re-export OPENAI_API_KEY (and ensure it is still valid on https://platform.openai.com), then say \`resume\` to harness-team-lead."
+  else
+    _next_action="Run \`codex login\` then say \`resume\` to harness-team-lead."
+  fi
   {
     echo '{'
     echo "  \"role\": \"${ROLE:-}\","
@@ -218,7 +253,7 @@ save_codex_auth_rescue() {
     echo "  \"session_id\": \"${SESSION_KEY:-}\","
     echo "  \"reason\": \"$reason\","
     echo "  \"paused_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
-    echo "  \"next_action\": \"user runs \`codex login\` (or sets OPENAI_API_KEY), then says \`resume\` to harness-team-lead\","
+    echo "  \"next_action\": \"${_next_action}\","
     echo "  \"session_key\": \"${SESSION_KEY:-}\","
     echo "  \"out_file\": \"${OUT_FILE:-}\","
     echo "  \"log_file\": \"${LOG_FILE:-}\","
@@ -227,7 +262,11 @@ save_codex_auth_rescue() {
   } > "$rescue_json"
   echo "::error:: Codex auth error ($reason). Rescue state saved:" >&2
   echo "  $rescue_json" >&2
-  echo "  Run \`codex login\` then tell team-lead to resume." >&2
+  if [ "${CODEX_AUTH:-subscription}" = "api-key" ]; then
+    echo "  Re-export OPENAI_API_KEY then tell team-lead to resume." >&2
+  else
+    echo "  Run \`codex login\` then tell team-lead to resume." >&2
+  fi
 }
 
 # ===== Pre-flight auth check =====

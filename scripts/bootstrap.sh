@@ -98,6 +98,7 @@ if [ -n "$CONFIG_FILE" ]; then
   USE_CLAUDE_ACTION="${USE_CLAUDE_ACTION:-yes}"
   CLAUDE_AUTH="${CLAUDE_AUTH:-oauth}"
   USE_CODEX="${USE_CODEX:-no}"
+  CODEX_AUTH="${CODEX_AUTH:-subscription}"
   CODEX_SESSION="${CODEX_SESSION:-my-harness-init}"
   USE_CODEX_ENGINEER="${USE_CODEX_ENGINEER:-no}"
   USE_CODEX_E2E_REVIEWER="${USE_CODEX_E2E_REVIEWER:-no}"
@@ -185,12 +186,14 @@ else
   echo "── Codex integration (optional) ──"
   USE_CODEX=$(ask_yn "Use Codex integration (second opinion / image generation / subagent delegation)" "n")
   if [ "$USE_CODEX" = "yes" ]; then
+    CODEX_AUTH=$(ask_choice "  Codex auth method" "subscription" subscription api-key)
     CODEX_SESSION=$(ask "  Codex session name" "my-harness-init")
     USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer to Codex" "y")
     USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer to Codex" "n")
     USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer to Codex" "y")
     ON_CODEX_AUTH_FAIL=$(ask_choice "  Behavior on auth/subscription failure" "pause" pause fail)
   else
+    CODEX_AUTH=
     CODEX_SESSION=my-harness-init
     USE_CODEX_ENGINEER=no
     USE_CODEX_E2E_REVIEWER=no
@@ -262,6 +265,7 @@ USE_MAESTRO=$USE_MAESTRO
 USE_CLAUDE_ACTION=$USE_CLAUDE_ACTION
 CLAUDE_AUTH=$CLAUDE_AUTH
 USE_CODEX=$USE_CODEX
+CODEX_AUTH=$CODEX_AUTH
 CODEX_SESSION=$CODEX_SESSION
 USE_CODEX_ENGINEER=$USE_CODEX_ENGINEER
 USE_CODEX_E2E_REVIEWER=$USE_CODEX_E2E_REVIEWER
