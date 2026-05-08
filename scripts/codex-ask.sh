@@ -11,7 +11,8 @@
 #   codex-ask.sh --session brainstorm "..."                    # maintain session (new on first call, resume thereafter)
 #   codex-ask.sh --session brainstorm --reset-session          # discard session
 #   codex-ask.sh --role architect "..."                        # role prefix
-#   codex-ask.sh --context f1 f2 -- "..."                     # attach context files
+#   codex-ask.sh --context f1 f2 -- "..."                     # attach context files (-- is optional: parser auto-exits context mode when the next token starts with --)
+#   codex-ask.sh --context f1 f2 --session foo "prompt"       # -- not required; flags auto-exit context collection
 #   codex-ask.sh --out reply.md "..."                         # save result to file
 #   codex-ask.sh --log session.jsonl --session brainstorm "..." # save all JSONL events
 #   codex-ask.sh --set-active <project-root>                  # register active session pointer
@@ -69,6 +70,15 @@ _load_codex_auth() {
 CODEX_AUTH="${CODEX_AUTH:-subscription}"
 _load_codex_auth
 
+# ===== Auto-load OPENAI_API_KEY from persistent file when CODEX_AUTH=api-key =====
+# If the key is not already in the environment but was saved by my-harness-init
+# to ~/.config/openai/api-key, source it so subsequent shell sessions / agents
+# don't require the user to re-export manually.
+if [ "${CODEX_AUTH:-subscription}" = "api-key" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ -f "$HOME/.config/openai/api-key" ]; then
+  OPENAI_API_KEY="$(cat "$HOME/.config/openai/api-key")"
+  export OPENAI_API_KEY
+fi
+
 # ===== Defaults =====
 ROLE=""
 MODEL=""        # Empty by default (defer to Codex CLI default model)
@@ -88,7 +98,13 @@ PARSE_CONTEXT=0
 while [[ $# -gt 0 ]]; do
   if [ "$PARSE_CONTEXT" -eq 1 ]; then
     if [ "$1" = "--" ]; then PARSE_CONTEXT=0; shift; continue; fi
-    CONTEXT_FILES+=("$1"); shift; continue
+    # AUTO-EXIT: if the next token looks like a flag (starts with --),
+    # leave context-collection mode and let the case-statement below handle it.
+    # This makes -- truly optional: --context f1 f2 --session foo "prompt" works.
+    if [[ "$1" == --* ]]; then PARSE_CONTEXT=0; fi
+    if [ "$PARSE_CONTEXT" -eq 1 ]; then
+      CONTEXT_FILES+=("$1"); shift; continue
+    fi
   fi
   case "$1" in
     --role)            ROLE="$2";          shift 2 ;;
