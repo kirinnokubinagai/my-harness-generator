@@ -200,24 +200,41 @@ find_existing_state() {
 }
 ```
 
-If found, ask: "You were last at the `<current_phase>` phase. Resume? (y/n)". `y` → resume; `n` → confirm discard or different directory. If not found → start at Phase 0.
+**Pre-Phase 0 messages are also shown bilingually** because `LANG` isn't set yet:
+
+- **State found** → call `AskUserQuestion` with question text:
+  > "I found a saved interview at `<phase>`. Resume?  /  保存済みのインタビュー（`<phase>` 段階）が見つかりました。再開しますか？"
+  >
+  > Options: `Resume / 再開する` (description: "Continue from where you left off / 続きから再開") and `Start over / 最初からやり直す` (description: "Discard the saved state and start a fresh interview / 保存済み状態を破棄して新規インタビュー").
+
+- **No state found** → no message at all. Go straight to Phase 0; do not announce that you couldn't find anything.
 
 ---
 
 ## Phase 0 — Language
 
-**Ask once. The question itself MUST be shown bilingually because the user's preferred language is not yet known. Render this exact bilingual block — do not pick one variant, show both side by side:**
+**Use the `AskUserQuestion` Claude Code tool**. Do not write the bilingual prompt as plain markdown — that wraps badly in the CLI. Instead invoke `AskUserQuestion` with this exact shape:
 
-> **EN:** "Which language should I use for this interview and the project's user-facing content (docs, JSDoc, error messages)? Reply with `en` or `ja`. Default: `en`."
->
-> **JA:** "このインタビューと、これから作るプロジェクトのユーザー向けコンテンツ（ドキュメント・JSDoc・エラーメッセージ等）で使う言語を選んでください。`en` または `ja` でお答えください。デフォルト: `en`。"
+```json
+{
+  "questions": [{
+    "question": "What language should I use? — どの言語で進めますか？\n(Both our conversation and everything I generate — README, code comments, error messages — will be in your choice. / 私との会話も、これから生成する README・コードコメント・エラー文も、選んだ言語で書きます。)",
+    "header": "Language",
+    "multiSelect": false,
+    "options": [
+      { "label": "English",  "description": "Chat in English. README / docs / code comments / error messages will all be in English." },
+      { "label": "日本語",  "description": "会話は日本語。README / ドキュメント / コードコメント / エラー文も全て日本語で書きます。" }
+    ]
+  }]
+}
+```
 
-Persist `LANG=en|ja` based on the answer.
+Read the user's selection. Map `English` → `LANG=en`, `日本語` → `LANG=ja`. Persist immediately.
 
 **Acknowledgment — render ONLY the variant matching the chosen LANG (do NOT show both):**
 
-- If `LANG=en` selected → "Got it — I'll continue in English from here. Let's pin down a few setup details, then we'll have a real conversation about what you're building, then we'll generate visual mocks before locking down any tooling."
-- If `LANG=ja` selected → "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りし、その後でビジュアルモックを作ってから具体的なツール選定に入ります。"
+- If `LANG=en` selected → "Got it — English from here. Next: a few quick setup choices, then a real conversation about what you're building, then visual mocks, then concrete tool picks."
+- If `LANG=ja` selected → "了解しました、ここから日本語で進めます。次は簡単なセットアップ、その後で何を作るかをじっくり相談、ビジュアルモック、最後に具体的なツール選定の順です。"
 
 Save to `.my-harness/.config` (first entry):
 ```
