@@ -1259,36 +1259,81 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
 EOF
 ```
 
-Then **present the following message and stop automatically** (do not proceed). Use `$PACKAGE_MANAGER` in the placeholders.
+Then **present the following message and stop automatically** (do not proceed). Use `$PACKAGE_MANAGER` in the placeholders. Render only the block matching `$LANG`.
+
+**LANG=en:**
 
 ```
-/my-harness-init complete
+Bootstrap is done. The project lives at <root>.
 
+I cannot switch this Claude Code session to <root>/dev/ automatically —
+Claude Code does not expose a way to change CWD and reload CLAUDE.md /
+settings.json mid-session. To continue:
+
+  1. Type /exit (or Ctrl+D) to end this session.
+  2. In your terminal, run:    <root>/start-dev.sh
+                               (or:  cd <root>/dev && claude)
+  3. In the new session, run:  /harness-team-lead
+
+That's it. Your project-local CLAUDE.md and settings
+(claudeMdExcludes when applicable, plus project conventions) will load
+on the new session's startup.
+
+---
 Spec:    <root>/dev/docs/spec/
 Mocks:   <root>/dev/docs/design/
 Tasks:   <root>/dev/docs/task/  or GitHub Issues
 State:   <root>/.my-harness/init-state.json (current_phase=completed)
 
-From here, work happens in the dev worktree:
+Additional steps before /harness-team-lead (run inside the new session):
 
-1) In your terminal:
-     cd <root>/dev
-     direnv allow
-     <PACKAGE_MANAGER> install
-     <PACKAGE_MANAGER> exec husky    # or: bun husky / npm exec husky / yarn husky
+  direnv allow
+  nix develop --command <PACKAGE_MANAGER> install
+  nix develop --command <PACKAGE_MANAGER> exec husky
+  nix develop --command <PACKAGE_MANAGER> exec vitest run
 
-2) Push to GitHub when ready:
-     git remote add origin git@github.com:<owner>/<repo>.git
-     git push --all origin
-     bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
-     bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
+Push to GitHub when ready:
+  git remote add origin git@github.com:<owner>/<repo>.git
+  git push --all origin
+  bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
+  bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
+```
 
-3) End this session, run `cd <root>/dev` in your terminal,
-   then restart Claude Code. In the new session, run one of:
+**LANG=ja:**
 
-     /harness-team-lead               # Drive all issues in parallel across 4 lanes
-     /harness-new-feature <issue#>    # Start a specific feature
-     /my-harness-init                 # Resume from where you left off
+```
+bootstrap が完了しました。プロジェクトは <root> にあります。
+
+このセッションの作業ディレクトリを <root>/dev/ に切り替えることはできません。
+Claude Code にはセッション途中で CWD を変更し、CLAUDE.md / settings.json を
+再ロードする手段が公式に存在しないためです。続けるには:
+
+  1. /exit（または Ctrl+D）でこのセッションを終了する。
+  2. ターミナルで実行:    <root>/start-dev.sh
+                         （または: cd <root>/dev && claude）
+  3. 新しいセッションで:  /harness-team-lead
+
+以上です。新セッション起動時にプロジェクトローカルの CLAUDE.md と
+settings.json（claudeMdExcludes の設定、プロジェクト規約など）が自動でロードされます。
+
+---
+仕様書:  <root>/dev/docs/spec/
+モック:  <root>/dev/docs/design/
+タスク:  <root>/dev/docs/task/  または GitHub Issues
+状態:   <root>/.my-harness/init-state.json (current_phase=completed)
+
+/harness-team-lead の前に行う追加手順（新しいセッション内で実行）:
+
+  direnv allow
+  nix develop --command <PACKAGE_MANAGER> install
+  nix develop --command <PACKAGE_MANAGER> exec husky
+  nix develop --command <PACKAGE_MANAGER> exec vitest run
+
+準備ができたら GitHub へ push:
+  git remote add origin git@github.com:<owner>/<repo>.git
+  git push --all origin
+  bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
+  bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
 **Claude (you) stops here.**

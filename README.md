@@ -77,10 +77,18 @@ The first question of `/my-harness-init` asks whether to use English or Japanese
 | 7 | **Data model** | Entities, relationships, PII handling (mermaid ER diagram) — drilled per entity on lifecycle / GDPR / permissions / cardinality / migration |
 | 8 | **Bootstrap** | Cross-check the spec, run `bootstrap.sh`, generate initial issues / task files (one per lane) |
 
-After bootstrap completes:
+After bootstrap completes, **exit the current Claude session and restart inside `dev/`** — Claude Code has no documented way to change the working directory and reload `CLAUDE.md` / `settings.json` mid-session. The generated `start-dev.sh` launcher does this in one step:
 
 ```bash
-cd ~/<project>/dev
+# Step 1: exit the current Claude session (Ctrl+D or /exit)
+# Step 2: in your terminal:
+~/<project>/start-dev.sh   # launches `claude` rooted at <project>/dev/
+# or equivalently:  cd ~/<project>/dev && claude
+```
+
+Then inside the new session:
+
+```bash
 direnv allow
 nix develop --command pnpm install
 nix develop --command pnpm exec husky
@@ -105,6 +113,7 @@ The plugin enforces a 6-phase flow from idea to production. The first three phas
 | 1. Spec | Discovery + features + data model | `/my-harness-init` (Discovery → Features phases; data model lands after mocks) |
 | 2. Design | Logo + per-platform UI mocks + spec iteration; mocks then drive tool selection | `/my-harness-init` (Visual phase, then Tools phase) |
 | 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Bootstrap phase) |
+| 3.5. Switch session | Restart Claude Code inside `<root>/dev/` so project-scope CLAUDE.md and settings load | `<root>/start-dev.sh` |
 | 4. Implementation | 4-lane parallel feature work; each issue runs in a fresh subagent context | `/harness-new-feature <issue>` |
 | 5. Deploy setup | Terraform infra (Cloudflare D1 / R2 / Pages), wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |

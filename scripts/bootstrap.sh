@@ -451,38 +451,46 @@ case "$PM" in
     ;;
 esac
 
+# ===== Write start-dev.sh launcher at project root =====
+cat > "$ROOT/start-dev.sh" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cd "$HERE/dev"
+exec claude "$@"
+LAUNCHER
+chmod +x "$ROOT/start-dev.sh"
+echo "[bootstrap] Wrote $ROOT/start-dev.sh (launcher for Claude Code session inside dev/)"
+
 cat <<EOS
 
-==================================
- Harness setup complete
-==================================
-Configuration:
-  Architecture=${ARCHITECTURE:-client-server}
-  Web=$USE_WEB ($WEB_KIND)  iOS=$USE_IOS ($IOS_KIND)
-  Android=$USE_ANDROID ($ANDROID_KIND)  Desktop=$USE_DESKTOP ($DESKTOP_KIND)
-  Backend=$USE_BACKEND ($BACKEND_KIND)  DB=$USE_DB ($DB_KIND)
-  Auth=$AUTH_KIND  E2E=$E2E_SCOPE
-  Codex=$USE_CODEX (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
-  Language=$LANG
-  Package manager=$PM
-Task management: $([ "$USE_GITHUB_ISSUES" = "yes" ] && echo "GitHub Issue-driven" || echo "Local docs/task/-driven")
+=========================================================================
+ Bootstrap complete — your harness is ready in $ROOT
 
-Next steps (run in terminal):
+ IMPORTANT: To work inside the project, restart Claude Code in dev/.
+ The current session is still rooted at $(dirname "$ROOT"); project-scope CLAUDE.md
+ and settings.json (including claudeMdExcludes when USE_GLOBAL_CLAUDE=no)
+ only load when Claude starts INSIDE $ROOT/dev/.
 
-  cd $ROOT/dev
-  direnv allow
-  $PM_INSTALL
-  $PM_EXEC husky
+ Next steps:
 
-  git remote add origin git@github.com:<owner>/<repo>.git
-  git push --all origin
-  bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
-  bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
+   1. Exit this Claude session (Ctrl+D or /exit)
+   2. Run:    $ROOT/start-dev.sh
+              (or:  cd $ROOT/dev && claude)
+   3. In the new session, run:
+              direnv allow
+              nix develop --command $PM_INSTALL
+              nix develop --command $PM_EXEC husky
+              nix develop --command $PM_EXEC vitest run
+   4. After tests are green, push to GitHub:
+              git remote add origin git@github.com:<owner>/<repo>.git
+              git push --all origin
+              bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
+              bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
+   5. Start coordinated 4-lane implementation with /harness-team-lead
 
-Then restart Claude Code under dev/ and in a new session run:
-
-  /harness-team-lead              # Run all 4 lanes in parallel (recommended)
-  /harness-new-feature <issue#>   # Start an individual feature
-  /my-harness-init                # Resume from a checkpoint (auto-detects init-state.json)
-
+ Architecture: ${ARCHITECTURE:-client-server}
+ Package manager: $PM
+ Codex: ${USE_CODEX:-no} (engineer=$USE_CODEX_ENGINEER e2e=$USE_CODEX_E2E_REVIEWER reviewer=$USE_CODEX_REVIEWER)
+=========================================================================
 EOS
