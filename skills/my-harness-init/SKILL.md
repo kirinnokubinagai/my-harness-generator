@@ -1,6 +1,6 @@
 ---
 name: my-harness-init
-description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills into the user's idea and produces a structured discoverySheet, Phase 3 fires AskUserQuestion only for decisions still ambiguous after discovery (architecture, package manager, platforms, frameworks, backend, database, email, e2e), Phases 4–7 cover features / data model / visual / bootstrap. Triggered by /my-harness-init.
+description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates v1 features with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates the logo + per-platform UI mocks (3–5 screens each) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
 ---
 
 # /my-harness-init
@@ -51,19 +51,22 @@ If `.my-harness/init-state.json` already exists in the cwd or a parent, the skil
 
 ## Design principles (read this every run)
 
-This skill replaces blind structured questionnaires with a **two-step interview**:
+This skill replaces blind structured questionnaires with a **mocks-before-tools interview**:
 
-1. **An open discovery conversation** (Phase 2) where Claude asks free-form, drilling questions and maintains a structured `discoverySheet` internally — this is where requirements actually crystallize.
-2. **Targeted disambiguation** (Phase 3) using `AskUserQuestion` only for decisions the discoverySheet has **not** already resolved.
+1. **An open discovery conversation** (Phase 2) where Claude asks free-form, drilling questions and maintains a structured `discoverySheet` internally — including failure modes, resistance, scale breakpoints, trust, differentiation, and day-2 operations. Discovery is where requirements actually crystallize.
+2. **Structural choices first** (Phase 3) — only architecture and platforms. Specific tools are deferred.
+3. **Visual mocks become the source of truth** (Phase 5) — the logo plus 3–5 mocks per chosen platform are generated and iterated on, then the visible elements (lists, forms, charts, real-time indicators, offline banners) drive every downstream decision.
+4. **Tool selection is informed by mocks** (Phase 6). Frameworks, DB, package manager, email, e2e, Claude Code Action are chosen with the mocks open so we can say "this dashboard needs real-time → choose framework with realtime story" rather than asking blind.
+5. **Data model is reverse-engineered from mocks + discovery** (Phase 7) and drilled deeply — GDPR scope, access permissions, cardinality reality, migration scenarios.
 
 **Cardinal rules — applied every turn:**
 
-- **Never ask a question whose answer is already implied by what the user said.** Before composing any prompt, re-read the discoverySheet and skip questions whose field is already populated.
-- **Drill down at least one level.** If a user answer is vague ("a chat app"), the immediate next question must narrow the space ("ephemeral or stored history? group or 1:1? media or text only?").
+- **Never ask a question whose answer is already implied by what the user said or by an approved mock.** Before composing any prompt, re-read the discoverySheet and visualMocks; skip questions whose field is already populated.
+- **Drill down at least one level — and on hard topics, drill aggressively.** If a user answer is vague ("a chat app"), the immediate next question must narrow the space ("ephemeral or stored history? group or 1:1? media or text only?"). For probes around failure modes / resistance / scale / trust, push for concrete scenarios, not platitudes.
 - **One question per turn.** Batch questions are prohibited.
-- **Discovery before structured choice.** Phase 2 must happen before Phase 3. Do not jump to `AskUserQuestion` until the discoverySheet meets the exit criteria below.
+- **Discovery before structure, structure before mocks, mocks before tools, tools before data.** Phases must run in order. Do not skip ahead.
 - **Bilingual parity.** Every user-facing prompt and explanation has both an `LANG=en` and `LANG=ja` variant. After Phase 0, render only the chosen language.
-- **No marketing / brand strategy / 5-year vision.** Stay system-relevant.
+- **No marketing / brand strategy / 5-year vision.** Stay system-relevant. Differentiation probe is allowed because it surfaces system constraints; "what's your North Star metric?" is not.
 
 ## Who executes this skill
 
@@ -104,11 +107,25 @@ Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitl
 
 ---
 
-## Flow (8 phases)
+## Flow (9 phases)
 
-`language` → `setup` → `discovery` → `disambiguation` → `features` → `data-model` → `visual` → `bootstrap` → `tasks` → `completed`
+`language` → `setup` → `discovery` → `structure` → `features` → `visual` → `tools` → `data-model` → `bootstrap` → `tasks` → `completed`
 
-`data-model` is skipped when the disambiguation phase determines no DB. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
+`data-model` is skipped when the tools phase determines no DB AND `ARCHITECTURE=p2p-pure`. bootstrap.sh writes the state automatically (`current_phase: "bootstrap-completed"`).
+
+### Phase numbering (canonical)
+
+| # | Name | Purpose |
+|---|------|---------|
+| 0 | Language | en / ja |
+| 1 | Setup | Orthogonal setup flags |
+| 2 | Discovery | Open conversation + deep drill (failure / resistance / scale / trust / differentiation / day-2) |
+| 3 | Structure | Architecture + platform multi-select only |
+| 4 | Features | v1 feature list + deep per-feature drill |
+| 5 | Visual | Logo + 3–5 mocks per platform; mocks become source of truth |
+| 6 | Tools | Framework / backend / DB / package manager / email / e2e / Claude Code Action — informed by mocks |
+| 7 | Data model | Per-entity drill (lifecycle / GDPR / permissions / cardinality / migration) |
+| 8 | Bootstrap | Spec finalize + bootstrap.sh + issues / tasks |
 
 ### Managing init-state.json (for pause/resume)
 
@@ -120,16 +137,40 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$ROOT/.my-harness"
 cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
-  "schema_version": "2",
+  "schema_version": "3",
   "project_name": "<PROJECT_NAME>",
   "lang": "en",
   "root": "$ROOT",
   "current_phase": "<next phase>",
-  "phases_completed": ["language", "setup", "discovery"],
+  "phases_completed": ["language", "setup", "discovery", "structure"],
   "next_action": "interview",
   "next_action_command": "Continue /my-harness-init (Phase: <next>)",
   "working_directory": "$ROOT",
-  "discoverySheet": { /* Phase 2 schema, populated as it grows */ },
+  "discoverySheet": {
+    "projectName": "...",
+    "oneLineDescription": "...",
+    "primaryUser": "...",
+    "secondaryUsers": ["..."],
+    "topUserActions": ["...", "...", "..."],
+    "scaleExpectation": { "users": "1-100|100-10k|10k-1M|1M+", "dataSize": "MB|GB|TB", "concurrency": "low|medium|high" },
+    "latencyTolerance": "ms|seconds|minutes",
+    "offlineSupport": "none|cache-only|full-offline",
+    "syncModel": "none|optimistic|eventual|strong",
+    "privacy": { "pii": "none|minimal|sensitive|regulated", "compliance": ["gdpr", "hipaa", "soc2", "pci", "none"] },
+    "architectureHints": "client-server|client-serverless|p2p-pure|p2p-hybrid|undecided",
+    "persistenceHints": "relational|document|kv|file|hybrid|undecided",
+    "uiSurfaceHints": ["web", "ios", "android", "desktop"],
+    "failureModes": ["..."],
+    "resistance": ["..."],
+    "scaleBreakpoints": ["..."],
+    "trustModel": "...",
+    "differentiation": ["..."],
+    "day2Operations": "...",
+    "openQuestions": ["..."]
+  },
+  "visualMocks": [
+    { "platform": "web", "screen": "Dashboard", "path": "dev/docs/design/mock-dashboard-1.png", "caption": "...", "decisionsRevealed": ["needs realtime", "needs filtering"] }
+  ],
   "timestamp": "$TIMESTAMP"
 }
 EOF
@@ -138,10 +179,10 @@ EOF
 ### Pause/resume
 
 When the user says "pause", "stop", or similar:
-- Update `init-state.json` and `discoverySheet` to the latest state, tell the user where it was saved and the resume command, then stop.
+- Update `init-state.json`, `discoverySheet`, and `visualMocks` to the latest state, tell the user where it was saved and the resume command, then stop.
 
 When the user comes back:
-- Read `<root>/.my-harness/init-state.json` and check `current_phase`. Resume from the first question of that phase. Existing `docs/spec/` and `docs/talk/` are carried forward.
+- Read `<root>/.my-harness/init-state.json` and check `current_phase`. Resume from the first question of that phase. Existing `docs/spec/`, `docs/design/`, and `docs/talk/` are carried forward.
 
 ### At startup: auto-detect init-state.json
 
@@ -173,8 +214,8 @@ Persist `LANG=en|ja`. From here every prompt renders **only** in the chosen lang
 
 **Acknowledgment:**
 
-- `LANG=en`: "Got it — I'll continue in English. Let's pin down a few setup details, then we'll have a real conversation about what you're building."
-- `LANG=ja`: "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りします。"
+- `LANG=en`: "Got it — I'll continue in English. Let's pin down a few setup details, then we'll have a real conversation about what you're building, then we'll generate visual mocks before locking down any tooling."
+- `LANG=ja`: "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りし、その後でビジュアルモックを作ってから具体的なツール選定に入ります。"
 
 Save to `.my-harness/.config` (first entry):
 ```
@@ -206,12 +247,12 @@ Ask the following one at a time. **Do not ask the project name here** — let it
 **LANG=en:**
 > "Use Codex for AI-assisted design and code review? (y/n, default: n)"
 >
-> **What this controls:** Codex (OpenAI CLI) supplies second opinions, generates logos and UI mocks via `gpt-image-2`. Completely optional — `n` works end-to-end with Claude alone. Re-enable later via `.my-harness/.config`.
+> **What this controls:** Codex (OpenAI CLI) supplies second opinions, generates logos and UI mocks via `gpt-image-2`. Completely optional — `n` works end-to-end with Claude alone, but the visual phase will fall back to a text-only brand brief. Re-enable later via `.my-harness/.config`.
 
 **LANG=ja:**
 > "Codex（OpenAI CLI）を使ったAI支援デザイン・コードレビューを有効にしますか？ (y/n、デフォルト: n)"
 >
-> **これが影響する箇所:** Codex はセカンドオピニオン生成と `gpt-image-2` でのロゴ・UIモック生成を行います。完全任意で、`n` でも全機能が Claude 単体で動作します。後から `.my-harness/.config` で `USE_CODEX=yes` に変更可能。
+> **これが影響する箇所:** Codex はセカンドオピニオン生成と `gpt-image-2` でのロゴ・UIモック生成を行います。完全任意で、`n` でも全機能が Claude 単体で動作しますが、ビジュアルフェーズはテキストのみのブランドブリーフに置き換わります。後から `.my-harness/.config` で `USE_CODEX=yes` に変更可能。
 
 #### If USE_CODEX=yes — sub-toggles
 
@@ -271,9 +312,9 @@ After these are answered, update `init-state.json` with `current_phase: "discove
 
 ---
 
-## Phase 2 — Open discovery conversation (the centerpiece)
+## Phase 2 — Open discovery conversation (the centerpiece, deeper drill)
 
-This is the longest and most important phase. **Plan for 10–30 turns** — do not bail early.
+This is the longest and most important phase. **Plan for 15–40 turns** — do not bail early. The new probes (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) typically add 5–10 turns over the older flow.
 
 Phase 2 starts with one open question and continues as a free-form, multi-turn conversation until the **exit criteria** below are met. There are no scripted questions here — Claude reads each answer, updates the internal `discoverySheet`, and composes the next question dynamically based on what is still missing or still vague.
 
@@ -304,6 +345,12 @@ Persist as `discoverySheet` inside `<root>/.my-harness/init-state.json`. Update 
     "architectureHints": "client-server|client-serverless|p2p-pure|p2p-hybrid|undecided",
     "persistenceHints": "relational|document|kv|file|hybrid|undecided",
     "uiSurfaceHints": ["web", "ios", "android", "desktop"],
+    "failureModes": ["..."],
+    "resistance": ["..."],
+    "scaleBreakpoints": ["..."],
+    "trustModel": "...",
+    "differentiation": ["..."],
+    "day2Operations": "...",
     "openQuestions": ["..."]
   }
 }
@@ -311,11 +358,11 @@ Persist as `discoverySheet` inside `<root>/.my-harness/init-state.json`. Update 
 
 Initialize all fields to empty / `undecided` at Phase 2 start.
 
-### Exit criteria
+### Exit criteria (stricter than before)
 
-End Phase 2 when **(a) OR (b)**:
+End Phase 2 when **(a) AND (b)**:
 
-(a) The user explicitly says they're done ("that's all", "that's enough", "もう十分", "以上で").
+(a) The user explicitly says they're done ("that's all", "that's enough", "もう十分", "以上で") **or** Claude has cycled through all probe categories at least once with non-vague answers.
 
 (b) The discoverySheet has at minimum **all of**:
 - `oneLineDescription`
@@ -328,6 +375,14 @@ End Phase 2 when **(a) OR (b)**:
 - `privacy.pii` and `privacy.compliance`
 - `architectureHints`
 - `persistenceHints`
+- `failureModes` (≥ 2 concrete scenarios — not "anything could fail")
+- `resistance` (≥ 1 concrete actor — "skeptical co-founder", "user's IT department", "spouse who pays the bill")
+- `scaleBreakpoints` (≥ 1 concrete inflection point — "above 10k users the inbox sort breaks")
+- `trustModel` (≥ 1 sentence describing why a user would entrust their data)
+- `differentiation` (≥ 1 concrete competitor or alternative AND why this is different)
+- `day2Operations` (≥ 1 sentence on what running this looks like in 6 months)
+
+**Vague-entry rule:** if any field above contains a one-word filler ("everything", "fine", "nothing"), it does **not** count. Probe again.
 
 If `projectName` is still empty when (b) hits, ask once before exit:
 - **LANG=en:** "Before we move on, what should we call this project? (becomes directory name, package.json `name`, branch namespace)"
@@ -335,8 +390,8 @@ If `projectName` is still empty when (b) hits, ask once before exit:
 
 ### Opening prompt
 
-- **LANG=en:** "Tell me about what you're building. Don't worry about format — start anywhere that feels natural. I'll ask follow-up questions and we'll narrow it down together."
-- **LANG=ja:** "作りたいものについて自由に話してください。形式は気にせず、自然に始まる場所から。フォローアップの質問をしながら一緒に絞り込んでいきましょう。"
+- **LANG=en:** "Tell me about what you're building. Don't worry about format — start anywhere that feels natural. I'll ask follow-up questions and we'll narrow it down together. Heads up: I'll push you on failure modes, who'd push back on this, and what running it in 6 months looks like — those usually reveal the load-bearing constraints."
+- **LANG=ja:** "作りたいものについて自由に話してください。形式は気にせず、自然に始まる場所から。フォローアップの質問をしながら一緒に絞り込んでいきます。先に伝えておくと、失敗パターン・反対しそうな人・半年後の運用といった重要な制約を引き出すために、結構しつこく深掘りします。"
 
 ### How Claude asks open questions and drills down
 
@@ -345,9 +400,10 @@ After every user reply, run this internal checklist **before composing the next 
 1. **Mask** the reply (apply secret-masking rules) and append to `dev/docs/talk/02-discovery.md`.
 2. **Update the discoverySheet.** For every field the reply just touched, fill it in or refine it. Persist.
 3. **Drill check:** "Have I drilled at least one level deep on this?" If the answer is vague (one sentence, no specifics), the next question MUST narrow.
-4. **Coverage check:** "Which discoverySheet fields are still empty or vague?" The next question targets the most consequential one — typically the one that unlocks subsequent decisions (e.g., scale before persistence; offline before sync model; privacy before backend choice).
-5. **No-redundancy check:** "Have I already asked something close to this?" Skip if yes.
-6. **One thing at a time:** ask exactly one question.
+4. **Probe-coverage check:** "Which of the six new probes (failure / resistance / scale / trust / differentiation / day-2) have I touched, and which still hold a vague or empty value?" Prioritize whichever is empty.
+5. **Coverage check:** "Which discoverySheet fields are still empty or vague?" The next question targets the most consequential one — typically the one that unlocks subsequent decisions (e.g., scale before persistence; offline before sync model; privacy before backend choice; failure modes before architecture).
+6. **No-redundancy check:** "Have I already asked something close to this?" Skip if yes.
+7. **One thing at a time:** ask exactly one question.
 
 ### Drill-down examples
 
@@ -367,7 +423,7 @@ The point is not to accept first answers as final. Examples:
   - Good (en): "So full offline write/read, then sync when online? Or read-only cache while offline?"
   - Good (ja): "オフラインでも書き込み・読み込みOK、繋がった時に同期？それともオフライン時は閲覧のみキャッシュ？"
 
-### Open-question stems Claude can adapt
+### Open-question stems Claude can adapt (existing)
 
 - **What does the user actually do with this?** ("walk me through a typical session, step by step")
 - **Who's the primary user?** ("If only one type of person uses this, who?")
@@ -380,33 +436,65 @@ The point is not to accept first answers as final. Examples:
 - **Is there anything regulated about the data?** (HIPAA, GDPR, PCI, SOC2)
 - **Is there a reason this can't run on a normal client + server?** (this surfaces P2P intuitions naturally)
 
+### NEW probe stems — drill aggressively (use at least one from each category)
+
+#### Failure modes (`failureModes`)
+- **LANG=en:** "What's the worst-case scenario for a user — not the system crashing, but the bad outcome the user actually feels? (e.g. 'they show up to the wrong meeting', 'their photo is shared with the wrong group', 'their job application disappears')"
+- **LANG=ja:** "ユーザーにとって最悪のシナリオは何ですか？システムが落ちるという話ではなく、ユーザー本人が痛みを感じる結果のこと。（例: 「違う会議に出てしまう」「写真が違うグループに共有される」「応募データが消える」）"
+- Follow-ups: "How would they recover?" "Whose problem is it then — yours, theirs, or a third party's?"
+
+#### Resistance (`resistance`)
+- **LANG=en:** "Who in the user's life or organization would push back on them using this? (a skeptical co-founder, IT department, partner, regulator, an existing tool's vendor)"
+- **LANG=ja:** "このプロダクトを使うことに、ユーザーの周りで反対しそうな人は誰ですか？（懐疑的な共同創業者、情シス、パートナー、規制当局、既存ツールのベンダー）"
+- Follow-ups: "What's their concrete objection?" "How do you neutralize it — feature, policy, contract, screenshot?"
+
+#### Scale breakpoints (`scaleBreakpoints`)
+- **LANG=en:** "At what point does the simple version stop working? Concrete numbers, not 'a lot'. (e.g. 'above 50 simultaneous editors the merge logic falls over', 'past 10k rows the dashboard takes 5+ seconds', 'after 6 months the inbox is unsearchable without full-text')"
+- **LANG=ja:** "シンプル版が壊れ始めるのは具体的にどの規模ですか？「沢山」じゃなく数字で。（例: 「同時編集が 50 を超えるとマージが崩れる」「1 万行を超えるとダッシュボードが 5 秒超」「半年経つと全文検索なしでは inbox が探せない」）"
+- Follow-ups: "Is that breakpoint v1 territory, or do we explicitly punt past it?"
+
+#### Trust (`trustModel`)
+- **LANG=en:** "Why would a user trust this with their data? What's the concrete chain — encryption, audit, hosting choice, social proof, an org behind it, the user's own machine?"
+- **LANG=ja:** "ユーザーはなぜ自分のデータをこれに預けると思いますか？暗号化・監査・ホスティング・社会的証明・運営組織・ユーザー自身のマシン上で動く、など、具体的な根拠の連鎖は？"
+- Follow-ups: "Who could read this data if our DB leaked tomorrow?" "Is the answer different for the primary vs the secondary user?"
+
+#### Differentiation (`differentiation`)
+- **LANG=en:** "Name the closest thing that already exists. Why does someone pick this over that one? (Be concrete: 'Notion but offline-first', 'Linear but for legal review', 'Spreadsheet but with audit trails')"
+- **LANG=ja:** "一番近い既存サービスを 1 つ挙げてください。なぜユーザーはそれではなくこちらを選ぶ？具体的に。（「Notion だがオフライン優先」「Linear だが法務レビュー特化」「スプレッドシートだが監査ログ付き」）"
+- Follow-ups: "If their alternative dropped its main weakness next month, would this still have a reason to exist?"
+
+#### Day-2 operations (`day2Operations`)
+- **LANG=en:** "Six months in, what does running this look like for whoever operates it? Backups? Bug-report inbox? On-call? Per-user support load? Something needs upgrading every 3 months?"
+- **LANG=ja:** "リリースして半年後、運用する人にとっての日常はどうなっていますか？バックアップ・バグ報告対応・障害対応・1 ユーザーあたりのサポート負荷・3 ヶ月ごとの定期更新、など。"
+- Follow-ups: "Is operations one person, a team, or fully automated?"
+
 ### Mid-conversation pulse-checks
 
 Every ~5 turns, summarize the discoverySheet back to the user in one or two sentences and ask "Is that right? Anything to adjust?". Update the sheet from the correction.
 
 ### Exit ritual
 
-When exit criteria met, **show the discoverySheet to the user as a formatted summary** (not raw JSON — use a numbered list grouped by topic) and ask:
+When exit criteria met, **show the discoverySheet to the user as a formatted summary** (not raw JSON — use a numbered list grouped by topic, with the six new probes called out as their own block) and ask:
 
-- **LANG=en:** "Here's what I have. Anything to correct or add before we move to the structured choices?"
-- **LANG=ja:** "ここまでの整理です。次の構造化された質問に進む前に、修正・追加はありますか？"
+- **LANG=en:** "Here's what I have. Anything to correct or add before we move to the structural choices? Pay extra attention to the failure / resistance / scale / trust / differentiation / day-2 block — those drive everything downstream."
+- **LANG=ja:** "ここまでの整理です。次の構造化された質問に進む前に、修正・追加はありますか？特に「失敗パターン・反対者・スケール限界・信頼根拠・差別化・運用」のブロックは下流すべてに効くので注意して見てください。"
 
-If the user corrects, update sheet and repeat ritual. Once confirmed, persist final discoverySheet, write `dev/docs/spec/02-discovery.md` (the formatted summary), update `init-state.json` to `current_phase: "disambiguation"`, and proceed to Phase 3.
+If the user corrects, update sheet and repeat ritual. Once confirmed, persist final discoverySheet, write `dev/docs/spec/02-discovery.md` (the formatted summary), update `init-state.json` to `current_phase: "structure"`, and proceed to Phase 3.
 
 If USE_CODEX=yes, run a Codex consult at the end:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase2.md \
-  "DiscoverySheet: <paste JSON>. Point out logical contradictions, ambiguities, or missing items."
+  "DiscoverySheet: <paste JSON>. Point out logical contradictions, ambiguities, missing items, and which of the failure/resistance/scale/trust/differentiation/day-2 entries look hand-wavey."
 ```
 
 ---
 
-## Phase 3 — Disambiguation via `AskUserQuestion`
+## Phase 3 — Structural decisions (architecture + platforms only)
 
-For each decision below, **first re-read the discoverySheet**. Only fire `AskUserQuestion` when the sheet has **not** already locked the answer.
+Only **two** decisions are made here. Every concrete tool choice (framework, DB, package manager, email, e2e, Claude Code Action) is deferred to Phase 6, after we've seen the mocks. Re-read the discoverySheet first; skip a question whose answer is already locked.
 
-When the sheet already implies a decision, say it explicitly and skip:
+When the discoverySheet already implies a decision, say it explicitly and skip:
 - **LANG=en:** "From our conversation I already know `<decision> = <value>` (because you said `<reason>`). Skipping that question."
 - **LANG=ja:** "先ほどの会話から `<決定> = <値>` は確定していると判断しました（`<理由>` のため）。この質問はスキップします。"
 
@@ -429,7 +517,266 @@ Single-select. Use `preview` to show one-line ASCII diagrams.
 
 Persist `ARCHITECTURE=client-server|client-serverless|p2p-pure|p2p-hybrid`.
 
-### Decision 2 — Package manager (always)
+### Decision 2 — Platforms (always, multiSelect)
+
+`multiSelect: true`. Choices: `web`, `desktop`, `mobile`. At least one required (re-ask if empty).
+
+**LANG=en:** "Which platforms? (one or more)"
+**LANG=ja:** "対応プラットフォームは？（複数選択可）"
+
+Persist `USE_WEB`, `USE_DESKTOP`, `USE_MOBILE` (intermediate; the per-mobile-OS sub-choice and per-OS sub-choice come below).
+
+#### Decision 2a — Mobile platform split (only when `mobile` selected)
+
+`multiSelect`: `iOS`, `Android`. At least one. Persist `USE_IOS`, `USE_ANDROID`.
+
+#### Decision 2b — Desktop OS multi-select (only when `desktop` selected)
+
+`multiSelect`: `macOS`, `Windows`, `Linux` (default all). Persist `DESKTOP_OS`.
+
+### After Phase 3
+
+Update `init-state.json` to `current_phase: "features"`, `phases_completed: ["language", "setup", "discovery", "structure"]`. Save Phase 1 + 3 partial decisions to `dev/docs/spec/03-structure.md`. Move to Phase 4. (Concrete tool choices wait for Phase 6.)
+
+If USE_CODEX=yes, run an architect consult:
+```bash
+~/my-harness-generator/scripts/codex-ask.sh --role architect \
+  --out <root>/.my-harness/codex-phase3.md \
+  "DiscoverySheet + structural decisions (architecture, platforms). Point out structural validity, tradeoffs, and any contradictions with the discoverySheet's failure/scale/trust block."
+```
+
+---
+
+## Phase 4 — v1 Features (deeper drill)
+
+**Question (one per turn):**
+
+- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue until you have nothing more to add."
+- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
+
+Stop only when the user explicitly says "that's all" / "以上で" / equivalent. Then re-read the list and run the deep drill below per feature.
+
+### Per-feature drill (deeper — 8 probes per feature, one question per turn)
+
+For **each** feature listed, drill **at least 8 follow-ups**, one per turn:
+
+1. **Access path:** "How does the user reach this feature? (route, button, gesture)"
+   - **LANG=ja:** "どこからこの機能にたどり着きますか？（URL・ボタン・ジェスチャー）"
+2. **Failure modes:** "What goes wrong, and what does the user see when it does?"
+   - **LANG=ja:** "失敗するパターンは？そのときユーザーには何が見えますか？"
+3. **Observability:** "Do we need analytics or alerting on this feature? If yes, which event/metric?"
+   - **LANG=ja:** "分析やアラートは必要ですか？必要なら、どのイベント・指標？"
+4. **Onboarding hand-off:** "How does a brand-new user discover this feature for the first time? Tooltip, empty-state CTA, onboarding tour, or just by looking at the screen?"
+   - **LANG=ja:** "初めてのユーザーは、この機能の存在をどう知りますか？ツールチップ・空状態のCTA・オンボーディングツアー・画面を見れば自明、のどれですか？"
+5. **Power-user shortcut:** "What does a 100th-time user want? Keyboard shortcut, bulk action, saved filter, API access?"
+   - **LANG=ja:** "100 回目のユーザーが欲しがるのは何ですか？キーボードショートカット・一括操作・保存フィルター・API、など？"
+6. **Empty state:** "What does this feature show when there's no data yet? (a brand-new user, an emptied-out view)"
+   - **LANG=ja:** "データがまだ無いとき、この機能は何を表示しますか？（新規ユーザー・データを全部消した状態）"
+7. **Failure recovery:** "If this feature errors mid-flow (network drop, validation fail, server 500), what does the user see and what do they do next?"
+   - **LANG=ja:** "この機能の途中でエラーが出たとき（通信断・検証失敗・サーバ 500）、ユーザーには何が見え、次に何をしますか？"
+8. **Latency budget:** "What's the max wait time before a user gives up on this feature? Concrete number — 200ms? 1s? 5s? Are we OK with a spinner or do we need optimistic UI?"
+   - **LANG=ja:** "この機能で『遅い』と感じるユーザーが諦めるまでの最大待機時間は具体的に何秒ですか？200ms? 1秒? 5秒? スピナーで OK か、楽観的 UI が要るか？"
+
+### Re-read sweep
+
+After the user says they're done, **re-read the v1 list** and verify every feature has all 8 drill answers. For any feature missing onboarding / power / empty / fail / latency entries, ask once more for that specific feature's gap. Only then exit Phase 4.
+
+Save to: `dev/docs/spec/04-features.md` / `dev/docs/talk/04-features.md` (one section per feature with the 8 drill answers).
+
+Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what v1 means.
+
+If USE_CODEX=yes:
+```bash
+~/my-harness-generator/scripts/codex-ask.sh --role analyst \
+  --out <root>/.my-harness/codex-phase4.md \
+  "v1 feature list with access paths, failure modes, observability, onboarding, power-user, empty state, failure recovery, latency budgets: <paste>. Point out gaps, especially any feature whose latency budget contradicts the architecture choice."
+```
+
+Update `init-state.json` to `current_phase: "visual"`.
+
+---
+
+## Phase 5 — Visual (logo + per-platform UI mocks; mocks are source of truth)
+
+The mocks generated here become the **source of truth** for Phase 6 (tool selection) and Phase 7 (data model). Their visible elements (lists, forms, toggles, tabs, charts, real-time indicators, offline banners) are the inputs for tool decisions.
+
+**Absolute image format rules:**
+- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is allowed.
+- Resolution: logos ≥ 1024×1024; UI mocks at the resolution specified below.
+- After generation, **always auto-open** so the user can review:
+  - macOS: `open <path>`
+  - Linux: `xdg-open <path>`
+  - Windows: `start "" <path>`
+  - Detect OS with `uname`.
+
+**Prompting strategy:** trust Codex's designer capability — give a high-level request and let it decide. Pass spec files via `--context dev/docs/spec/*.md` and keep the request brief.
+
+**Never write:**
+- Code-style instructions (coordinates, pixel values, CSS, Tailwind classes, SVG paths, HTML tags)
+- Over-specification of visual details
+
+**Do write:**
+- What to create and how many concepts
+- Format (PNG), save path, resolution
+- Assume Codex will read the context
+
+**Fixed questions** (one per turn — use the variant matching `LANG`):
+
+1. **LANG=en:** "Any color hint for the design? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
+   **LANG=ja:** "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
+
+2. **For each chosen platform**, ask separately:
+   **LANG=en:** "List the 3–5 most-traveled screens for the `<platform>` build." (e.g. for web: Login / Home / Detail / Settings / Search)
+   **LANG=ja:** "`<プラットフォーム>` 版で最も使われる画面を 3〜5 個リストアップしてください。"
+
+   Repeat per chosen platform — so a project that picked `web + ios` will yield 3–5 web mocks AND 3–5 iOS mocks.
+
+### Logo generation (when USE_CODEX=yes)
+
+```bash
+${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
+  --role designer \
+  --context <root>/dev/docs/spec/*.md \
+  --out <root>/.my-harness/codex-logo.md \
+  "\$imagegen Please generate 3 logo concepts for $PROJECT_NAME.
+
+**You must use the image_gen tool (gpt-image-2) to generate PNG files directly**. Writing HTML/CSS and taking a screenshot, writing SVG, or going through code are all prohibited.
+
+Read the spec files and design something that fits the project — your judgment. <If a color hint was given: Primary color: <hint>>
+
+Specs:
+- Format: PNG (transparent background)
+- Resolution: 1024x1024 or larger
+- Call image_gen separately for each concept (3 calls total)
+
+Save to:
+- <root>/dev/docs/design/logo-1.png
+- <root>/dev/docs/design/logo-2.png
+- <root>/dev/docs/design/logo-3.png"
+```
+
+After generation, immediately open all 3 (macOS):
+```bash
+open <root>/dev/docs/design/logo-1.png \
+     <root>/dev/docs/design/logo-2.png \
+     <root>/dev/docs/design/logo-3.png
+```
+
+**File format verification:**
+```bash
+file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
+```
+If anything other than PNG appears, ask Codex to regenerate.
+
+User selects one → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not symlink).
+
+### Interactive refinement (logo)
+
+When user says "**make concept 1 bluer**", **resume the same session and call codex-ask.sh again**:
+
+```bash
+${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
+  --role designer \
+  --out <root>/.my-harness/codex-logo-r1.md \
+  "Make concept 1 a bit more blue and simpler. Regenerate and overwrite the same path."
+```
+
+Key points:
+- **Never add `--reset-session`** (destroys context)
+- **Never re-attach `--context`** with the spec (it's already in session)
+- Repeat N times to iteratively refine. Once approved, copy to `logo-final.png`.
+
+### UI mock generation (per screen, per platform — one screen per turn)
+
+For each screen in each platform's list, call once. **Generate ONE screen per turn** so the user can iterate before the next is rendered.
+
+```bash
+${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
+  --role designer \
+  --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
+  --out <root>/.my-harness/codex-mock-<platform>-<screen>.md \
+  "\$imagegen Please generate 2 mock concepts for the <screen name> screen of $PROJECT_NAME on <platform>.
+
+**You must use the image_gen tool (gpt-image-2) to generate PNG files directly.**
+- Writing HTML/CSS and using Playwright/Puppeteer to screenshot is **absolutely prohibited**
+- Writing SVG or rasterizing via \`<canvas>\` is also **prohibited**
+
+Read the spec and the chosen logo, then design using your own judgment. Use Lucide Icons-style icons; no AI-style gradients.
+
+Specs:
+- Format: PNG
+- Resolution: <1280x800 for Web/Desktop; 375x812 for mobile>
+- Call image_gen separately for each concept (2 calls total)
+
+Save to:
+- <root>/dev/docs/design/mock-<platform>-<screen>-1.png
+- <root>/dev/docs/design/mock-<platform>-<screen>-2.png"
+```
+
+Open both, run the same `file` PNG verification, and ask the user to pick one.
+
+### Crucial post-mock drill (NEW — runs after EVERY mock)
+
+After each mock is shown to the user, ask exactly these 3 questions, one per turn:
+
+1. **Missing element:**
+   - **LANG=en:** "Is anything missing from this screen that the user needs to complete their task here?"
+   - **LANG=ja:** "この画面で、ユーザーがやりたいことを完遂するのに足りない要素はありますか？"
+2. **Confusing / low-priority element:**
+   - **LANG=en:** "Is any element on this screen confusing, redundant, or low-priority for v1?"
+   - **LANG=ja:** "この画面の中で、ユーザーが混乱しそう・冗長・v1 ではまだ要らない、と感じる要素はありますか？"
+3. **Hidden constraint:**
+   - **LANG=en:** "Does this mock surface any constraint that wasn't in our discovery sheet — a new entity, new permission, new external integration, a dependency we hadn't named? If so, I'll log it and we'll adjust later phases."
+   - **LANG=ja:** "このモックを見て、これまでの discoverySheet に書いていない新しい制約（新しいエンティティ・権限・外部連携・依存）が浮かびましたか？あれば記録して、以降のフェーズで反映します。"
+
+### Persisting mocks
+
+Append every accepted mock to `init-state.json`'s `visualMocks`:
+
+```json
+{
+  "visualMocks": [
+    {
+      "platform": "web",
+      "screen": "Dashboard",
+      "path": "dev/docs/design/mock-web-dashboard-1.png",
+      "caption": "Realtime metrics with filter chips and an offline banner",
+      "decisionsRevealed": ["needs realtime", "needs offline indicator", "needs at-least-3 chart variants"]
+    }
+  ]
+}
+```
+
+`decisionsRevealed` is the single most important field — it's what Phase 6 reads to make tool choices.
+
+### Iteration
+
+If a mock reveals that requirements have changed (the answer to drill #3 surfaces a new entity, permission, or integration), update the discoverySheet, log the constraint, and either regenerate the affected mock or note it for Phase 6 / 7. **Maximum 3 iteration cycles per screen.**
+
+When USE_CODEX=no, skip image generation and instead, for each screen, **draft a text mock** (markdown bullet list of visible elements) and run the same 3-question post-mock drill. Persist the text mock under `dev/docs/design/text-mock-<platform>-<screen>.md` and reference it from `visualMocks[].path`.
+
+### Completion criteria
+
+- [ ] One logo concept finalized
+- [ ] 3–5 mocks selected per chosen platform (USE_CODEX=yes only; text mocks otherwise)
+- [ ] Every mock has the 3-question post-mock drill answered
+- [ ] OG image / favicon generated
+- [ ] `visualMocks[]` in `init-state.json` populated, `decisionsRevealed` non-empty for every entry
+
+Save to: `dev/docs/spec/05-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`. Update `init-state.json` to `current_phase: "tools"`.
+
+---
+
+## Phase 6 — Tool selection (informed by mocks)
+
+Now we pick concrete tools, **with the mocks open**. Every prompt below MUST reference at least one entry from `visualMocks[].decisionsRevealed`. If a tool is fully implied by discoverySheet AND visualMocks, skip with explicit notice.
+
+For each decision:
+1. Re-read the discoverySheet, structural decisions, and visualMocks.
+2. If the answer is implied, skip with notice (en: "From the dashboard mock you approved, you'll need real-time updates, so I'm choosing X. Skipping the question." / ja: "承認いただいたダッシュボードモックからリアルタイムが必要なので X を選びます。質問はスキップします。")
+3. Otherwise fire `AskUserQuestion`. The question prompt **must include a one-line reference to which mock(s) drove the question.**
+
+### Decision 1 — Package manager (always)
 
 Single-select.
 
@@ -440,21 +787,12 @@ Single-select.
 | `npm` | universal, slowest |
 | `yarn` | classic alternative |
 
-**LANG=en:** "Which Node package manager?"
-**LANG=ja:** "Node のパッケージマネージャーは？"
+**LANG=en:** "From your mocks (count of npm-package-driven UI surfaces visible: <N>), which Node package manager?"
+**LANG=ja:** "モックから見える npm パッケージ依存の UI サーフェス数 <N> を踏まえて、Node のパッケージマネージャーは？"
 
 Persist `PACKAGE_MANAGER=pnpm|bun|npm|yarn`.
 
-### Decision 3 — Platforms (always, multiSelect)
-
-`multiSelect: true`. Choices: `web`, `desktop`, `mobile`. At least one required (re-ask if empty).
-
-**LANG=en:** "Which platforms? (one or more)"
-**LANG=ja:** "対応プラットフォームは？（複数選択可）"
-
-Persist `USE_WEB`, `USE_DESKTOP`, `USE_MOBILE` (intermediate; the per-mobile-OS flags come below).
-
-### Decision 4 — Web framework (only when `web` selected)
+### Decision 2 — Web framework (only when `web` selected)
 
 Single-select with `preview`.
 
@@ -464,13 +802,12 @@ Single-select with `preview`.
 | `TanStack Start` | `routes/`, file-based, fully typed, type-safe loaders |
 | `SvelteKit` | `src/routes/`, server hooks, light footprint |
 
+**LANG=en (template):** "Your web mocks show <X> (e.g. 'real-time activity feed', 'heavy form-driven settings page', 'SEO-driven public landing'). Which web framework?"
+**LANG=ja (template):** "Web モックには <X>（例: 「リアルタイム活動フィード」「重いフォーム中心の設定画面」「SEO 重視の公開 LP」）が見えます。Web フレームワークは？"
+
 Persist `WEB_KIND=nextjs|tanstack|sveltekit`.
 
-### Decision 5 — Mobile platform split (only when `mobile` selected)
-
-`multiSelect`: `iOS`, `Android`. At least one.
-
-#### Decision 5a — iOS framework (only when iOS chosen)
+### Decision 3 — iOS framework (only when iOS chosen)
 
 | Choice | Note |
 |--------|------|
@@ -478,9 +815,12 @@ Persist `WEB_KIND=nextjs|tanstack|sveltekit`.
 | `Expo (React Native)` | cross-platform with Android, JS/TS shared |
 | `Flutter` | Dart, cross-platform, custom rendering |
 
+**LANG=en (template):** "Your iOS mocks show <X> (e.g. 'native sheet/segmented control', 'shared component vocabulary with web', 'heavy custom canvas'). iOS framework?"
+**LANG=ja (template):** "iOS モックには <X>（例: 「ネイティブの sheet / segmented control」「Web と共通のコンポーネント語彙」「重いカスタム canvas」）が見えます。iOS フレームワークは？"
+
 Persist `IOS_KIND=swift|expo|flutter`.
 
-#### Decision 5b — Android framework (only when Android chosen)
+### Decision 4 — Android framework (only when Android chosen)
 
 | Choice | Note |
 |--------|------|
@@ -488,11 +828,14 @@ Persist `IOS_KIND=swift|expo|flutter`.
 | `Expo (React Native)` | cross-platform with iOS |
 | `Flutter` | Dart, cross-platform |
 
+**LANG=en (template):** "Your Android mocks show <X>. Android framework?"
+**LANG=ja (template):** "Android モックには <X> が見えます。Android フレームワークは？"
+
 Persist `ANDROID_KIND=kotlin|expo|flutter`.
 
 If both iOS and Android are chosen and select the same cross-platform framework (Expo or Flutter), tell the user they share one codebase. If they pick different cross-platform frameworks, warn and suggest aligning.
 
-### Decision 6 — Desktop framework + OS (only when `desktop` selected)
+### Decision 5 — Desktop framework (only when `desktop` selected)
 
 Framework single-select with `preview`:
 
@@ -501,11 +844,12 @@ Framework single-select with `preview`:
 | `Tauri (Recommended — small footprint, Rust shell)` | `src-tauri/`, `~10MB binaries` |
 | `Electron` | full Node.js, ~120MB binaries, mature ecosystem |
 
+**LANG=en (template):** "Your desktop mocks show <X> (e.g. 'tray-resident with notifications', 'OS-integrated file picker', 'multi-window'). Desktop framework?"
+**LANG=ja (template):** "Desktop モックには <X>（例: 「常駐 + 通知」「OS ネイティブのファイルピッカー」「複数ウィンドウ」）が見えます。Desktop フレームワークは？"
+
 Persist `DESKTOP_KIND=tauri|electron`.
 
-OS multiSelect: `macOS`, `Windows`, `Linux` (default all). Persist `DESKTOP_OS`.
-
-### Decision 7 — Backend framework (only when `ARCHITECTURE in {client-server, p2p-hybrid}`)
+### Decision 6 — Backend framework (only when `ARCHITECTURE in {client-server, p2p-hybrid}`)
 
 Skip when `ARCHITECTURE in {client-serverless, p2p-pure}`.
 
@@ -515,11 +859,14 @@ Skip when `ARCHITECTURE in {client-serverless, p2p-pure}`.
 | `Go (Gin)` | mature, fast, large standard library |
 | `Rust (Axum)` | typed, performant, steep ramp |
 
+**LANG=en (template):** "Your mocks reveal <X> (e.g. 'streaming responses', 'CPU-bound image processing', 'low-latency edge requirements'). Backend framework?"
+**LANG=ja (template):** "モックから読み取れる <X>（例: 「ストリーミング応答」「CPU バウンドな画像処理」「エッジ低レイテンシ」）を踏まえて、バックエンドフレームワークは？"
+
 Persist `BACKEND_KIND=hono|gin|rust`.
 
 For `p2p-hybrid`, the backend is a lightweight coordinator/bootstrap server (signaling, peer discovery, optional auth). Tell the user this in the question copy.
 
-### Decision 8 — Database (skip when `persistenceHints == "file"` or `ARCHITECTURE == "p2p-pure"`)
+### Decision 7 — Database (skip when `persistenceHints == "file"` or `ARCHITECTURE == "p2p-pure"`)
 
 | Choice | Note |
 |--------|------|
@@ -528,15 +875,18 @@ For `p2p-hybrid`, the backend is a lightweight coordinator/bootstrap server (sig
 | `MySQL` | full SQL alternative |
 | `SQLite (local)` | embedded, single-file |
 
-Recommendation flips based on `BACKEND_KIND`:
-- `hono` → D1
-- `gin` / `rust` → PostgreSQL
+Recommendation flips based on `BACKEND_KIND` and what the mocks reveal:
+- `hono` + mocks show edge / global users → D1
+- `gin` / `rust` + mocks show heavy joins / analytics → PostgreSQL
 - `p2p-hybrid` with light backend → D1 or SQLite
-- No backend → SQLite or file
+- No backend / mocks show offline-first → SQLite (local)
+
+**LANG=en (template):** "Your mocks show <X> entities and <Y> relationships (e.g. 'a comments tree on the post detail screen', 'a per-user notification stream'). Database?"
+**LANG=ja (template):** "モックから見えるエンティティ <X> 個・関係 <Y> 個（例: 「投稿詳細にコメントツリー」「ユーザー別の通知ストリーム」）を踏まえて、データベースは？"
 
 Persist `DB_KIND=d1|postgres|mysql|sqlite|none` (none when skipped).
 
-### Decision 9 — Email (always, single-select)
+### Decision 8 — Email (always, single-select)
 
 | Choice | Note |
 |--------|------|
@@ -544,9 +894,12 @@ Persist `DB_KIND=d1|postgres|mysql|sqlite|none` (none when skipped).
 | `SendGrid` | enterprise standard |
 | `none` | no transactional email |
 
+**LANG=en (template):** "Your mocks show <X email touchpoints> (e.g. 'password reset', 'invite flow', 'digest email'). Email provider?"
+**LANG=ja (template):** "モックから見えるメール接点 <X>（例: 「パスワードリセット」「招待フロー」「ダイジェストメール」）を踏まえて、メールプロバイダーは？"
+
 Persist `USE_EMAIL=yes|no` and `EMAIL_KIND=resend|sendgrid|none`.
 
-### Decision 10 — Authentication (always, single-select; skip if discoverySheet implies)
+### Decision 9 — Authentication (always, single-select; skip if discoverySheet implies)
 
 | Choice | Note |
 |--------|------|
@@ -554,9 +907,12 @@ Persist `USE_EMAIL=yes|no` and `EMAIL_KIND=resend|sendgrid|none`.
 | `Password (email + password)` | full control, more compliance burden |
 | `none` | no auth |
 
+**LANG=en (template):** "Your login/signup mocks show <X>. Auth method?"
+**LANG=ja (template):** "ログイン / サインアップモックには <X> が見えます。認証方式は？"
+
 Persist `AUTH_KIND=none|password|oauth`.
 
-### Decision 11 — E2E testing (always, multiSelect)
+### Decision 10 — E2E testing (always, multiSelect)
 
 `multiSelect` choices:
 
@@ -566,7 +922,10 @@ Persist `AUTH_KIND=none|password|oauth`.
 
 Filter to the user's chosen platforms (don't offer Playwright if no web/desktop, don't offer Maestro if no mobile). Persist `E2E_SCOPE=web|mobile|both|none`, derived `USE_PLAYWRIGHT` / `USE_MAESTRO`.
 
-### Decision 12 — Claude Code Action (always)
+**LANG=en (template):** "Mocks span <platforms>. Pick E2E tools to cover them."
+**LANG=ja (template):** "モックは <platforms> にまたがります。E2E ツールを選んでください。"
+
+### Decision 11 — Claude Code Action (always)
 
 Single-select y/n via AskUserQuestion if not implied.
 
@@ -580,7 +939,7 @@ Persist `USE_CLAUDE_ACTION=yes|no`. If yes, follow up with auth method:
 
 Persist `CLAUDE_AUTH=api|oauth`.
 
-### After Phase 3
+### After Phase 6
 
 Save the consolidated config to `<root>/.my-harness/.config`:
 
@@ -626,7 +985,7 @@ ARCHITECTURE=<client-server|client-serverless|p2p-pure|p2p-hybrid>
 EOF
 ```
 
-The two new keys `PACKAGE_MANAGER` and `ARCHITECTURE` go at the **end** of the file so older readers stay compatible.
+The two keys `PACKAGE_MANAGER` and `ARCHITECTURE` go at the **end** of the file so older readers stay compatible.
 
 When USE_CODEX=yes, register the active session pointer:
 ```bash
@@ -638,227 +997,96 @@ When USE_CODEX=yes, register the active session pointer:
 PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | sed 's/[^a-z0-9-]//g')
 ```
 
-Save phase 1+3 results to `dev/docs/spec/03-decisions.md` and `dev/docs/talk/03-decisions.md`. Update `init-state.json` to `current_phase: "features"`.
+Save phase 1+3+6 results to `dev/docs/spec/06-tools.md` and `dev/docs/talk/06-tools.md`. Update `init-state.json` to `current_phase: "data-model"`.
 
 If USE_CODEX=yes, run an architect consult:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
-  --out <root>/.my-harness/codex-phase3.md \
-  "DiscoverySheet + decisions: <paste config>. Point out design validity, tradeoffs, and any contradictions."
+  --out <root>/.my-harness/codex-phase6.md \
+  "DiscoverySheet + structure + features + visualMocks + tool decisions: <paste config + visualMocks JSON>. Point out tool choices that contradict any mock's decisionsRevealed entry."
 ```
 
 ---
 
-## Phase 4 — Features (v1 list)
+## Phase 7 — Data model (deeper drill)
 
-**Question (one per turn):**
+Skip entirely when `DB_KIND=none` AND `persistenceHints=file` AND `ARCHITECTURE=p2p-pure`. Otherwise:
 
-- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue until you have nothing more to add."
-- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
+### 7.0 Reverse-engineer the initial entity sketch
 
-After the user lists features, **drill at least 2 follow-ups per feature**:
+Before asking the user, draft an initial entity list **from**:
+- `discoverySheet.topUserActions` — actions imply nouns (entities)
+- Every `visualMocks[].decisionsRevealed` entry — visible lists, forms, charts each imply entities and fields
 
-1. **Access path:** "How does the user reach this feature? (route, button, gesture)"
-   - **LANG=ja:** "どこからこの機能にたどり着きますか？（URL・ボタン・ジェスチャー）"
-2. **Failure modes:** "What goes wrong, and what does the user see when it does?"
-   - **LANG=ja:** "失敗するパターンは？そのときユーザーには何が見えますか？"
-3. **Observability:** "Do we need analytics or alerting on this feature? If yes, which event/metric?"
-   - **LANG=ja:** "分析やアラートは必要ですか？必要なら、どのイベント・指標？"
+Show the draft to the user:
+- **LANG=en:** "From your mocks and the actions we discussed, I see these entities: <list>. Does that match? Anything missing or wrongly grouped?"
+- **LANG=ja:** "モックと先ほど挙げた主要アクションから、エンティティを次のように推測しました: <一覧>。合っていますか？足りないもの・くくりが間違っているものは？"
 
-Save to: `dev/docs/spec/04-features.md` / `dev/docs/talk/04-features.md`.
+Update from the user's correction.
 
-Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what v1 means.
+### 7.1 Initial questions (one per turn — use the variant matching `LANG`)
 
-If USE_CODEX=yes:
-```bash
-~/my-harness-generator/scripts/codex-ask.sh --role analyst \
-  --out <root>/.my-harness/codex-phase4.md \
-  "v1 feature list with access paths, failure modes, observability requirements: <paste>. Point out gaps."
-```
-
-Update `init-state.json` to `current_phase: "data-model"` (or `"visual"` if `USE_DB=no` AND `ARCHITECTURE=p2p-pure`).
-
----
-
-## Phase 5 — Data model (only when `USE_DB=yes` OR persistence is non-trivial)
-
-Skip entirely when `DB_KIND=none` AND `persistenceHints=file`. Otherwise:
-
-**Questions (one per turn — use the variant matching `LANG`):**
-
-1. **LANG=en:** "List 3–7 entities for your data model." (e.g. User / Task / Comment)
-   **LANG=ja:** "データモデルのエンティティを 3〜7 個リストアップしてください。"
+1. **LANG=en:** "Confirm or adjust the entity list — 3–7 entities for v1."
+   **LANG=ja:** "v1 のエンティティ一覧を確定してください（3〜7 個）。"
 2. **LANG=en:** "Bullet out the main fields for each entity."
    **LANG=ja:** "各エンティティの主なフィールドを箇条書きで教えてください。"
 3. **LANG=en:** "Describe relationships in mermaid ER style." (e.g. User 1—N Task)
    **LANG=ja:** "エンティティ間のリレーションシップを mermaid ER スタイルで説明してください。"
-4. **LANG=en:** "Which fields contain PII?" (email, phone, address, etc.)
-   **LANG=ja:** "個人情報（PII）を含むフィールドはどれですか？"
 
-After the initial sketch, Claude assembles a **draft mermaid ER diagram** and shows it back, asking:
+### 7.2 Mermaid ER preview
+
+Claude assembles a **draft mermaid ER diagram** and shows it back, asking:
 - **LANG=en:** "Here's the ER diagram I drew from your sketch. Anything to edit?"
 - **LANG=ja:** "ご提示内容から ER 図を起こしました。修正点はありますか？"
 
-**Drill at least 1 round per entity** on:
-- **Lifecycle:** when does it get created / updated / deleted? (en/ja)
-- **Access patterns:** which queries hit it most often?
-- **Retention:** is the data kept forever, archived, or deleted on a schedule?
+### 7.3 Per-entity deep drill (NEW — 7 probes per entity, one per turn)
 
-Save the final mermaid + answers to `dev/docs/spec/05-data-model.md`.
+For **each** entity, drill **at least 7 follow-ups** in this order:
 
-If USE_CODEX=yes, run an architect normalization check.
+1. **Lifecycle:** when does it get created / updated / deleted?
+   - **LANG=ja:** "いつ生成・更新・削除されますか？"
+2. **Access patterns:** which queries hit it most often?
+   - **LANG=ja:** "最もよく走るクエリは何ですか？"
+3. **Retention:** is the data kept forever, archived, or deleted on a schedule?
+   - **LANG=ja:** "データは永続保持・アーカイブ・スケジュール削除のどれですか？"
+4. **PII / GDPR scope:** does this entity contain personal data? If yes, how does the user delete it (export, hard delete, soft delete + scrub)? What's our retention obligation?
+   - **LANG=ja:** "このエンティティに個人情報は含まれますか？含まれるなら、ユーザーはどう削除しますか（エクスポート・物理削除・論理削除＋スクラブ）？保持義務は？"
+5. **Access permissions:** who reads it, who writes it, who admins it? (owner only / shared / org-scoped / public / role-based)
+   - **LANG=ja:** "誰が読み・誰が書き・誰が管理しますか？（所有者のみ・共有・組織内・公開・ロールベース）"
+6. **Cardinality reality:** how many of these will exist at scale? (per user, per org, total) Is there a fan-out hot spot?
+   - **LANG=ja:** "実規模で何件できますか？（ユーザーあたり・組織あたり・全体）ファンアウトのホットスポットは？"
+7. **Migration scenario:** what will rename or restructure look like in 12 months? Are there fields you already suspect will need to split or move?
+   - **LANG=ja:** "12 ヶ月後にリネーム・再編が起きるとしたら何が起きそうですか？すでに『これ分割しそう』と思うフィールドは？"
 
-Update `init-state.json` to `current_phase: "visual"`.
+Save the final mermaid + answers + the 7 drill answers per entity to `dev/docs/spec/07-data-model.md`.
+
+If USE_CODEX=yes, run an architect normalization check focused on the new probes:
+```bash
+~/my-harness-generator/scripts/codex-ask.sh --role architect \
+  --out <root>/.my-harness/codex-phase7.md \
+  "Data model with per-entity lifecycle / GDPR / permissions / cardinality / migration drills: <paste>. Point out normalization issues, GDPR gaps, permission contradictions, and any cardinality that the BACKEND_KIND can't sustain."
+```
+
+Update `init-state.json` to `current_phase: "bootstrap"`.
 
 ---
 
-## Phase 6 — Visual (logo + key screen UI mocks)
+## Phase 8 — Spec finalization + bootstrap + issue/task generation
 
-**Absolute image format rules:**
-- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is allowed.
-- Resolution: logos ≥ 1024×1024; UI mocks at the resolution specified below.
-- After generation, **always auto-open** so the user can review:
-  - macOS: `open <path>`
-  - Linux: `xdg-open <path>`
-  - Windows: `start "" <path>`
-  - Detect OS with `uname`.
+### 8.1 Final spec review
 
-**Prompting strategy:** trust Codex's designer capability — give a high-level request and let it decide. Pass spec files via `--context dev/docs/spec/*.md` and keep the request brief.
-
-**Never write:**
-- Code-style instructions (coordinates, pixel values, CSS, Tailwind classes, SVG paths, HTML tags)
-- Over-specification of visual details
-
-**Do write:**
-- What to create and how many concepts
-- Format (PNG), save path, resolution
-- Assume Codex will read the context
-
-**Fixed questions** (one per turn — use the variant matching `LANG`):
-
-1. **LANG=en:** "Any color hint for the design? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
-   **LANG=ja:** "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
-
-2. **LANG=en:** "List 3–5 screens you want mocked." (e.g. Login / Home / Detail / Settings)
-   **LANG=ja:** "UI モックを作成したい画面を 3〜5 個リストアップしてください。"
-
-### Logo generation (when USE_CODEX=yes)
-
-```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --context <root>/dev/docs/spec/*.md \
-  --out <root>/.my-harness/codex-logo.md \
-  "\$imagegen Please generate 3 logo concepts for $PROJECT_NAME.
-
-**You must use the image_gen tool (gpt-image-2) to generate PNG files directly**. Writing HTML/CSS and taking a screenshot, writing SVG, or going through code are all prohibited.
-
-Read the spec files and design something that fits the project — your judgment. <If a color hint was given: Primary color: <hint>>
-
-Specs:
-- Format: PNG (transparent background)
-- Resolution: 1024x1024 or larger
-- Call image_gen separately for each concept (3 calls total)
-
-Save to:
-- <root>/dev/docs/design/logo-1.png
-- <root>/dev/docs/design/logo-2.png
-- <root>/dev/docs/design/logo-3.png"
-```
-
-After generation, immediately open all 3 (macOS):
-```bash
-open <root>/dev/docs/design/logo-1.png \
-     <root>/dev/docs/design/logo-2.png \
-     <root>/dev/docs/design/logo-3.png
-```
-
-**File format verification:**
-```bash
-file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
-```
-If anything other than PNG appears, ask Codex to regenerate.
-
-User selects one → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not symlink).
-
-### Interactive refinement
-
-When user says "**make concept 1 bluer**", **resume the same session and call codex-ask.sh again**:
-
-```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --out <root>/.my-harness/codex-logo-r1.md \
-  "Make concept 1 a bit more blue and simpler. Regenerate and overwrite the same path."
-```
-
-Key points:
-- **Never add `--reset-session`** (destroys context)
-- **Never re-attach `--context`** with the spec (it's already in session)
-- Repeat N times to iteratively refine. Once approved, copy to `logo-final.png`.
-
-### UI mock generation (per screen)
-
-For each screen:
-
-```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
-  --out <root>/.my-harness/codex-mock-<screen>.md \
-  "\$imagegen Please generate 2 mock concepts for the <screen name> screen of $PROJECT_NAME.
-
-**You must use the image_gen tool (gpt-image-2) to generate PNG files directly.**
-- Writing HTML/CSS and using Playwright/Puppeteer to screenshot is **absolutely prohibited**
-- Writing SVG or rasterizing via \`<canvas>\` is also **prohibited**
-
-Read the spec and the chosen logo, then design using your own judgment. Use Lucide Icons-style icons; no AI-style gradients.
-
-Specs:
-- Format: PNG
-- Resolution: <1280x800 for Web/Desktop; 375x812 for mobile>
-- Call image_gen separately for each concept (2 calls total)
-
-Save to:
-- <root>/dev/docs/design/mock-<screen>-1.png
-- <root>/dev/docs/design/mock-<screen>-2.png"
-```
-
-Open both, run the same `file` PNG verification, user picks one. OG image / favicon follow the same approach (all PNG).
-
-### Iteration
-
-If mocks reveal that requirements have changed, go back to phases 2–5 to update spec, return here, regenerate only affected mocks. **Maximum 3 iteration cycles.**
-
-When USE_CODEX=no, skip mock generation and record visual direction (primary color, impression, layout) as text in `dev/docs/design/brand.md`.
-
-### Completion criteria
-
-- [ ] One logo concept finalized
-- [ ] Mocks selected for 3–5 key screens (USE_CODEX=yes only)
-- [ ] OG image / favicon generated
-- [ ] If spec changed during iteration, `docs/spec/*.md` is up to date
-
-Save to: `dev/docs/spec/06-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`.
-
----
-
-## Phase 7 — Spec finalization + bootstrap + issue/task generation
-
-### 7.1 Final spec review
-
-Read all of `dev/docs/spec/0[1-6]-*.md` and present a summary to the user for approval.
+Read all of `dev/docs/spec/0[1-7]-*.md` and `init-state.json` (`visualMocks[]`) and present a summary to the user for approval.
 
 If USE_CODEX=yes, run final cross-check with Codex code-reviewer:
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh --role code-reviewer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/*.png -- \
-  "Point out inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality."
+  "Point out inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality. Pay special attention to whether tool choices in spec/06-tools.md match every visualMocks[].decisionsRevealed entry, and whether spec/07-data-model.md addresses all GDPR / permissions / cardinality / migration drills."
 ```
 
-If there are corrections, go back to phases 2–6 then return.
+If there are corrections, go back to phases 2–7 then return.
 
-### 7.2 Bootstrap execution (non-interactive)
+### 8.2 Bootstrap execution (non-interactive)
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/bootstrap.sh "<root>" --config "<root>/.my-harness/.config"
@@ -870,7 +1098,7 @@ bootstrap reads `PACKAGE_MANAGER` and `ARCHITECTURE` from `.my-harness/.config` 
 - For `ARCHITECTURE=p2p-hybrid`, writes a minimal **coordinator/bootstrap server** stub.
 - For p2p modes, drops a starter at `dev/p2p/README.md` noting that the P2P transport library will be selected at `/harness-team-lead` time based on chosen platforms.
 
-### 7.3 Issue / task generation
+### 8.3 Issue / task generation
 
 Split the v1 feature list from Phase 4 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
 
@@ -882,13 +1110,13 @@ Split the v1 feature list from Phase 4 into **child issues of at most 300 lines 
   ```
   Each file uses front matter to express `parent: 0001` / `lane: 1–4` / `status: pending`.
 
-### 7.4 Clear active session pointer (if USE_CODEX=yes)
+### 8.4 Clear active session pointer (if USE_CODEX=yes)
 
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --clear-active
 ```
 
-### 7.5 Generate dev/README.md and dev/CLAUDE.md for the first time
+### 8.5 Generate dev/README.md and dev/CLAUDE.md for the first time
 
 Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually creates** the following 2 files (reflecting spec content). Use `$PACKAGE_MANAGER` for the install / exec lines.
 
@@ -959,11 +1187,11 @@ This project runs on a harness generated by my-harness-generator.
 
 ## Data model
 
-<Copy mermaid ER diagram from spec/05-data-model.md (only when DB used)>
+<Copy mermaid ER diagram from spec/07-data-model.md (only when DB used)>
 
 ## Key screens / API
 
-<Key screen list from spec/06-visual.md and expected API endpoints>
+<Key screen list from spec/05-visual.md (visualMocks[]) and expected API endpoints>
 
 ## Conventions
 
@@ -1007,7 +1235,7 @@ git -c user.name="harness-bot" -c user.email="harness@local" \
   commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
 ```
 
-### 7.6 Update init-state.json + stop + guide user to dev
+### 8.6 Update init-state.json + stop + guide user to dev
 
 ```bash
 ROOT=<root>
@@ -1015,12 +1243,12 @@ ISSUE_COUNT=<number of child issues generated>
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cat > "$ROOT/.my-harness/init-state.json" <<EOF
 {
-  "schema_version": "2",
+  "schema_version": "3",
   "project_name": "<PROJECT_NAME>",
   "lang": "${LANG:-en}",
   "root": "$ROOT",
   "current_phase": "completed",
-  "phases_completed": ["language", "setup", "discovery", "disambiguation", "features", "data-model", "visual", "bootstrap", "tasks"],
+  "phases_completed": ["language", "setup", "discovery", "structure", "features", "visual", "tools", "data-model", "bootstrap", "tasks"],
   "next_action": "implementation",
   "next_action_command": "/harness-team-lead (or /harness-new-feature <issue#>)",
   "working_directory": "$ROOT/dev",
@@ -1081,7 +1309,7 @@ From here, work happens in the dev worktree:
 
 ## Failure fallbacks
 
-- `codex` not installed → auto-set USE_CODEX=no, continue with Claude alone
+- `codex` not installed → auto-set USE_CODEX=no, continue with Claude alone (Phase 5 falls back to text mocks)
 - `codex login` not run → guide user; after 3 failures fall back to no
 - `bootstrap.sh` fails → display stderr, let user decide
 - File conflict → ask user to continue / abort / specify a different directory
@@ -1092,14 +1320,18 @@ From here, work happens in the dev worktree:
 <root>/
 ├── .my-harness/                       Internal work files (gitignored)
 │   ├── .config                          Selections (incl. PACKAGE_MANAGER, ARCHITECTURE)
-│   ├── init-state.json                  Phase + discoverySheet
+│   ├── init-state.json                  Phase + discoverySheet + visualMocks
 │   ├── codex-sessions/<KEY>.id          (gitignored)
 │   ├── codex-phase*.md                  (gitignored)
 │   └── codex.jsonl                      (gitignored)
 ├── dev/                                 Standard structure created by bootstrap
 │   ├── docs/
 │   │   ├── spec/02-discovery.md ...     Masked requirements
+│   │   ├── spec/05-visual.md            Mock catalog with decisionsRevealed
+│   │   ├── spec/06-tools.md             Tool choices linked back to mocks
+│   │   ├── spec/07-data-model.md        Per-entity drills
 │   │   ├── design/logo-*.png ...        Generated images
+│   │   ├── design/mock-<platform>-<screen>-*.png ...  Per-platform mocks
 │   │   ├── talk/02-discovery.md ...     Masked Q&A
 │   │   └── task/                        When USE_GITHUB_ISSUES=no
 │   │       ├── parent/0001-*.md
@@ -1111,10 +1343,14 @@ From here, work happens in the dev worktree:
 
 ## How to conduct the conversation (Claude's behavior, summary)
 
-- **Phase 2 is a real conversation, not a checklist.** Open questions, drill, summarize, repeat. 10–30 turns is normal.
-- **Phase 3 only fires AskUserQuestion for decisions the discoverySheet has not already settled.** Skip with explicit notice when implied.
+- **Phase 2 is a real conversation, not a checklist.** Open questions, drill aggressively on the six new probes (failure / resistance / scale / trust / differentiation / day-2), summarize, repeat. 15–40 turns is normal.
+- **Phase 3 is just architecture + platforms.** Defer all tool questions until after the mocks.
+- **Phase 4 drills 8 probes per feature.** Re-read the list at the end and fill gaps before exiting.
+- **Phase 5's mocks become the source of truth.** Run the 3-question post-mock drill (missing / confusing / hidden constraint) after every mock and persist `decisionsRevealed`.
+- **Phase 6 only fires AskUserQuestion for tools the discoverySheet + visualMocks have not already settled.** Every prompt must reference at least one mock entry.
+- **Phase 7 drills 7 probes per entity.** Lifecycle, access, retention, GDPR, permissions, cardinality, migration.
 - **One question per turn.** Always.
 - **Mask before persisting.** Always.
-- **Never improvise abstract questions** (brand world-view, 5-year vision, tone).
+- **Never improvise abstract questions** (brand world-view, 5-year vision, tone). Differentiation probe targets system-relevant constraints, not strategy.
 - **Drill check after every reply.** "Have I gone at least one level deeper than the surface answer?"
 - **If the user says 'stop'**, save state and halt.

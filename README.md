@@ -63,18 +63,19 @@ The interview should start. If the first question appears, the plugin is install
 
 The first question of `/my-harness-init` asks whether to use English or Japanese; everything generated afterward follows that choice.
 
-`/my-harness-init` is the only command you need to start a new project. It walks through the following phases — one question per turn, with masked Q&A automatically saved to `dev/docs/spec/` and `dev/docs/talk/`:
+`/my-harness-init` is the only command you need to start a new project. It walks through the following 9 phases — one question per turn, with masked Q&A automatically saved to `dev/docs/spec/` and `dev/docs/talk/`. The order is deliberate: deep discovery → structural shape → features → **mocks before tools** (so we pick the framework / DB / package manager from what the screens actually need) → data model:
 
-| Phase | What you decide |
-|-------|-----------------|
-| **Setup** | Project root path, slug, Codex y/n, task management mode (GitHub Issues or local files) |
-| **Problem** | Who has what pain, why existing tools fall short, success criteria |
-| **Personas** | User types, contexts, technical literacy |
-| **Features** | Complete v1 feature list — everything needed before you'd call it done |
-| **Stack** | Web / iOS / Android, database, email provider, E2E choices |
-| **Data model** | Entities, relationships, PII handling (mermaid ER diagram) |
-| **Visual** | Logo (3 variants) and 3–5 UI mocks via Codex `gpt-image-2`; loop back to earlier phases if a mock reveals missing requirements |
-| **Finalize** | Cross-check the spec, run `bootstrap.sh`, generate initial issues / task files (one per lane) |
+| # | Phase | What you decide |
+|---|-------|-----------------|
+| 0 | **Language** | English or Japanese for the rest of the interview |
+| 1 | **Setup** | Project root path, Codex y/n, global CLAUDE.md inheritance, task management mode (GitHub Issues or local files) |
+| 2 | **Discovery** | Open multi-turn conversation that drills into failure modes, who'd push back, scale breakpoints, trust model, differentiation, day-2 ops — the load-bearing constraints |
+| 3 | **Structure** | Just architecture (client-server / serverless / pure P2P / hybrid P2P) and platform multi-select (web / desktop / mobile + iOS-or-Android) |
+| 4 | **Features** | Complete v1 feature list — everything needed before you'd call it done — drilled per feature on access path / failure / observability / onboarding / power-user / empty / failure-recovery / latency budget |
+| 5 | **Visual** | Logo (3 variants) plus 3–5 UI mocks per chosen platform via Codex `gpt-image-2`; after each mock, drill on missing elements / confusing elements / hidden constraints. Mocks become source of truth |
+| 6 | **Tools** | Framework (per platform), backend, DB, package manager, email, E2E, Claude Code Action — every prompt references the approved mocks ("your dashboard mock needs realtime, so …") |
+| 7 | **Data model** | Entities, relationships, PII handling (mermaid ER diagram) — drilled per entity on lifecycle / GDPR / permissions / cardinality / migration |
+| 8 | **Bootstrap** | Cross-check the spec, run `bootstrap.sh`, generate initial issues / task files (one per lane) |
 
 After bootstrap completes:
 
@@ -101,9 +102,9 @@ The plugin enforces a 6-phase flow from idea to production. The first three phas
 
 | Phase | Activity | Primary command |
 |-------|----------|-----------------|
-| 1. Spec | Problem, personas, features, stack, data model | `/my-harness-init` (Problem → Data-model phases) |
-| 2. Design | Logo + UI mocks + spec iteration | `/my-harness-init` (Visual phase) |
-| 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Finalize phase) |
+| 1. Spec | Discovery + features + data model | `/my-harness-init` (Discovery → Features phases; data model lands after mocks) |
+| 2. Design | Logo + per-platform UI mocks + spec iteration; mocks then drive tool selection | `/my-harness-init` (Visual phase, then Tools phase) |
+| 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Bootstrap phase) |
 | 4. Implementation | 4-lane parallel feature work; each issue runs in a fresh subagent context | `/harness-new-feature <issue>` |
 | 5. Deploy setup | Terraform infra (Cloudflare D1 / R2 / Pages), wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |

@@ -63,18 +63,19 @@ Claude Code 内で:
 
 `/my-harness-init` の最初の質問で英語（English）または日本語（Japanese）を選択します。それ以降に生成されるすべての内容はその選択に従います。
 
-新規プロジェクトを始めるときに必要なコマンドは `/my-harness-init` ひとつだけ。以下のフェーズを 1 ターン 1 問で進めます。各 Q&A は **マスク済み** で `dev/docs/spec/` と `dev/docs/talk/` に自動保存されます。
+新規プロジェクトを始めるときに必要なコマンドは `/my-harness-init` ひとつだけ。以下の 9 フェーズを 1 ターン 1 問で進めます。各 Q&A は **マスク済み** で `dev/docs/spec/` と `dev/docs/talk/` に自動保存されます。フェーズ順は意図的に「深掘り → 構造 → 機能 → **モックを先に作ってからツール選定** → データモデル」となっており、画面に何が必要かを見てから DB / Next.js / パッケージマネージャー等を決めます。
 
-| フェーズ | 決めること |
-|---------|-----------|
-| **Setup** | プロジェクトのルートパス / slug / Codex 連携 y/n / タスク管理方式（GitHub Issue or ローカル） |
-| **Problem** | 誰のどんな課題か、既存サービスではダメな理由、成功の定義 |
-| **Personas** | ユーザータイプ、利用シーン、技術リテラシ |
-| **Features** | v1 の完全な機能リスト — 「これで完成」と言える状態に必要なすべての機能 |
-| **Stack** | Web / iOS / Android、DB、メール、E2E の選択 |
-| **Data model** | エンティティ・関係・PII の扱い（mermaid ER 図含む） |
-| **Visual** | ロゴ 3 案 + 主要画面 UI モック 3〜5 個（Codex `gpt-image-2`）。モックを見て要件が変わったら前のフェーズに戻る |
-| **Finalize** | 仕様の最終 cross-check、`bootstrap.sh` 実行、初期 issue / task ファイル生成（レーン割当含む） |
+| # | フェーズ | 決めること |
+|---|---------|-----------|
+| 0 | **Language** | 以降のインタビューを英語で進めるか日本語で進めるか |
+| 1 | **Setup** | プロジェクトのルートパス / Codex 連携 y/n / 個人グローバル CLAUDE.md 引き継ぎ y/n / タスク管理方式（GitHub Issue or ローカル） |
+| 2 | **Discovery** | 自由対話で深掘り — 失敗パターン・反対者・スケール限界・信頼根拠・差別化・運用 6 カ月後、といった**支柱になる制約**を引き出す |
+| 3 | **Structure** | アーキテクチャ（client-server / serverless / pure P2P / hybrid P2P）とプラットフォーム複数選択（web / desktop / mobile + iOS / Android）のみ |
+| 4 | **Features** | v1 の完全な機能リスト — 各機能ごとに 「経路 / 失敗 / 観測 / オンボード / 上級者ショートカット / 空状態 / 失敗復旧 / レイテンシ予算」 を深掘り |
+| 5 | **Visual** | ロゴ 3 案 + 選択した各プラットフォーム別に UI モック 3〜5 個（Codex `gpt-image-2`）。各モック表示後に「足りない要素 / 紛らわしい要素 / 隠れた制約」を必ず質問。モックがソースオブトゥルース |
+| 6 | **Tools** | フレームワーク（プラットフォーム別）/ バックエンド / DB / パッケージマネージャー / メール / E2E / Claude Code Action — どの質問も承認済みモックを参照する（「ダッシュボードモックがリアルタイムを要求しているので…」など） |
+| 7 | **Data model** | エンティティ・関係・PII の扱い（mermaid ER 図）— 各エンティティを「ライフサイクル / GDPR / 権限 / 規模実態 / マイグレーション」で深掘り |
+| 8 | **Bootstrap** | 仕様の最終 cross-check、`bootstrap.sh` 実行、初期 issue / task ファイル生成（レーン割当含む） |
 
 bootstrap 完了後:
 
@@ -101,9 +102,9 @@ bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 
 | 段階 | 内容 | 主コマンド |
 |------|------|----------|
-| 1. Spec | 問題定義 / ペルソナ / 機能 / 技術スタック / データモデル | `/my-harness-init`（Problem〜Data model） |
-| 2. Design | ロゴ + UI モック + 仕様 iteration | `/my-harness-init`（Visual フェーズ） |
-| 3. Tasks | issue / task ファイル生成、4 レーンへのファイル所有割当、bootstrap 実行 | `/my-harness-init`（Finalize フェーズ） |
+| 1. Spec | 深掘り対話 + 機能 + データモデル | `/my-harness-init`（Discovery〜Features、データモデルはモックの後） |
+| 2. Design | ロゴ + プラットフォーム別 UI モック + 仕様 iteration。モックがツール選定の入力になる | `/my-harness-init`（Visual → Tools フェーズ） |
+| 3. Tasks | issue / task ファイル生成、4 レーンへのファイル所有割当、bootstrap 実行 | `/my-harness-init`（Bootstrap フェーズ） |
 | 4. Implementation | 4 レーン並列実装、各 issue を fresh subagent で処理 | `/harness-new-feature <issue>` |
 | 5. Deploy setup | Terraform infra（Cloudflare D1 / R2 / Pages）、wrangler bindings、GitHub secrets / vars、fastlane（iOS） | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage`（自動 + 人間ラベル）→ `main`（canary 10% → 100%） | `/harness-deploy-execute` |
