@@ -292,142 +292,25 @@ Ask the following one at a time. **Do not ask the project name here** — let it
 
 #### If USE_CODEX=yes — sub-toggles
 
-##### Q2a-pre: Codex authentication method
+##### Q2a: Codex auth check
 
-**Immediately after USE_CODEX=yes is confirmed — before the auth check — ask this via `AskUserQuestion`:**
-
-```json
-{
-  "questions": [{
-    "question": "Codex authentication — which one do you want? / Codex の認証方法を選んでください",
-    "header": "Codex auth",
-    "multiSelect": false,
-    "options": [
-      {
-        "label": "ChatGPT subscription",
-        "description": "Use your ChatGPT Plus / Pro / Team / Enterprise login. Run `codex login` once; usage is bundled in your subscription. / ChatGPT Plus / Pro / Team / Enterprise のサブスク。`codex login` を一度実行すれば、利用は契約に含まれる。"
-      },
-      {
-        "label": "API key (pay-per-use)",
-        "description": "Use an OPENAI_API_KEY environment variable. Pay per token via the OpenAI API platform. / OPENAI_API_KEY 環境変数を使用。OpenAI API プラットフォーム経由でトークンごとに課金。"
-      }
-    ]
-  }]
-}
-```
-
-Map the selection:
-- `ChatGPT subscription` → `CODEX_AUTH=subscription`
-- `API key (pay-per-use)` → `CODEX_AUTH=api-key`
-
-Persist `CODEX_AUTH` immediately to `.my-harness/.config` and `init-state.json`.
-
-##### Q2a: Codex auth check (branches on CODEX_AUTH)
-
-**If `CODEX_AUTH=subscription`:**
+Codex CLI uses ChatGPT subscription auth via `codex login`. Run:
 
 ```bash
 bash ~/my-harness-generator/scripts/check-codex-auth.sh
 ```
 
-- `not-installed` → guide user to `npm i -g @openai/codex`; re-ask Q2
+- `not-installed` →
+  - **LANG=en:** "Codex CLI is not installed. Run `npm install -g @openai/codex` in another terminal, then type `done` here to re-check."
+  - **LANG=ja:** "Codex CLI がインストールされていません。別のターミナルで `npm install -g @openai/codex` を実行してから、ここで `done` と入力して再確認してください。"
+  - After 3 failures: auto-set `USE_CODEX=no` and continue without Codex.
 - `not-logged-in` →
-  - **LANG=en:** "Please run `codex login` in another terminal, then type `done` here to re-check. (After 3 failures I'll set USE_CODEX=no and continue without Codex, or you can switch to the API key method.)"
-  - **LANG=ja:** "別のターミナルで `codex login` を実行してから、ここで `done` と入力して再確認してください。（3 回失敗した場合は USE_CODEX=no に設定して Codex なしで続行するか、API キー方式に切り替えてください。）"
-  - After 3 failures: suggest switching to `CODEX_AUTH=api-key` or setting `USE_CODEX=no`, then auto-set `USE_CODEX=no`.
+  - **LANG=en:** "Please run `codex login` in another terminal, then type `done` here to re-check. (After 3 failures I'll set USE_CODEX=no and continue without Codex.)"
+  - **LANG=ja:** "別のターミナルで `codex login` を実行してから、ここで `done` と入力して再確認してください。（3 回失敗した場合は USE_CODEX=no に設定して Codex なしで続行します。）"
+  - After 3 failures: auto-set `USE_CODEX=no` and continue without Codex.
 - `logged-in` → confirm:
   - **LANG=en:** "Codex is authenticated via ChatGPT subscription. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
   - **LANG=ja:** "ChatGPT サブスクリプションで Codex の認証を確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
-
-**If `CODEX_AUTH=api-key`:**
-
-First check whether `$OPENAI_API_KEY` is already exported in the current shell **or** saved in `~/.config/openai/api-key` (written by a previous run):
-
-```bash
-bash -c '
-  key="${OPENAI_API_KEY:-}"
-  if [ -z "$key" ] && [ -f "$HOME/.config/openai/api-key" ]; then
-    key="$(cat "$HOME/.config/openai/api-key")"
-  fi
-  echo "$key"
-'
-```
-
-- If **non-empty** → confirm:
-  - **LANG=en:** "Codex API key detected. I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
-  - **LANG=ja:** "Codex の API キーを確認しました。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
-- If **empty** → ask the user to paste their key as free-form input. Show this prompt in LANG:
-
-  **LANG=en prompt:**
-  > "Paste your OpenAI API key now (it starts with `sk-...`). I'll save it to `~/.config/openai/api-key` with chmod 600 (only you can read it) and export it for this session. The key will be masked in any log file."
-
-  **LANG=ja prompt:**
-  > "OpenAI API キーを貼り付けてください（`sk-...` で始まる文字列）。`~/.config/openai/api-key` に chmod 600（あなただけが読める権限）で保存し、このセッションで export します。ログファイルでは自動的にマスクされます。"
-
-  After the user pastes the key, run the following bash to validate, persist, and export it:
-
-  ```bash
-  KEY="<user-pasted-key>"
-
-  # Validate format
-  if ! echo "$KEY" | grep -qE '^sk-[A-Za-z0-9_-]{20,}$'; then
-    echo "Key format looks wrong (expected sk-...). Please re-paste." >&2
-    exit 1
-  fi
-
-  # Persist to ~/.config/openai/api-key (chmod 600 — readable only by owner)
-  mkdir -p "$HOME/.config/openai"
-  printf '%s\n' "$KEY" > "$HOME/.config/openai/api-key"
-  chmod 600 "$HOME/.config/openai/api-key"
-
-  # Export for the current shell session that codex-ask.sh will inherit
-  export OPENAI_API_KEY="$KEY"
-
-  echo "Saved to ~/.config/openai/api-key (chmod 600). Exported OPENAI_API_KEY for this session."
-  ```
-
-  Then run a quick verification call to confirm the key works (use `codex-ask.sh` with a minimal prompt):
-
-  ```bash
-  bash ~/my-harness-generator/scripts/codex-ask.sh "Reply with only the word: ok"
-  ```
-
-  - If the call succeeds → confirm in LANG:
-    - **LANG=en:** "API key verified. Saved to `~/.config/openai/api-key` (chmod 600). I'll resume Codex conversations in session `<PROJECT_SLUG>-init`."
-    - **LANG=ja:** "API キーを確認しました。`~/.config/openai/api-key` に保存しました（chmod 600）。セッション `<PROJECT_SLUG>-init` で会話を継続します。"
-  - If the call fails → show error and ask to re-paste. After 3 failures: suggest switching to `CODEX_AUTH=subscription` or setting `USE_CODEX=no`, then auto-set `USE_CODEX=no`.
-
-  After a successful save, suggest adding the key to the user's shell rc file so new terminal sessions pick it up automatically (suggest only — do **not** auto-modify):
-
-  **LANG=en suggestion:**
-  > "To avoid re-pasting in new terminal sessions, add one line to your shell config:
-  >
-  > **bash / zsh** (`~/.zshrc` or `~/.bashrc`):
-  > ```
-  > export OPENAI_API_KEY="$(cat ~/.config/openai/api-key)"
-  > ```
-  > **fish** (`~/.config/fish/config.fish`):
-  > ```
-  > set -x OPENAI_API_KEY (cat ~/.config/openai/api-key)
-  > ```
-  > (The key is read from the file each time, so you only update the file when rotating keys.)"
-
-  **LANG=ja suggestion:**
-  > "新しいターミナルセッションで再入力しなくて済むよう、シェル設定ファイルに1行追加することをお勧めします（自動変更はしません）:
-  >
-  > **bash / zsh** (`~/.zshrc` または `~/.bashrc`):
-  > ```
-  > export OPENAI_API_KEY="$(cat ~/.config/openai/api-key)"
-  > ```
-  > **fish** (`~/.config/fish/config.fish`):
-  > ```
-  > set -x OPENAI_API_KEY (cat ~/.config/openai/api-key)
-  > ```
-  > （キーはファイルから毎回読み込まれるので、ローテーション時はファイルだけ更新すれば OK。）"
-
-  > **Secret masking note:** The pasted key must never appear in `dev/docs/talk/` or `dev/docs/spec/`. `mask-secrets.sh` already covers `sk-[A-Za-z0-9_-]{20,}` patterns. Always pipe conversation logs through `mask-secrets.sh` before writing to any tracked file.
-
-- After 3 failures: suggest switching to `CODEX_AUTH=subscription` or setting `USE_CODEX=no`, then auto-set `USE_CODEX=no`.
 
 `CODEX_SESSION = <PROJECT_SLUG>-init`. Never asked.
 

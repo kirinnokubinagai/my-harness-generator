@@ -38,7 +38,7 @@ The result on disk is a project where:
 
 - Claude Code (latest)
 - `git`, `bash`, `jq`, and `direnv` (for Nix dev shell auto-activation)
-- Optional: `npm install -g @openai/codex` if you want Codex consultations. Authentication is either `codex login` (ChatGPT subscription) or `export OPENAI_API_KEY=sk-...` (pay-per-use API key) — the interview will ask which you prefer when you enable Codex.
+- Optional: Codex CLI for AI-assisted design and second-opinion reviews. Install with `npm install -g @openai/codex` and log in once with `codex login` (requires a ChatGPT subscription).
 
 ### Install the plugin
 
@@ -266,7 +266,6 @@ CLAUDE_AUTH=oauth             # or "api"
 USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
 USE_GLOBAL_CLAUDE=yes         # or "no" → writes dev/.claude/settings.json with claudeMdExcludes for ~/.claude/CLAUDE.md
 CODEX_SESSION=my-harness-init
-CODEX_AUTH=subscription       # subscription (ChatGPT Plus/Pro/Team/Enterprise via `codex login`) or api-key (OPENAI_API_KEY env var, pay-per-use)
 USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
 USE_CODEX_E2E_REVIEWER=no     # delegate E2E test report synthesis to Codex (default: no — Claude runs locally)
 USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
@@ -290,7 +289,7 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 | Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` and `Stop` hooks; run `/doctor` to validate the schema |
 | Codex returns auth error | `/harness-check-codex-auth`, then `codex login` |
 | Codex subagent paused with `blocked-codex-auth` (login expired mid-flight) | Run `codex login`, then tell team-lead "resume". The same Codex session is preserved on the server. |
-| Codex subagent paused with `subscription-or-quota` reason | Either renew your ChatGPT subscription, set `OPENAI_API_KEY` for pay-per-use, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
+| Codex subagent paused with `subscription-or-quota` reason | Renew your ChatGPT subscription, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
 | Conflict during hotfix back-merge | `/harness-resolve-conflict` (never rebase) |
 | Accidentally ran `drizzle-kit push` | Revert, then `drizzle-kit generate --name <descriptive>` followed by `wrangler d1 migrations apply` |
 | Update plugin | `/plugin marketplace update`, then `/plugin install my-harness@my-harness-generator` |

@@ -18,6 +18,10 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 - README.md and README.ja.md Quick Start sections updated to note the session-restart requirement and the `start-dev.sh` launcher.
 - Project lifecycle tables in both READMEs gained row **3.5. Switch session** between Tasks (phase 3) and Implementation (phase 4).
 
+### Removed
+
+- Removed `CODEX_AUTH=api-key` path entirely. Codex CLI uses ChatGPT subscription auth via `codex login`; the API-key UI, `OPENAI_API_KEY` auto-load, and subscription-vs-api-key branching in `codex-ask.sh` / `bootstrap.sh` / `SKILL.md` were misguided. Users now only need to install Codex CLI (`npm install -g @openai/codex`) and run `codex login`.
+
 ### Fixed
 
 - Restored `USE_GLOBAL_CLAUDE` option with a real `claudeMdExcludes` implementation. Earlier commit `687481f` had deleted it under the mistaken belief that Claude Code couldn't honor it. The setting is now genuinely respected — when set to `no`, `dev/.claude/settings.json` is written with the absolute path of `~/.claude/CLAUDE.md` in `claudeMdExcludes`, and Claude Code skips that file at session start. Claude Code's official `claudeMdExcludes` field in `settings.json` is what makes this work; `${HOME}` is expanded to the absolute path so Claude Code can match it against the file system.

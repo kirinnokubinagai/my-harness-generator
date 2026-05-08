@@ -108,17 +108,15 @@ Warning: Codex subscription / quota issue detected
   rescue: <root>/.my-harness/codex-auth-rescue/<latest>.json
 
 Please choose:
-  (a) Check and update billing (re-enable ChatGPT paid plan) then reply "resume"
-  (b) Set OPENAI_API_KEY as env var for pay-per-use then reply "resume"
-      (export OPENAI_API_KEY=sk-... then restart current session)
-  (c) Switch affected role to Claude fallback (USE_CODEX_<ROLE>=no) then reply "resume"
+  (a) Renew your ChatGPT subscription, then reply "resume"
+  (b) Switch affected role to Claude fallback (USE_CODEX_<ROLE>=no) then reply "resume"
       (edit .my-harness/.config; team-lead will use Claude from next launch)
-  (d) Abort
+  (c) Abort
 ```
 
-If user chooses (a) / (b): put pending issues in `team-state.json`'s `pending_codex_auth` and wait. On "resume", proceed.
-If user chooses (c): change the relevant flag in `.my-harness/.config` to `no`, and restart the lane **in Claude mode**.
-If user chooses (d): set pending issues to `cancelled-by-user` state and wait for other lanes' results.
+If user chooses (a): put pending issues in `team-state.json`'s `pending_codex_auth` and wait. On "resume", proceed.
+If user chooses (b): change the relevant flag in `.my-harness/.config` to `no`, and restart the lane **in Claude mode**.
+If user chooses (c): set pending issues to `cancelled-by-user` state and wait for other lanes' results.
 
 ### Resume protocol
 
