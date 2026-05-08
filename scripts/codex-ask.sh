@@ -42,6 +42,9 @@
 
 set -euo pipefail
 
+# Active session pointer path — defined early so _load_codex_auth (called below) can reference it.
+ACTIVE_POINTER="${CODEX_ACTIVE_POINTER:-$HOME/.codex-active-session}"
+
 # ===== Load CODEX_AUTH from .my-harness/.config (auto-resolve) =====
 # Determines which rescue message to show on auth failure:
 #   subscription → instruct user to run `codex login`
@@ -64,7 +67,11 @@ _load_codex_auth() {
     done
   fi
   if [ -n "$cfg" ] && [ -f "$cfg" ]; then
-    CODEX_AUTH=$(grep -E "^CODEX_AUTH=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2-)
+    local found
+    found=$(grep -E "^CODEX_AUTH=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    if [ -n "$found" ]; then
+      CODEX_AUTH="$found"
+    fi
   fi
 }
 CODEX_AUTH="${CODEX_AUTH:-subscription}"
@@ -91,7 +98,7 @@ SESSION_DIR="${CODEX_SESSION_DIR:-./.codex-sessions}"
 RESET_SESSION=0
 SET_ACTIVE_PROJECT=""
 CLEAR_ACTIVE=0
-ACTIVE_POINTER="${CODEX_ACTIVE_POINTER:-$HOME/.codex-active-session}"
+# Note: ACTIVE_POINTER is already set above (before _load_codex_auth). Not redefined here.
 
 # ===== Argument parsing =====
 PARSE_CONTEXT=0
@@ -157,7 +164,7 @@ load_config_from() {
   local cfg="$project_root/.my-harness/.config"
   [ -f "$cfg" ] || return 1
   local cfg_session
-  cfg_session=$(grep -E "^CODEX_SESSION=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2-)
+  cfg_session=$(grep -E "^CODEX_SESSION=" "$cfg" 2>/dev/null | head -1 | cut -d= -f2- || true)
   [ -n "$cfg_session" ] || return 1
   if [ -z "$SESSION_KEY" ]; then
     SESSION_KEY="$cfg_session"
@@ -389,7 +396,9 @@ extract_session_id() {
 
 # ===== Common flags for Codex execution =====
 #       --model / --sandbox are only added when explicitly specified by the user
-COMMON_FLAGS=(--json)
+#       --skip-git-repo-check: required for Codex 0.128.0+ when invoked outside a git repo
+#       or a trusted directory (e.g. from Claude Code's Bash tool, /tmp, or home dir).
+COMMON_FLAGS=(--json --skip-git-repo-check)
 [ -n "$MODEL" ]   && COMMON_FLAGS+=(--model "$MODEL")
 [ -n "$SANDBOX" ] && COMMON_FLAGS+=(--sandbox "$SANDBOX")
 
@@ -406,11 +415,11 @@ if [ -n "$SESSION_KEY" ]; then
     # codex CLI syntax: `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`
     # Options must come before positional args to avoid misinterpretation by clap
     codex exec resume "${COMMON_FLAGS[@]}" "$SESSION_ID" "$PROMPT_TEXT" \
-      2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+      < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
   else
     echo "[codex-ask] creating new session '$SESSION_KEY'" >&2
     codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
-      2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+      < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
     NEW_ID=$(extract_session_id "$TMP_LOG")
     if [ -z "$NEW_ID" ]; then
       # Fallback: get ID from most recent jsonl filename under ~/.codex/sessions
@@ -426,7 +435,7 @@ if [ -n "$SESSION_KEY" ]; then
   fi
 else
   codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
-    2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+    < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
 fi
 
 # ===== Post-exec auth / subscription error detection =====
