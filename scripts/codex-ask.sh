@@ -310,12 +310,21 @@ TMP_PROMPT=$(mktemp)
 TMP_LOG=$(mktemp)
 trap 'rm -f "$TMP_PROMPT" "$TMP_LOG"' EXIT
 
-if [ ! -t 0 ]; then
-  cat > "$TMP_PROMPT"
-elif [ $# -gt 0 ]; then
+# Prefer positional args. Only fall back to stdin when no args were given AND stdin
+# actually has data piped in (e.g., `echo "..." | codex-ask.sh`). Critically: do not
+# read from a non-tty stdin when args are present, because Claude Code's Bash tool
+# redirects stdin to empty even when no piping is intended — that would silently
+# replace the user's prompt with an empty string.
+if [ $# -gt 0 ]; then
   printf '%s\n' "$*" > "$TMP_PROMPT"
+elif [ ! -t 0 ]; then
+  cat > "$TMP_PROMPT"
+  if [ ! -s "$TMP_PROMPT" ]; then
+    echo "::error:: No prompt provided (no positional argument, and stdin was empty)" >&2
+    exit 1
+  fi
 else
-  echo "::error:: No prompt provided (pass as argument or via stdin)" >&2
+  echo "::error:: No prompt provided (pass as argument or pipe via stdin)" >&2
   exit 1
 fi
 
@@ -374,23 +383,41 @@ if [ "${#CONTEXT_FILES[@]}" -gt 0 ]; then
 fi
 
 # ===== Extract only the final assistant message from JSONL =====
+# Codex 0.128.0+ stdout format (--json):
+#   {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"..."}}
+# We pick the LAST agent_message (the final answer) and prefer .item.text.
+# Older formats (top-level type=agent_message with .content / .message) are kept as
+# fallbacks so the wrapper survives a Codex CLI downgrade.
 extract_assistant_text() {
   local jsonl="$1"
+  # Pipeline must always succeed (|| true) — see extract_session_id note.
+  # Codex 0.128.0+ format (--json):
+  #   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+  # Pick the LAST agent_message item (the final answer for that turn).
   if command -v jq >/dev/null 2>&1; then
-    jq -r 'select(.type=="agent_message" or .type=="message" or .type=="assistant_message") | .content // .message // empty' "$jsonl" 2>/dev/null \
-      | grep -v '^$' | tail -1
+    { jq -r 'select(.type=="item.completed" and .item.type=="agent_message") | .item.text' \
+        "$jsonl" 2>/dev/null || true
+    } | awk 'NF' | tail -1 || true
   else
-    grep -oE '"content":"[^"]*"' "$jsonl" | tail -1 | sed 's/"content":"//; s/"$//'
+    # Best-effort fallback when jq is missing.
+    grep -oE '"text":"[^"]*"' "$jsonl" 2>/dev/null | tail -1 | sed 's/"text":"//; s/"$//' || true
   fi
 }
 
 # ===== Extract session_id from JSONL =====
+# Codex 0.128.0+ stdout format (--json): {"type":"thread.started","thread_id":"..."}
+# Older codex versions used a top-level .session_id field; we still accept that as fallback.
 extract_session_id() {
   local jsonl="$1"
+  # Pipeline must always succeed (|| true) because we're under `set -e + pipefail`
+  # and an empty match through grep -v / head should not abort the caller.
+  # Codex 0.128.0+ format: {"type":"thread.started","thread_id":"..."}
   if command -v jq >/dev/null 2>&1; then
-    jq -r 'select(.session_id) | .session_id' "$jsonl" 2>/dev/null | head -1
+    { jq -r 'select(.type=="thread.started") | .thread_id' "$jsonl" 2>/dev/null || true
+    } | awk 'NF' | head -1 || true
   else
-    grep -oE '"session_id":"[^"]+"' "$jsonl" | head -1 | sed 's/"session_id":"//; s/"$//'
+    grep -oE '"thread_id":"[^"]+"' "$jsonl" 2>/dev/null | head -1 \
+      | sed 's/"thread_id":"//; s/"$//' || true
   fi
 }
 
@@ -416,15 +443,20 @@ if [ -n "$SESSION_KEY" ]; then
     # Options must come before positional args to avoid misinterpretation by clap
     codex exec resume "${COMMON_FLAGS[@]}" "$SESSION_ID" "$PROMPT_TEXT" \
       < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+    CODEX_EXIT=${PIPESTATUS[0]}
   else
     echo "[codex-ask] creating new session '$SESSION_KEY'" >&2
     codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
       < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+    CODEX_EXIT=${PIPESTATUS[0]}
     NEW_ID=$(extract_session_id "$TMP_LOG")
     if [ -z "$NEW_ID" ]; then
-      # Fallback: get ID from most recent jsonl filename under ~/.codex/sessions
+      # Fallback: get ID from most recent jsonl filename under ~/.codex/sessions.
+      # `|| true` is critical because `head -1` closes the pipe early, which makes
+      # the upstream find/xargs receive SIGPIPE (exit 141). Combined with `set -o
+      # pipefail` and `set -e`, that propagates and kills the whole script.
       NEW_ID=$(find "${HOME}/.codex/sessions" -name "*.jsonl" -mmin -1 2>/dev/null \
-        | xargs -I{} basename {} .jsonl 2>/dev/null | head -1)
+        | sort -r | head -1 | xargs -I{} basename {} .jsonl 2>/dev/null || true)
     fi
     if [ -n "$NEW_ID" ]; then
       echo "$NEW_ID" > "$SESSION_FILE"
@@ -436,22 +468,30 @@ if [ -n "$SESSION_KEY" ]; then
 else
   codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
     < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
+  CODEX_EXIT=${PIPESTATUS[0]}
 fi
 
 # ===== Post-exec auth / subscription error detection =====
-#       Distinguish two failure types that can occur during execution:
-#       (a) login-expired    : OAuth token invalid/expired → fix with `codex login`
-#       (b) subscription-or-quota : subscription expired / quota exceeded / billing → separate action required
-if [ -f "$TMP_LOG.err" ]; then
-  # Check subscription / quota / billing first (higher priority than login errors, prevents misclassification)
+#       Only fires when codex itself exited non-zero. Many MCP servers (e.g.,
+#       Cloudflare's mcp.cloudflare.com) emit "OAuth invalid_token" warnings on
+#       stderr while codex's main task succeeds; greping stderr unconditionally
+#       false-positives on those.
+#       Distinguish two failure types when codex actually failed:
+#         (a) login-expired         OAuth token invalid/expired → fix with `codex login`
+#         (b) subscription-or-quota subscription expired / quota exceeded / billing
+if [ "${CODEX_EXIT:-0}" -ne 0 ] && [ -f "$TMP_LOG.err" ]; then
+  # Check subscription / quota / billing first (higher priority than login errors)
   if grep -iE "subscription.*(expired|required|cancel|inactive)|no active subscription|plan.*(required|expired|inactive)|quota.*(exceeded|reached)|billing.*(required|issue|past due|invalid)|insufficient.*(quota|credit|funds)|payment.*required|usage.*limit.*(exceeded|reached)" \
        "$TMP_LOG.err" >/dev/null 2>&1; then
     save_codex_auth_rescue "subscription-or-quota"
     exit 100
   fi
-  # Then check login / auth token issues
+  # Then check login / auth token issues — but exclude any line that mentions
+  # an MCP server (rmcp / mcp.cloudflare.com / similar) so external MCP auth
+  # noise doesn't get misclassified as a Codex auth failure.
   if grep -iE "not logged in|please log in|please run.*codex login|authentication failed|api key.*(required|missing|invalid)|unauthorized|401 [^0-9]|expired.*(token|session|credential)|invalid_grant|oauth.*(failed|invalid)" \
-       "$TMP_LOG.err" >/dev/null 2>&1; then
+       "$TMP_LOG.err" 2>/dev/null \
+     | grep -ivE "rmcp|mcp\.|mcp_|mcp/" >/dev/null 2>&1; then
     save_codex_auth_rescue "login-expired"
     exit 100
   fi
