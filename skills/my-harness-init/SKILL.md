@@ -1,6 +1,6 @@
 ---
 name: my-harness-init
-description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates v1 features with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates the logo + per-platform UI mocks (3–5 screens each) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
+description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates the complete feature list with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates the logo + per-platform UI mocks (3–5 screens each) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
 ---
 
 # /my-harness-init
@@ -121,7 +121,7 @@ Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitl
 | 1 | Setup | Orthogonal setup flags |
 | 2 | Discovery | Open conversation + deep drill (failure / resistance / scale / trust / differentiation / day-2) |
 | 3 | Structure | Architecture + platform multi-select only |
-| 4 | Features | v1 feature list + deep per-feature drill |
+| 4 | Features | Complete feature list + deep per-feature drill |
 | 5 | Visual | Logo + 3–5 mocks per platform; mocks become source of truth |
 | 6 | Tools | Framework / backend / DB / package manager / email / e2e / Claude Code Action — informed by mocks |
 | 7 | Data model | Per-entity drill (lifecycle / GDPR / permissions / cardinality / migration) |
@@ -487,7 +487,7 @@ The point is not to accept first answers as final. Examples:
 #### Scale breakpoints (`scaleBreakpoints`)
 - **LANG=en:** "At what point does the simple version stop working? Concrete numbers, not 'a lot'. (e.g. 'above 50 simultaneous editors the merge logic falls over', 'past 10k rows the dashboard takes 5+ seconds', 'after 6 months the inbox is unsearchable without full-text')"
 - **LANG=ja:** "シンプル版が壊れ始めるのは具体的にどの規模ですか？「沢山」じゃなく数字で。（例: 「同時編集が 50 を超えるとマージが崩れる」「1 万行を超えるとダッシュボードが 5 秒超」「半年経つと全文検索なしでは inbox が探せない」）"
-- Follow-ups: "Is that breakpoint v1 territory, or do we explicitly punt past it?"
+- Follow-ups: "Is that breakpoint in scope for this project, or do we explicitly punt past it?"
 
 #### Trust (`trustModel`)
 - **LANG=en:** "Why would a user trust this with their data? What's the concrete chain — encryption, audit, hosting choice, social proof, an org behind it, the user's own machine?"
@@ -585,12 +585,12 @@ If USE_CODEX=yes, run an architect consult:
 
 ---
 
-## Phase 4 — v1 Features (deeper drill)
+## Phase 4 — Features (deeper drill)
 
 **Question (one per turn):**
 
-- **LANG=en:** "List the features required for v1 — the first release you'd be willing to ship publicly. Don't trim for MVP scope; include everything you'd need before saying 'this is done'. One feature per line. Continue until you have nothing more to add."
-- **LANG=ja:** "v1（最初に公開してもいいと思える完成度のリリース）に必要な機能をすべて挙げてください。MVP として削るのではなく、『これで完成』と言える状態に必要な全機能を含めてください。1 行に 1 機能。これ以上書くものが無くなるまで続けてください。"
+- **LANG=en:** "List every feature this project needs. Don't trim — list everything required before you'd call this complete. One per line. Continue until you have nothing more to add."
+- **LANG=ja:** "このプロジェクトに必要な機能をすべて挙げてください。削らずに、『これで完成』と言える状態に必要な全機能を一行ずつ挙げてください。これ以上書くものが無くなるまで続けてください。"
 
 Stop only when the user explicitly says "that's all" / "以上で" / equivalent. Then re-read the list and run the deep drill below per feature.
 
@@ -617,17 +617,17 @@ For **each** feature listed, drill **at least 8 follow-ups**, one per turn:
 
 ### Re-read sweep
 
-After the user says they're done, **re-read the v1 list** and verify every feature has all 8 drill answers. For any feature missing onboarding / power / empty / fail / latency entries, ask once more for that specific feature's gap. Only then exit Phase 4.
+After the user says they're done, **re-read the feature list** and verify every feature has all 8 drill answers. For any feature missing onboarding / power / empty / fail / latency entries, ask once more for that specific feature's gap. Only then exit Phase 4.
 
 Save to: `dev/docs/spec/04-features.md` / `dev/docs/talk/04-features.md` (one section per feature with the 8 drill answers).
 
-Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what v1 means.
+Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what this project delivers.
 
 If USE_CODEX=yes:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase4.md \
-  "v1 feature list with access paths, failure modes, observability, onboarding, power-user, empty state, failure recovery, latency budgets: <paste>. Point out gaps, especially any feature whose latency budget contradicts the architecture choice."
+  "Complete feature list with access paths, failure modes, observability, onboarding, power-user, empty state, failure recovery, latency budgets: <paste>. Point out gaps, especially any feature whose latency budget contradicts the architecture choice."
 ```
 
 Update `init-state.json` to `current_phase: "visual"`.
@@ -761,8 +761,8 @@ After each mock is shown to the user, ask exactly these 3 questions, one per tur
    - **LANG=en:** "Is anything missing from this screen that the user needs to complete their task here?"
    - **LANG=ja:** "この画面で、ユーザーがやりたいことを完遂するのに足りない要素はありますか？"
 2. **Confusing / low-priority element:**
-   - **LANG=en:** "Is any element on this screen confusing, redundant, or low-priority for v1?"
-   - **LANG=ja:** "この画面の中で、ユーザーが混乱しそう・冗長・v1 ではまだ要らない、と感じる要素はありますか？"
+   - **LANG=en:** "Is any element on this screen confusing, redundant, or unnecessary?"
+   - **LANG=ja:** "この画面の中で、ユーザーが混乱しそう・冗長・不要、と感じる要素はありますか？"
 3. **Hidden constraint:**
    - **LANG=en:** "Does this mock surface any constraint that wasn't in our discovery sheet — a new entity, new permission, new external integration, a dependency we hadn't named? If so, I'll log it and we'll adjust later phases."
    - **LANG=ja:** "このモックを見て、これまでの discoverySheet に書いていない新しい制約（新しいエンティティ・権限・外部連携・依存）が浮かびましたか？あれば記録して、以降のフェーズで反映します。"
@@ -1064,8 +1064,8 @@ Update from the user's correction.
 
 ### 7.1 Initial questions (one per turn — use the variant matching `LANG`)
 
-1. **LANG=en:** "Confirm or adjust the entity list — 3–7 entities for v1."
-   **LANG=ja:** "v1 のエンティティ一覧を確定してください（3〜7 個）。"
+1. **LANG=en:** "Confirm or adjust the entity list — 3–7 entities for this project."
+   **LANG=ja:** "プロジェクトのエンティティ一覧を確定してください（3〜7 個）。"
 2. **LANG=en:** "Bullet out the main fields for each entity."
    **LANG=ja:** "各エンティティの主なフィールドを箇条書きで教えてください。"
 3. **LANG=en:** "Describe relationships in mermaid ER style." (e.g. User 1—N Task)
@@ -1138,7 +1138,7 @@ bootstrap reads `PACKAGE_MANAGER` and `ARCHITECTURE` from `.my-harness/.config` 
 
 ### 8.3 Issue / task generation
 
-Split the v1 feature list from Phase 4 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
+Split the complete feature list from Phase 4 into **child issues of at most 300 lines each**, declaring file ownership to prevent conflicts.
 
 - **USE_GITHUB_ISSUES=yes**: Create parent + child issues with `gh issue create` (with 4-lane assignments).
 - **USE_GITHUB_ISSUES=no**:
@@ -1167,7 +1167,7 @@ Read `dev/docs/spec/*.md` and `.my-harness/.config`, then Claude **manually crea
 
 ## Features
 
-<v1 feature list from spec/04-features.md as bullet checkboxes [ ] / [x]>
+<feature list from spec/04-features.md as bullet checkboxes [ ] / [x]>
 
 ## Tech stack
 
@@ -1257,7 +1257,7 @@ The harness auto-firing skills enforce:
 
 ## Current feature status
 
-<Initialize the v1 feature list from spec/04-features.md with `pending`; flip to `done` as issues complete>
+<Initialize the project feature list from spec/04-features.md with `pending`; flip to `done` as issues complete>
 ```
 
 After Claude writes these 2 files to `dev/`, stage and commit in dev. Use `$LANG`:

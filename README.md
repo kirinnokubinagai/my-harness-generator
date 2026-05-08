@@ -71,7 +71,7 @@ The first question of `/my-harness-init` asks whether to use English or Japanese
 | 1 | **Setup** | Project root path, Codex y/n, global CLAUDE.md inheritance, task management mode (GitHub Issues or local files) |
 | 2 | **Discovery** | Open multi-turn conversation that drills into failure modes, who'd push back, scale breakpoints, trust model, differentiation, day-2 ops — the load-bearing constraints |
 | 3 | **Structure** | Just architecture (client-server / serverless / pure P2P / hybrid P2P) and platform multi-select (web / desktop / mobile + iOS-or-Android) |
-| 4 | **Features** | Complete v1 feature list — everything needed before you'd call it done — drilled per feature on access path / failure / observability / onboarding / power-user / empty / failure-recovery / latency budget |
+| 4 | **Features** | Complete feature list for the whole project — everything needed before you'd call it done — drilled per feature on access path / failure / observability / onboarding / power-user / empty / failure-recovery / latency budget |
 | 5 | **Visual** | Logo (3 variants) plus 3–5 UI mocks per chosen platform via Codex `gpt-image-2`; after each mock, drill on missing elements / confusing elements / hidden constraints. Mocks become source of truth |
 | 6 | **Tools** | Framework (per platform), backend, DB, package manager, email, E2E, Claude Code Action — every prompt references the approved mocks ("your dashboard mock needs realtime, so …") |
 | 7 | **Data model** | Entities, relationships, PII handling (mermaid ER diagram) — drilled per entity on lifecycle / GDPR / permissions / cardinality / migration |

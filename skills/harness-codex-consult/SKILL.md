@@ -67,7 +67,7 @@ If Codex has an image generation tool available, it will create and save the fil
 codex-ask.sh \
   --role architect \
   --out dev/docs/spec/codex-arch-review.md \
-  "For an MVP with user authentication + billing + Resend email
+  "For a project with user authentication + billing + Resend email
 using Hono + Cloudflare D1 + Drizzle,
 what is a sensible way to draw the module boundaries?"
 ```
