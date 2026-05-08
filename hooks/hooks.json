@@ -1,14 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-hooks",
-  "_comment": "Active only in harness projects (where .my-harness/.config exists in cwd or a parent directory). Exits immediately with code 0 in all other projects.",
-  "UserPromptSubmit": [
-    {
-      "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-user-prompt.sh"
-    }
-  ],
-  "Stop": [
-    {
-      "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-claude-output.sh"
-    }
-  ]
+  "description": "Logs user prompts and Claude responses to dev/docs/talk/ when run inside a my-harness project (no-op elsewhere).",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-user-prompt.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/log-claude-output.sh"
+          }
+        ]
+      }
+    ]
+  }
 }
