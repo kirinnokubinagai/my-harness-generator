@@ -206,16 +206,18 @@ If found, ask: "You were last at the `<current_phase>` phase. Resume? (y/n)". `y
 
 ## Phase 0 — Language
 
-**Ask once:**
+**Ask once. The question itself MUST be shown bilingually because the user's preferred language is not yet known. Render this exact bilingual block — do not pick one variant, show both side by side:**
 
-> "Should I speak Japanese with you, or English? (`en` or `ja`, default `en`)"
+> **EN:** "Which language should I use for this interview and the project's user-facing content (docs, JSDoc, error messages)? Reply with `en` or `ja`. Default: `en`."
+>
+> **JA:** "このインタビューと、これから作るプロジェクトのユーザー向けコンテンツ（ドキュメント・JSDoc・エラーメッセージ等）で使う言語を選んでください。`en` または `ja` でお答えください。デフォルト: `en`。"
 
-Persist `LANG=en|ja`. From here every prompt renders **only** in the chosen language.
+Persist `LANG=en|ja` based on the answer.
 
-**Acknowledgment:**
+**Acknowledgment — render ONLY the variant matching the chosen LANG (do NOT show both):**
 
-- `LANG=en`: "Got it — I'll continue in English. Let's pin down a few setup details, then we'll have a real conversation about what you're building, then we'll generate visual mocks before locking down any tooling."
-- `LANG=ja`: "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りし、その後でビジュアルモックを作ってから具体的なツール選定に入ります。"
+- If `LANG=en` selected → "Got it — I'll continue in English from here. Let's pin down a few setup details, then we'll have a real conversation about what you're building, then we'll generate visual mocks before locking down any tooling."
+- If `LANG=ja` selected → "了解しました。ここから先は日本語で進めます。最小限のセットアップ確認をしてから、何を作るのか会話で深掘りし、その後でビジュアルモックを作ってから具体的なツール選定に入ります。"
 
 Save to `.my-harness/.config` (first entry):
 ```
@@ -223,6 +225,23 @@ LANG=<en|ja>
 ```
 
 Update `init-state.json` with `current_phase: "setup"`, `phases_completed: ["language"]`.
+
+---
+
+## ENFORCEMENT — language rules apply to every prompt from Phase 1 onward
+
+**Critical:** The user's global `~/.claude/CLAUDE.md` may contain a directive like "Always respond in 日本語". That directive is overridden inside this skill once `LANG` is set. The interview, every generated prompt, every acknowledgment, every error message, and every clarifying question MUST be in the language the user picked in Phase 0 — even if the global file says otherwise. This skill's instructions are the contract; the global file does not apply to `/my-harness-init` interactions after Phase 0 completes.
+
+**Every turn from Phase 1 onward, before composing any user-facing message:**
+
+1. **Read `LANG` from authoritative source.** Run `grep -E "^LANG=" "$ROOT/.my-harness/.config" | cut -d= -f2` (or read `init-state.json`'s `lang` field). Confirm the value before composing the prompt.
+2. **Render ONLY the matching variant.** Each question below has both an `LANG=en` block and an `LANG=ja` block. Output exactly the matching one, verbatim. Never render both. Never produce a mixed-language response.
+3. **Free-form prompts (Phase 2 discovery drill, Phase 4 features drill, Phase 5 mock follow-ups, Phase 7 entity drill) MUST be composed in the chosen `LANG`.** When `LANG=en`, write the question in English; when `LANG=ja`, write in Japanese. This applies even when the user replies in the opposite language — keep emitting `LANG`.
+4. **Codex prompts you compose for `codex-ask.sh`** stay in English regardless of `LANG` (Codex's role prefixes are English). The user-visible Codex output is then translated/rephrased by you into `LANG` before showing the user.
+5. **If you accidentally output the wrong language**, immediately re-issue the message in `LANG` with a brief one-line apology in `LANG`.
+6. **Variable interpolation, code blocks, file paths, shell commands, JSON keys, env var names** stay in their original ASCII form — only natural-language prose is language-switched.
+
+This ENFORCEMENT block is non-negotiable. Treat it as a hard precondition for every output line.
 
 ---
 
@@ -498,7 +517,9 @@ When the discoverySheet already implies a decision, say it explicitly and skip:
 - **LANG=en:** "From our conversation I already know `<decision> = <value>` (because you said `<reason>`). Skipping that question."
 - **LANG=ja:** "先ほどの会話から `<決定> = <値>` は確定していると判断しました（`<理由>` のため）。この質問はスキップします。"
 
-Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question, max 4 questions per turn. Use `multiSelect: true` where appropriate. Use `preview` (single-select only) for choices that need comparison. Mark the recommended choice as `(Recommended)` and put it first.
+Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question, max 4 questions per turn. Use `multiSelect: true` where appropriate. Use `preview` (single-select only) for choices that need comparison.
+
+**Recommendation policy:** Do not mark any choice as `(Recommended)` unless the prompt itself can name the specific `discoverySheet` field or `visualMocks[].decisionsRevealed` entry that justifies the recommendation. If you cannot cite a specific user-derived justification, present choices in neutral order with no label.
 
 ### Decision 1 — Architecture (only when `architectureHints == "undecided"`)
 
@@ -506,7 +527,7 @@ Single-select. Use `preview` to show one-line ASCII diagrams.
 
 | Choice | Preview |
 |--------|---------|
-| `Client + REST/GraphQL backend (Recommended)` | `[Client] ⇄ HTTPS ⇄ [Backend API] ⇄ [DB]` |
+| `Client + REST/GraphQL backend` | `[Client] ⇄ HTTPS ⇄ [Backend API] ⇄ [DB]` |
 | `Client + serverless functions` | `[Client] ⇄ HTTPS ⇄ [Edge fn] ⇄ [DB]` |
 | `Pure P2P (no central server)` | `[Peer A] ⇄ DHT/relay ⇄ [Peer B]` |
 | `P2P + coordinator/bootstrap server (hybrid)` | `[Peer A] ⇄ [Coord] ⇄ [Peer B]   data: peer↔peer direct` |
@@ -782,7 +803,7 @@ Single-select.
 
 | Choice | Note |
 |--------|------|
-| `pnpm (Recommended — fastest cold install, content-addressable store)` | mature, monorepo-friendly |
+| `pnpm` | fastest cold install, content-addressable store, monorepo-friendly |
 | `bun` | faster runtime, native test runner, single binary |
 | `npm` | universal, slowest |
 | `yarn` | classic alternative |
@@ -798,7 +819,7 @@ Single-select with `preview`.
 
 | Choice | Preview |
 |--------|---------|
-| `Next.js (Recommended)` | `app/`, `app/api/`, RSC, edge or node runtime |
+| `Next.js` | `app/`, `app/api/`, RSC, edge or node runtime |
 | `TanStack Start` | `routes/`, file-based, fully typed, type-safe loaders |
 | `SvelteKit` | `src/routes/`, server hooks, light footprint |
 
@@ -811,7 +832,7 @@ Persist `WEB_KIND=nextjs|tanstack|sveltekit`.
 
 | Choice | Note |
 |--------|------|
-| `Swift / SwiftUI (Recommended for iOS-only)` | native, App Store standard |
+| `Swift / SwiftUI` | native, App Store standard |
 | `Expo (React Native)` | cross-platform with Android, JS/TS shared |
 | `Flutter` | Dart, cross-platform, custom rendering |
 
@@ -824,7 +845,7 @@ Persist `IOS_KIND=swift|expo|flutter`.
 
 | Choice | Note |
 |--------|------|
-| `Kotlin / Compose (Recommended for Android-only)` | native, Play Store standard |
+| `Kotlin / Compose` | native, Play Store standard |
 | `Expo (React Native)` | cross-platform with iOS |
 | `Flutter` | Dart, cross-platform |
 
@@ -841,7 +862,7 @@ Framework single-select with `preview`:
 
 | Choice | Preview |
 |--------|---------|
-| `Tauri (Recommended — small footprint, Rust shell)` | `src-tauri/`, `~10MB binaries` |
+| `Tauri` | `src-tauri/`, `~10MB binaries`, Rust shell |
 | `Electron` | full Node.js, ~120MB binaries, mature ecosystem |
 
 **LANG=en (template):** "Your desktop mocks show <X> (e.g. 'tray-resident with notifications', 'OS-integrated file picker', 'multi-window'). Desktop framework?"
@@ -855,7 +876,7 @@ Skip when `ARCHITECTURE in {client-serverless, p2p-pure}`.
 
 | Choice | Note |
 |--------|------|
-| `Hono on Cloudflare Workers (Recommended)` | edge, TypeScript, sub-50ms cold start |
+| `Hono on Cloudflare Workers` | edge, TypeScript, sub-50ms cold start |
 | `Go (Gin)` | mature, fast, large standard library |
 | `Rust (Axum)` | typed, performant, steep ramp |
 
@@ -870,8 +891,8 @@ For `p2p-hybrid`, the backend is a lightweight coordinator/bootstrap server (sig
 
 | Choice | Note |
 |--------|------|
-| `Cloudflare D1 (Recommended for hono/edge)` | SQLite at edge, paired well with Workers |
-| `PostgreSQL` | full SQL, JSON, recommended for gin/rust |
+| `Cloudflare D1` | SQLite at edge, pairs well with Workers |
+| `PostgreSQL` | full SQL, JSON, suited for gin/rust with heavy joins |
 | `MySQL` | full SQL alternative |
 | `SQLite (local)` | embedded, single-file |
 
@@ -890,7 +911,7 @@ Persist `DB_KIND=d1|postgres|mysql|sqlite|none` (none when skipped).
 
 | Choice | Note |
 |--------|------|
-| `Resend (Recommended)` | modern API, React Email templates |
+| `Resend` | modern API, React Email templates |
 | `SendGrid` | enterprise standard |
 | `none` | no transactional email |
 
@@ -903,7 +924,7 @@ Persist `USE_EMAIL=yes|no` and `EMAIL_KIND=resend|sendgrid|none`.
 
 | Choice | Note |
 |--------|------|
-| `OAuth (Recommended for consumer apps)` | social sign-in, less password handling |
+| `OAuth` | social sign-in, less password handling |
 | `Password (email + password)` | full control, more compliance burden |
 | `none` | no auth |
 
@@ -929,12 +950,12 @@ Filter to the user's chosen platforms (don't offer Playwright if no web/desktop,
 
 Single-select y/n via AskUserQuestion if not implied.
 
-- `Yes — automated PR review (Recommended)`
+- `Yes — automated PR review`
 - `No`
 
 Persist `USE_CLAUDE_ACTION=yes|no`. If yes, follow up with auth method:
 
-- `OAuth (Recommended)`
+- `OAuth`
 - `API key`
 
 Persist `CLAUDE_AUTH=api|oauth`.
