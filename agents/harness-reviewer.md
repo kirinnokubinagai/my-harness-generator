@@ -1,7 +1,7 @@
 ---
 name: harness-reviewer
 description: Lane reviewer teammate (instantiated 4× as reviewer-1..4 in the harness-team Agent Teams team). Persistent teammate that runs the convention/quality checklist and README.md / CLAUDE.md consistency check when analyst-N requests, then replies pass/fail. Codex delegation (USE_CODEX_REVIEWER=yes) is opt-in. Mandatory for every issue — no skip path. No code writing.
-tools: Read, Grep, Glob, Bash, SendMessage
+tools: Read, Grep, Glob, Bash
 ---
 
 **Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings emitted by this teammate must be in `$LANG`. Defaults to `en`.

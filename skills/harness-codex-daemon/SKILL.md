@@ -1,12 +1,12 @@
 ---
 name: harness-codex-daemon
-description: Lifecycle controller for the shared `codex app-server` daemon. Provides start / stop / status / restart / logs / doctor as the single canonical entry point. Other skills (harness-team-lead, harness-codex-consult, etc.) MUST invoke this skill instead of running `scripts/codex-daemon.sh` inline — that keeps the bash boilerplate out of the caller's context. Fires when the user says "start the codex daemon", "stop the codex daemon", "share codex across lanes", or when an orchestrator is opening / closing a parallel work session.
+description: Lifecycle controller for the shared `codex app-server` daemon. Provides start / stop / status / restart / logs / doctor as the single canonical entry point. Other skills (harness-team-lead, harness-codex-consult, etc.) MUST invoke this skill instead of running `skills/harness-codex-daemon/scripts/codex-daemon.sh` inline — that keeps the bash boilerplate out of the caller's context. Fires when the user says "start the codex daemon", "stop the codex daemon", "share codex across lanes", or when an orchestrator is opening / closing a parallel work session.
 ---
 
 # harness-codex-daemon
 
 Single source of truth for talking to the shared Codex daemon. Wraps
-`scripts/codex-daemon.sh` so callers can invoke this skill once instead of
+`skills/harness-codex-daemon/scripts/codex-daemon.sh` so callers can invoke this skill once instead of
 quoting bash blocks. The underlying script supports stdin-less, side-effect-
 free idempotent operation: `start` is a no-op when already running, `stop` is
 a no-op when not running.
@@ -34,26 +34,23 @@ If the daemon is down, `codex-app-server-call.py` falls back to per-call stdio
 mode automatically, so this skill is best-effort: a failure to start does not
 break the harness, it just removes the memory savings.
 
+All actions are thin wrappers in `skills/harness-codex-daemon/scripts/`.
+Invoke them via bash; do not inline the daemon path resolution.
+
 ## Action: start
 
 ```bash
-DAEMON="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-daemon.sh"
-if [ -x "$DAEMON" ]; then
-  bash "$DAEMON" start
-else
-  echo "::warning:: $DAEMON not found; lanes will use stdio mode" >&2
-fi
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" start
 ```
 
 Exit 0 always means "the harness can proceed" — even if daemon failed to
-start (the fallback path works). Read the printed status line to know if the
-daemon is actually up.
+start, lanes fall back to stdio mode. Read the printed status line to know
+if the daemon is actually up.
 
 ## Action: stop
 
 ```bash
-DAEMON="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-daemon.sh"
-[ -x "$DAEMON" ] && bash "$DAEMON" stop || true
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" stop
 ```
 
 Best-effort. Safe to run multiple times. Skipping stop is fine — the daemon
@@ -63,18 +60,24 @@ within the same session.
 ## Action: status
 
 ```bash
-DAEMON="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-daemon.sh"
-bash "$DAEMON" status
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" status
 ```
 
 Exit 0 when running and ready (`/readyz` returns 200), 1 when not running,
 2 when pid alive but socket / port file is broken (run `restart`).
 
+## Action: restart
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" restart
+```
+
+`stop` + `start`. Use when daemon state files are corrupted.
+
 ## Action: doctor
 
 ```bash
-DAEMON="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-daemon.sh"
-bash "$DAEMON" doctor
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" doctor
 ```
 
 Probes `initialize` end-to-end through the Python SDK. Use when `status` is
@@ -85,8 +88,7 @@ to be active (provides `$MY_HARNESS_CODEX_PY`) or
 ## Action: logs
 
 ```bash
-DAEMON="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-daemon.sh"
-bash "$DAEMON" logs
+bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-codex-daemon/scripts/codex-daemon.sh" logs
 ```
 
 `tail -f` of `~/.codex/my-harness-daemon.log`. Press Ctrl-C to detach.

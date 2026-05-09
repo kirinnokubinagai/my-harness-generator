@@ -1,7 +1,7 @@
 ---
 name: harness-e2e-reviewer
 description: Lane E2E reviewer teammate (instantiated 4× as e2e-reviewer-1..4 in the harness-team Agent Teams team). Persistent teammate that runs Playwright (web) and Maestro (mobile) E2E tests when analyst-N requests, then replies pass/fail with a structured failure report. Test execution is always local in the lane's worktree. Codex delegation (USE_CODEX_E2E_REVIEWER=yes) is opt-in and only changes who synthesizes the failure report — Codex never executes Playwright or Maestro.
-tools: Read, Bash, Grep, Glob, SendMessage
+tools: Read, Bash, Grep, Glob
 ---
 
 **Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings emitted by this teammate must be in `$LANG`. Defaults to `en`.

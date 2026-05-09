@@ -69,7 +69,7 @@ That's it — `codex`, `rtk`, `python` (with the SDK), and every other tool the 
 
 **First-run note:** on macOS arm64 the `codex` package may have to be compiled from source (~20–60 min) the first time you enter the shell, since not every nixpkgs `aarch64-darwin` build is in the public cache. After that initial build, subsequent `nix develop` invocations are instant. On Linux x86_64 the cache hit rate is much higher and the first run is typically under five minutes.
 
-**Memory savings:** when `harness-team-lead` runs lanes in parallel, the harness can route every lane through one shared `codex app-server` daemon (WebSocket transport). Measured locally on macOS arm64 with 3 concurrent lanes: peak 271 MB / 4 processes (stdio per-call) → 120 MB / 2 processes (shared daemon), a 55% drop. Extrapolated to a 16-lane team this is roughly an 85% reduction. The daemon is started/stopped via `scripts/codex-daemon.sh start|stop|status`.
+**Memory savings:** when `harness-team-lead` runs lanes in parallel, the harness can route every lane through one shared `codex app-server` daemon (WebSocket transport). Measured locally on macOS arm64 with 3 concurrent lanes: peak 271 MB / 4 processes (stdio per-call) → 120 MB / 2 processes (shared daemon), a 55% drop. Extrapolated to a 16-lane team this is roughly an 85% reduction. The daemon is started/stopped via `skills/harness-codex-daemon/scripts/codex-daemon.sh start|stop|status`.
 
 ### Install the plugin
 

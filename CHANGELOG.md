@@ -4,6 +4,63 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.0.0] — 2026-05-10
+
+### Added — kernel-panic prevention for /harness-team-lead (BREAKING)
+
+Earlier real-world runs of `/harness-team-lead` on a 16 GB MacBook Air produced two distinct catastrophes:
+
+1. macOS kernel watchdog panic (91-second freeze, full reboot) when `nix-collect-garbage` was launched from inside the skill on a near-full disk while 16 in-process teammates were active. Compressor reached 96% of segments, swap exhausted at 36 GB, 859 node processes alive at the moment of panic.
+2. ENOSPC stalls on engineer lanes when `pnpm install` / `vitest` were invoked under disk pressure.
+
+Root causes (now structurally prevented):
+
+- **No resource gate**. The skill happily entered with `< 10 GB` disk and `compressor > 4 GB`.
+- **Non-idempotent `/loop` re-entry**. Each `/loop` wakeup re-evaluated state, re-spawned `nix-collect-garbage`, re-issued `TeamCreate` against an existing team. Multiple GCs raced for disk; team-create error responses tempted the LLM to delete-and-recreate (= 16 fresh teammates on top of 16 alive ones).
+- **In-skill background jobs**. `nohup nix-collect-garbage -d &` from inside the skill outlived the lead session and pile-piled across wakeups.
+
+Fixes (all extracted to `skills/harness-team-lead/scripts/` shell files — SKILL.md no longer carries inline operational bash):
+
+- `scripts/preflight.sh` — hard gate. Refuses to start if any of:
+  - Data volume `< 20 GB` available
+  - reclaimable RAM (free + inactive + speculative) `< 1 GB`
+  - `vm.compressor_bytes_used > 6 GB`
+  - swap used `> 1 GB`
+  - any `nix-collect-garbage` / `nix-store --gc` already running
+  - `.my-harness/.config` missing
+  Surfaces the remediation steps to stderr and exits non-zero. Caller must propagate.
+- `scripts/check-agent-teams-enabled.sh` — idempotent settings.json + env check.
+- `scripts/check-team-exists.sh` — emits one of `skip` / `create` / `broken`. `skip` means the existing team is fully populated and Step 2 must NOT call `TeamCreate` or any of the 16 `Agent({})` calls. This is the structural fix for `/loop` re-entry duplicate spawn.
+- `scripts/list-pending-issues.sh` — replaces inline `gh issue list` / `find docs/task/child` branching. One canonical script, auto-detects `USE_GITHUB_ISSUES` from `.my-harness/.config`.
+
+Hard prohibitions added to SKILL.md:
+
+- Skill MUST NEVER invoke `nix-collect-garbage` / `nix-store --gc`. Lane blocks caused by ENOSPC are reported to the user (one `[lane=N status=blocked-disk-full]` message); the user runs cleanup externally before saying `resume lane N`.
+- Skill MUST NEVER spawn long-running background jobs (`nohup ... &`).
+- Skill MUST NEVER call `TeamCreate` while `~/.claude/teams/harness-team/config.json` exists. Disk-recover via `TeamDelete` is a separate, manual decision.
+
+### Changed (BREAKING) — `scripts/codex-daemon.sh` moved into the owning skill
+
+- `scripts/codex-daemon.sh` → `skills/harness-codex-daemon/scripts/codex-daemon.sh`. The skill now owns its single implementation script. SKILL.md invokes the new path directly; the previous wrapper layer (`start.sh` / `stop.sh` etc.) was removed as dead indirection.
+- Any external automation that hard-coded `scripts/codex-daemon.sh` must update its path. Internal references (README, CHANGELOG, `scripts/codex-app-server-call.py`) have been updated.
+
+### Changed — agent definitions slimmed
+
+- `agents/harness-{analyst,engineer,e2e-reviewer,reviewer}.md` frontmatter `tools:` field no longer lists `SendMessage`. SendMessage is a deferred tool — listing it had no effect (each teammate still ran `ToolSearch select:SendMessage` before first use). The bogus declaration is removed.
+- `agents/harness-engineer.md` body — the `## Code discipline`, `## Nix pure`, and `## TDD` sections were removing duplicated rule content already owned by the dedicated rule skills (`harness-tdd`, `harness-jsdoc`, `harness-hono-clean-arch`, `harness-drizzle-rules`, `harness-design-rules`, `harness-nix-pure`, `harness-no-hardcoded-secrets`). Replaced with a single `## Conventions` section that references the skills by name. Engineer system prompt is ~30 lines shorter; rules live in exactly one place.
+
+### Changed — `harness-team-lead` Step 2 spawn prompt is no longer redundant
+
+- Per-teammate spawn prompt no longer embeds runtime values (`USE_CODEX=...`, `USE_CODEX_ENGINEER=...`, etc.). Each teammate reads `.my-harness/.config` itself when needed. Prompt template went from ~900 chars to ~150 chars.
+
+### Migration
+
+Existing projects on 2.x using `/harness-team-lead`:
+
+1. The skill will refuse to start if disk is `< 20 GB` or RAM/compressor is in real pressure. Run a cleanup externally (e.g. `bash ~/harness-monitor/cleanup.sh` if you adopted the optional auto-cleanup helper) and retry.
+2. If you scripted against `scripts/codex-daemon.sh`, update the path to `skills/harness-codex-daemon/scripts/codex-daemon.sh`.
+3. Existing `harness-team` from a prior run will be reused — Step 2 emits `skip`. To force a fresh team, manually `rm -rf ~/.claude/teams/harness-team/` and rerun (the lead will then run TeamCreate + 16 `Agent({})`).
+
 ## [Unreleased]
 
 ### Fixed — `dev/dev/talk` path collision in conversation log hooks
@@ -18,7 +75,7 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 ### Hardened — bootstrap.sh, daemon, install-rtk
 
 - `scripts/bootstrap.sh` `ensure_worktree`: previously WARNED + skipped when a non-worktree directory was already present at `main/` `stage/` or `dev/`, so a half-completed first run could silently leave the user with only `dev/`. Now ERRORS and tells the user to `rm` it. A final post-loop check verifies all three worktrees have `.git` markers; if any is missing, the script exits 1 with `git worktree list` output for diagnosis.
-- `scripts/codex-daemon.sh` `cmd_start`: runs `check-codex-auth.sh` and prints a `::warning::` if codex is not logged in (the daemon itself starts fine but every turn would fail). Truncates `~/.codex/my-harness-daemon.log` on each start so it never grows unbounded across long-lived sessions.
+- `skills/harness-codex-daemon/scripts/codex-daemon.sh` `cmd_start`: runs `check-codex-auth.sh` and prints a `::warning::` if codex is not logged in (the daemon itself starts fine but every turn would fail). Truncates `~/.codex/my-harness-daemon.log` on each start so it never grows unbounded across long-lived sessions.
 - `scripts/install-rtk.sh` `write_config`: skip condition broadened from "exclude_commands key present" to "either `[hooks]` section OR `exclude_commands` key present" — prevents a TOML duplicate-section error if a future RTK auto-patch starts writing a bare `[hooks]` header.
 
 ### Added — Codex memory optimization (2.2.0 candidate)
@@ -26,7 +83,7 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 - **Top-level `flake.nix`** at the repo root provides the entire harness runtime via `nix develop` / `direnv allow`: `codex` CLI, `rtk`, Python 3.13 with `codex-app-server-sdk` + `websockets` + `pydantic`, plus jq / curl / coreutils. A fresh Mac, Linux box, or WSL2 environment with only Nix installed is now sufficient — no `brew install`, no `npm -g`, no `pip --user`. See README → "Fresh machine setup".
 - **`nix/codex-app-server-sdk.nix`** — custom `buildPythonPackage` derivation for the SDK (not yet in nixpkgs). hatchling backend, depends on `pydantic` + `websockets`, AGPL-3.0.
 - **`scripts/codex-app-server-call.py`** — Python SDK client that replaces the legacy per-call `codex exec` invocation. Connects via WebSocket to a shared daemon when available, otherwise spawns its own stdio app-server. Drains streamed events, emits only the final `agent_message` text on stdout.
-- **`scripts/codex-daemon.sh`** + **`skills/harness-codex-daemon/`** — lifecycle manager for the shared daemon (`start` / `stop` / `status` / `restart` / `logs` / `doctor`), exposed as a skill so callers do not need to inline bash. Listens on `ws://127.0.0.1:7373`. Measured 55% peak-RAM reduction across 3 concurrent lanes (271 MB → 120 MB) on macOS arm64; ~85% projected at 16 lanes.
+- **`skills/harness-codex-daemon/scripts/codex-daemon.sh`** + **`skills/harness-codex-daemon/`** — lifecycle manager for the shared daemon (`start` / `stop` / `status` / `restart` / `logs` / `doctor`), exposed as a skill so callers do not need to inline bash. Listens on `ws://127.0.0.1:7373`. Measured 55% peak-RAM reduction across 3 concurrent lanes (271 MB → 120 MB) on macOS arm64; ~85% projected at 16 lanes.
 - **`skills/harness-team-lead/SKILL.md`** — Step 0 invokes `harness-codex-daemon` with action `start` before issue dispatching, Step 4 invokes it with `stop` on shutdown.
 - **`scripts/install-codex-sdk.sh`** — venv-based fallback for users without Nix. Creates `$HOME/.codex/my-harness-venv` and `pip install`s the SDK. Auto-skipped when the flake's shellHook has set `MY_HARNESS_CODEX_PY`.
 - **`scripts/install-rtk.sh`** — one-shot installer for [RTK](https://github.com/rtk-ai/rtk), the PreToolUse hook that compresses Bash output (git / find / grep / etc.) by 60-90% before it reaches Claude's context. Backs up `~/.claude/settings.json`, runs `rtk init -g --auto-patch`, writes `~/.config/rtk/config.toml` with `codex` / `codex-ask.sh` / `claude` excluded so wrapper output is never rewritten.

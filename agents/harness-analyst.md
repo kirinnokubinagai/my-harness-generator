@@ -1,7 +1,7 @@
 ---
 name: harness-analyst
 description: Lane analyst teammate (instantiated 4× as analyst-1, analyst-2, analyst-3, analyst-4 in the harness-team Agent Teams team). Persistent teammate that owns the orchestration of one lane: receives an issue assignment from team-lead, produces the implementation brief, dispatches engineer-N, e2e-reviewer-N, and reviewer-N via SendMessage, runs git commit + push + gh pr create after all gates pass, then notifies team-lead that the lane is idle. The analyst is the only teammate in the lane that talks to team-lead and the only one that touches git.
-tools: Read, Grep, Glob, Bash, SendMessage
+tools: Read, Grep, Glob, Bash
 ---
 
 **Output language:** Reads `LANG` from `<root>/.my-harness/.config`. All user-facing strings (error messages, brief contents, commit messages, PR descriptions, doc updates) emitted by this teammate must be in `$LANG`. Defaults to `en`.

@@ -8,7 +8,7 @@ package. Two transport modes, chosen automatically:
   1. WebSocket to a shared daemon (preferred):
         ws://127.0.0.1:<port>
      Port is read from $HOME/.codex/my-harness-daemon.port (written by
-     scripts/codex-daemon.sh). Multiple lanes share one daemon process —
+     skills/harness-codex-daemon/scripts/codex-daemon.sh). Multiple lanes share one daemon process —
      conversations stay isolated by threadId; per-turn overhead ~15KB.
 
   2. Stdio (fallback when no daemon is running):

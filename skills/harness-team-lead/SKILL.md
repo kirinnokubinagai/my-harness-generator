@@ -14,18 +14,11 @@ The skill is the **team lead** in a Claude Code Agent Teams session. It creates 
 This skill **requires** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Without it, `TeamCreate` / `SendMessage` / `TaskList` are not available and the architecture cannot run.
 
 ```bash
-grep -q "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" ~/.claude/settings.json 2>/dev/null \
-  || [ -n "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" ] \
-  || {
-    echo "ERROR: Agent Teams is not enabled."
-    echo "Add to ~/.claude/settings.json:"
-    echo '  "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }'
-    echo "Then restart Claude Code and re-run /harness-team-lead."
-    exit 1
-  }
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/check-agent-teams-enabled.sh" || exit $?
 ```
 
-If not enabled, stop and tell the user how to enable it. Do not proceed.
+If the script exits non-zero, surface the remediation message to the user and stop.
 
 ## Precondition — project must be initialized
 
@@ -39,6 +32,42 @@ source "$ROOT/.my-harness/.config"
 ```
 
 If `.config` is missing, tell the user "Run `/my-harness-init` first" and stop.
+
+## Precondition — resource pre-flight (HARD GATE, never skip)
+
+This skill spawns 16 in-process teammates. On a memory-constrained or disk-constrained host, that is enough to deadlock the kernel (verified: a 16 GB Mac at 95% Data-volume capacity panics within minutes once 16 teammates start working). Refuse to proceed if any of the gates fail. Do **not** try to fix the resource problem from inside this skill — escalate to the user.
+
+```bash
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
+```
+
+The script (`skills/harness-team-lead/scripts/preflight.sh`) checks four gates:
+
+1. `.my-harness/.config` exists (project initialized)
+2. Data volume ≥ 30 GB available
+3. Free RAM ≥ 1 GB, compressor < 4 GB
+4. No `nix-collect-garbage` currently running
+
+On any failure, the script writes the remediation steps to stderr and exits non-zero. **Do not silently retry — surface the message to the user.**
+
+## Hard prohibitions (idempotency under /loop wakeup)
+
+This skill MUST be safe to re-enter (e.g. via `/loop`-driven wakeups). Each wakeup re-evaluates state but must not spawn duplicate work. Explicit prohibitions:
+
+- **Never** invoke `nix-collect-garbage` / `nix-store --gc` from inside this skill. Lane blocks caused by ENOSPC are reported to the user (see "Disk-full handling" below); the user runs cleanup externally.
+- **Never** spawn long-running background bash (`nohup ... &`) from inside this skill. Step 0 explicitly defers daemon lifecycle to the `harness-codex-daemon` skill, which is itself idempotent.
+- **Never** call `TeamCreate` if `~/.claude/teams/harness-team/config.json` already exists — go straight to dispatch in Step 3.
+- **Never** call `Agent({...})` for a `name` that is already a member of `harness-team` (verify via the existing config.json's `members[].name`).
+
+## Disk-full handling
+
+When any analyst-N reports `[lane=N issue=#X status=blocked-disk-full ...]` (or any teammate sends a message containing `ENOSPC`):
+
+1. Mark the lane `paused-disk-full` in `team-state.json`.
+2. **Send one (and only one) message to the user**: "Lane N blocked by ENOSPC. Run `bash $HOME/harness-monitor/cleanup.sh` (or free disk manually), then say 'resume lane N'."
+3. **Do not** start any cleanup ourselves. **Do not** retry until the user says "resume lane N".
+4. On wakeup re-entry: if `lane_status[N].phase == "paused-disk-full"`, do nothing for that lane — wait for the explicit user resume.
 
 ## Step 0 — Start the shared Codex daemon
 
@@ -57,25 +86,27 @@ step is best-effort, not a precondition.
 ## Step 1 — Determine issue source
 
 ```bash
-USE_GITHUB_ISSUES=$(grep -E "^USE_GITHUB_ISSUES=" "$ROOT/.my-harness/.config" | cut -d= -f2)
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/list-pending-issues.sh" "$ROOT" > /tmp/harness-pending.tsv
 ```
 
-- `USE_GITHUB_ISSUES=yes` → fetch from GitHub:
-  ```bash
-  gh issue list --label ready --json number,title,body,labels --limit 50
-  ```
-- `USE_GITHUB_ISSUES=no` → read from local task files:
-  ```bash
-  find "$ROOT/dev/docs/task/child" -name "*.md" | xargs grep -l "status: pending"
-  ```
-
-Build a **pending issue queue** (FIFO). The team can have many pending issues; only 4 are processed in parallel at any moment (one per lane).
+The script (`skills/harness-team-lead/scripts/list-pending-issues.sh`) auto-detects `USE_GITHUB_ISSUES` from `.my-harness/.config` and emits one `<id>\t<title>` line per pending issue (FIFO order). The team processes 4 in parallel at any moment (one per lane); the rest queue.
 
 ## Step 2 — Create the team and 16 teammates (once per session)
 
-If a team called `harness-team` already exists in this session (verify via `TaskList` or by remembering from earlier in the same conversation), skip to Step 3.
+**Idempotency check (mandatory, run every entry — including /loop wakeups)**:
 
-Otherwise:
+```bash
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+TEAM_STATE=$(bash "$SKILL_DIR/scripts/check-team-exists.sh")
+# stdout is one of: "skip" | "create" | "broken"
+```
+
+- `skip`   — team is fully populated. **Skip TeamCreate AND all 16 Agent calls**, go directly to Step 3.
+- `create` — no team file. Run TeamCreate + 16 Agent (block below).
+- `broken` — team file exists but membership is wrong. **Stop and report to user**; do not auto-delete (`TeamDelete` aborts running teammates and spawns N new processes).
+
+If `create`:
 
 ```
 TeamCreate({
@@ -87,12 +118,10 @@ TeamCreate({
 Then **create all 16 teammates in a single message with parallel Agent calls** (4 roles × 4 lanes):
 
 ```
-Agent({ team_name: "harness-team", name: "analyst-1",       subagent_type: "harness-analyst",
-        prompt: "You are analyst-1 of lane-1. Worktree root: <ROOT>. Language: <LANG>. Codex flags: USE_CODEX=<...>, USE_CODEX_ENGINEER=<...>, USE_CODEX_E2E_REVIEWER=<...>, USE_CODEX_REVIEWER=<...>. Acknowledge and idle." })
-
-Agent({ team_name: "harness-team", name: "engineer-1",      subagent_type: "harness-engineer",      prompt: "You are engineer-1 of lane-1. (same setup as analyst-1)" })
-Agent({ team_name: "harness-team", name: "e2e-reviewer-1",  subagent_type: "harness-e2e-reviewer",  prompt: "You are e2e-reviewer-1 of lane-1. (same setup)" })
-Agent({ team_name: "harness-team", name: "reviewer-1",      subagent_type: "harness-reviewer",      prompt: "You are reviewer-1 of lane-1. (same setup)" })
+Agent({ team_name: "harness-team", name: "analyst-1",       subagent_type: "harness-analyst",       prompt: "You are analyst-1 of lane-1. Read <ROOT>/.my-harness/.config for runtime flags (LANG, USE_CODEX*) when you need them. Acknowledge and idle." })
+Agent({ team_name: "harness-team", name: "engineer-1",      subagent_type: "harness-engineer",      prompt: "You are engineer-1 of lane-1. Read <ROOT>/.my-harness/.config for runtime flags when needed." })
+Agent({ team_name: "harness-team", name: "e2e-reviewer-1",  subagent_type: "harness-e2e-reviewer",  prompt: "You are e2e-reviewer-1 of lane-1. Read <ROOT>/.my-harness/.config for runtime flags when needed." })
+Agent({ team_name: "harness-team", name: "reviewer-1",      subagent_type: "harness-reviewer",      prompt: "You are reviewer-1 of lane-1. Read <ROOT>/.my-harness/.config for runtime flags when needed." })
 
 Agent({ team_name: "harness-team", name: "analyst-2",       subagent_type: "harness-analyst",       prompt: "You are analyst-2 of lane-2. ..." })
 Agent({ team_name: "harness-team", name: "engineer-2",      subagent_type: "harness-engineer",      prompt: "You are engineer-2 of lane-2. ..." })
