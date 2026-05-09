@@ -6,6 +6,38 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed — `dev/dev/talk` path collision in conversation log hooks
+
+- `hooks/log-user-prompt.sh` and `hooks/log-claude-output.sh` walked up from `cwd` to find `.my-harness/.config`, then hardcoded `$PROJECT_ROOT/dev/docs/talk` as the log target. Because `bootstrap.sh` writes `.my-harness/.config` BOTH at the project root and inside each worktree, running `claude` from the `dev/` worktree produced `<root>/dev/dev/docs/talk/...` paths. The hooks now detect when `PROJECT_ROOT`'s parent already has `.my-harness/.config` (= we are inside a worktree) and skip the `dev/` prefix in that case. Both starting points (`<root>` and `<root>/dev`) now resolve to the same canonical `<root>/dev/docs/talk/<date>.md`.
+
+### Changed — bypass-permissions by default for Codex calls and Claude Code
+
+- `~/.claude/settings.json` is set to `"defaultMode": "bypassPermissions"` (was `"auto"`). Claude Code is the outer review boundary in Agent Teams runs; the per-tool prompt would just block 16 lanes on every shell.
+- `scripts/codex-app-server-call.py` now sets `approval_policy="never"` and `sandbox="danger-full-access"` on every `ThreadConfig`. Override with the new `--no-bypass` flag for paranoid runs.
+
+### Hardened — bootstrap.sh, daemon, install-rtk
+
+- `scripts/bootstrap.sh` `ensure_worktree`: previously WARNED + skipped when a non-worktree directory was already present at `main/` `stage/` or `dev/`, so a half-completed first run could silently leave the user with only `dev/`. Now ERRORS and tells the user to `rm` it. A final post-loop check verifies all three worktrees have `.git` markers; if any is missing, the script exits 1 with `git worktree list` output for diagnosis.
+- `scripts/codex-daemon.sh` `cmd_start`: runs `check-codex-auth.sh` and prints a `::warning::` if codex is not logged in (the daemon itself starts fine but every turn would fail). Truncates `~/.codex/my-harness-daemon.log` on each start so it never grows unbounded across long-lived sessions.
+- `scripts/install-rtk.sh` `write_config`: skip condition broadened from "exclude_commands key present" to "either `[hooks]` section OR `exclude_commands` key present" — prevents a TOML duplicate-section error if a future RTK auto-patch starts writing a bare `[hooks]` header.
+
+### Added — Codex memory optimization (2.2.0 candidate)
+
+- **Top-level `flake.nix`** at the repo root provides the entire harness runtime via `nix develop` / `direnv allow`: `codex` CLI, `rtk`, Python 3.13 with `codex-app-server-sdk` + `websockets` + `pydantic`, plus jq / curl / coreutils. A fresh Mac, Linux box, or WSL2 environment with only Nix installed is now sufficient — no `brew install`, no `npm -g`, no `pip --user`. See README → "Fresh machine setup".
+- **`nix/codex-app-server-sdk.nix`** — custom `buildPythonPackage` derivation for the SDK (not yet in nixpkgs). hatchling backend, depends on `pydantic` + `websockets`, AGPL-3.0.
+- **`scripts/codex-app-server-call.py`** — Python SDK client that replaces the legacy per-call `codex exec` invocation. Connects via WebSocket to a shared daemon when available, otherwise spawns its own stdio app-server. Drains streamed events, emits only the final `agent_message` text on stdout.
+- **`scripts/codex-daemon.sh`** + **`skills/harness-codex-daemon/`** — lifecycle manager for the shared daemon (`start` / `stop` / `status` / `restart` / `logs` / `doctor`), exposed as a skill so callers do not need to inline bash. Listens on `ws://127.0.0.1:7373`. Measured 55% peak-RAM reduction across 3 concurrent lanes (271 MB → 120 MB) on macOS arm64; ~85% projected at 16 lanes.
+- **`skills/harness-team-lead/SKILL.md`** — Step 0 invokes `harness-codex-daemon` with action `start` before issue dispatching, Step 4 invokes it with `stop` on shutdown.
+- **`scripts/install-codex-sdk.sh`** — venv-based fallback for users without Nix. Creates `$HOME/.codex/my-harness-venv` and `pip install`s the SDK. Auto-skipped when the flake's shellHook has set `MY_HARNESS_CODEX_PY`.
+- **`scripts/install-rtk.sh`** — one-shot installer for [RTK](https://github.com/rtk-ai/rtk), the PreToolUse hook that compresses Bash output (git / find / grep / etc.) by 60-90% before it reaches Claude's context. Backs up `~/.claude/settings.json`, runs `rtk init -g --auto-patch`, writes `~/.config/rtk/config.toml` with `codex` / `codex-ask.sh` / `claude` excluded so wrapper output is never rewritten.
+- **Per-call plugin disable** in `codex-ask.sh` and the Python helper. Set `$MY_HARNESS_CODEX_DISABLE_PLUGINS="cloudflare@openai-curated,sentry@openai-curated,..."` (or pass `--disable-plugin` repeatedly) and `[plugins."<id>"] enabled = false` overrides are passed via `-c` for that single invocation only — your `~/.codex/config.toml` stays untouched.
+- **`.envrc`** — `use flake`, so `direnv allow` once gives you the dev shell on every `cd`.
+
+### Changed — codex-ask.sh internals
+
+- Replaced the legacy `codex exec` / `codex exec resume` cold-start invocation with a JSON-RPC 2.0 conversation over the official Python SDK. Public CLI surface (`--role`, `--context`, `--session`, `--out`, `--log`, `--reset-session`, `--set-active`) is unchanged. Existing `$SESSION_DIR/$KEY.id` files migrate transparently — Codex 0.128 thread IDs are byte-compatible with the SDK's `thread/resume`.
+- The auth pre-flight, rescue-state generation, role-prefix injection, and context-file attachment all still run unchanged; only the underlying Codex transport changed.
+
 ### Changed (BREAKING) — Agent Teams architecture
 
 - `/harness-team-lead` is now an **Agent Teams** orchestrator (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`). It calls `TeamCreate("harness-team")` once and instantiates **16 persistent teammates** (4 lanes × 4 roles): `analyst-1..4`, `engineer-1..4`, `e2e-reviewer-1..4`, `reviewer-1..4`. Teammates stay alive for the whole session.

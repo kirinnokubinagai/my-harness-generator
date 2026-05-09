@@ -37,7 +37,13 @@ fi
 [ -z "$USER_PROMPT" ] && exit 0
 [ -z "$WORK_DIR" ] && WORK_DIR="${PWD:-$(pwd)}"
 
-# Locate project root (presence of .my-harness/.config)
+# Locate project root (presence of .my-harness/.config). bootstrap.sh
+# intentionally writes .my-harness/.config to BOTH the project root AND each
+# worktree (dev/.my-harness/.config etc.) so harness scripts work whether
+# run from outside or inside a worktree. Walk-up therefore stops at the
+# nearest copy. Detect whether that copy belongs to the project root or
+# to a worktree, so we don't accidentally write logs to dev/dev/docs/talk
+# when running claude inside the dev/ worktree.
 PROJECT_ROOT="$WORK_DIR"
 while [ "$PROJECT_ROOT" != "/" ] && [ "$PROJECT_ROOT" != "" ]; do
   [ -f "$PROJECT_ROOT/.my-harness/.config" ] && break
@@ -54,7 +60,18 @@ else
   MASKED="$USER_PROMPT"
 fi
 
-TALK_DIR="$PROJECT_ROOT/dev/docs/talk"
+# Choose the talk directory based on whether PROJECT_ROOT is the outer
+# project root or one of its worktrees (dev / stage / main):
+#   <root>/.my-harness/.config       → talk lives at <root>/dev/docs/talk
+#   <root>/dev/.my-harness/.config   → talk lives at <root>/dev/docs/talk too
+# So if PROJECT_ROOT's parent ALSO has .my-harness/.config, we are inside a
+# worktree and the dev/ prefix has already been consumed.
+PARENT_DIR="$(dirname "$PROJECT_ROOT")"
+if [ -f "$PARENT_DIR/.my-harness/.config" ]; then
+  TALK_DIR="$PROJECT_ROOT/docs/talk"
+else
+  TALK_DIR="$PROJECT_ROOT/dev/docs/talk"
+fi
 mkdir -p "$TALK_DIR" 2>/dev/null || exit 0
 
 DATE_STR=$(date +%Y-%m-%d)

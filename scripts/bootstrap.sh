@@ -311,8 +311,15 @@ ensure_worktree() {
   local name="$1"
   if [ -f "$name/.git" ]; then return 0; fi
   if [ -e "$name" ]; then
-    echo "::warning:: '$name' already exists but no worktree marker found. Skipping."
-    return 0
+    # An existing non-worktree path is suspicious — it means a previous
+    # half-completed bootstrap left a stub directory. Refuse to silently
+    # skip it, otherwise the caller ends up missing a worktree they
+    # asked for and only realizes much later (e.g. when running
+    # /harness-team-lead). Tell the user explicitly so they can rm it
+    # and re-run.
+    echo "::error:: '$name' already exists but is not a git worktree." >&2
+    echo "::error::   delete it (rm -rf $name) and re-run bootstrap." >&2
+    return 1
   fi
   echo "[bootstrap] Creating worktree '$name'"
   git worktree add --force "$name" "$name"
@@ -320,6 +327,19 @@ ensure_worktree() {
 ensure_worktree main
 ensure_worktree stage
 ensure_worktree dev
+
+# Sanity check: all three must be live worktrees before we proceed. This
+# catches the case where one of the ensure_worktree calls succeeded with a
+# warning we missed (e.g. git printing a warning to stderr but exiting 0).
+for wt in main stage dev; do
+  if [ ! -f "$wt/.git" ]; then
+    echo "::error:: worktree '$wt' is missing after setup. Cannot continue." >&2
+    echo "::error::   git worktree list output:" >&2
+    git worktree list >&2 || true
+    exit 1
+  fi
+done
+echo "[bootstrap] worktrees verified: main / stage / dev"
 
 # ===== 4. Distribute common files / platform templates / Claude config =====
 echo "[bootstrap] Distributing common files"

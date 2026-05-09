@@ -266,7 +266,11 @@ This ENFORCEMENT block is non-negotiable. Treat it as a hard precondition for ev
 
 Ask the following one at a time. **Do not ask the project name here** — let it emerge from Phase 2's conversation. Only re-ask at the end of Phase 2 if it has not surfaced.
 
+**Tool usage rule for Phase 1:** Q1 is free-text input (where to create the project). Q2 / Q2a–d / Q3 / Q4 MUST be asked via the `AskUserQuestion` Claude Code tool with named, descriptive options — never as `y/n` text prompts. The user picks from clearly labeled choices, not abbreviated boolean answers. Persist the underlying flag (`yes`/`no` etc.) based on which option was selected.
+
 ### Setup Q1: Project root directory
+
+Free-text input (not `AskUserQuestion`).
 
 **LANG=en:**
 > "Where should the project live on disk? (default: `~/projects/<name>` once a name is settled, or `~/projects/my-project` as placeholder)"
@@ -280,15 +284,39 @@ Ask the following one at a time. **Do not ask the project name here** — let it
 
 ### Setup Q2: Codex integration
 
-**LANG=en:**
-> "Use Codex for AI-assisted design and code review? (y/n, default: n)"
->
-> **What this controls:** Codex (OpenAI CLI) supplies second opinions, generates logos and UI mocks via `gpt-image-2`. Completely optional — `n` works end-to-end with Claude alone, but the visual phase will fall back to a text-only brand brief. Re-enable later via `.my-harness/.config`.
+Use `AskUserQuestion` with **named options** (do NOT phrase as y/n):
 
-**LANG=ja:**
-> "Codex（OpenAI CLI）を使ったAI支援デザイン・コードレビューを有効にしますか？ (y/n、デフォルト: n)"
->
-> **これが影響する箇所:** Codex はセカンドオピニオン生成と `gpt-image-2` でのロゴ・UIモック生成を行います。完全任意で、`n` でも全機能が Claude 単体で動作しますが、ビジュアルフェーズはテキストのみのブランドブリーフに置き換わります。後から `.my-harness/.config` で `USE_CODEX=yes` に変更可能。
+**LANG=en — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "Which AI helpers should drive this project?",
+    "header": "AI helpers",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude only", "description": "Default. Everything runs end-to-end with Claude alone — no extra setup. Visual phase falls back to text-only brand briefs (no generated logo/mocks)." },
+      { "label": "Claude + Codex", "description": "Adds OpenAI's Codex CLI for second-opinion design/code review and `gpt-image-2` logo + UI mock generation. Requires `npm install -g @openai/codex` and `codex login` (ChatGPT subscription)." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "このプロジェクトで使うAIヘルパーはどちら？",
+    "header": "AIヘルパー",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude のみ", "description": "デフォルト。追加セットアップ不要で Claude 単体で全機能が動作。ビジュアルフェーズはテキストのブランドブリーフに置換（ロゴ・モック画像は生成されません）。" },
+      { "label": "Claude + Codex", "description": "OpenAI の Codex CLI を併用してセカンドオピニオン（設計・コードレビュー）と `gpt-image-2` でのロゴ・UIモック生成を有効化。`npm install -g @openai/codex` と `codex login`（ChatGPT サブスクリプション）が必要。" }
+    ]
+  }]
+}
+```
+
+Map: `Claude only` / `Claude のみ` → `USE_CODEX=no`. `Claude + Codex` → `USE_CODEX=yes`. Re-enable later via `.my-harness/.config`.
 
 #### If USE_CODEX=yes — sub-toggles
 
@@ -314,46 +342,189 @@ bash ~/my-harness-generator/scripts/check-codex-auth.sh
 
 `CODEX_SESSION = <PROJECT_SLUG>-init`. Never asked.
 
-##### Q2b: Delegate engineer to Codex?
+##### Q2b: Who runs the engineer (implementation) subagent?
 
-- **LANG=en:** "Delegate the engineer (implementation) subagent to Codex? (y/n, default: y — Codex is strong at code generation)"
-- **LANG=ja:** "エンジニア（実装）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y — Codex はコード生成が得意)"
+Use `AskUserQuestion` (do NOT phrase as y/n):
 
-##### Q2c: Delegate e2e-reviewer to Codex?
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Who should run the engineer (implementation) subagent?",
+    "header": "Engineer runner",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex (Recommended)", "description": "Routes implementation work to Codex — strong at code generation. Default for Codex-enabled projects." },
+      { "label": "Claude", "description": "Keep implementation in Claude. Pick this if you want a single AI surface for all coding tasks." }
+    ]
+  }]
+}
+```
 
-- **LANG=en:** "Delegate the e2e-reviewer subagent to Codex? (y/n, default: n — Claude runs Playwright/Maestro locally regardless; `y` only routes the failure-report synthesis to Codex)"
-- **LANG=ja:** "e2e-reviewer サブエージェントを Codex に委任しますか？ (y/n、デフォルト: n — Playwright/Maestro は常に Claude がローカル実行。`y` は失敗レポート合成のみを Codex に依頼)"
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "エンジニア（実装）サブエージェントは誰が担当しますか？",
+    "header": "実装担当",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex（推奨）", "description": "コード生成が得意な Codex に実装を委任。Codex を有効化したプロジェクトのデフォルト。" },
+      { "label": "Claude", "description": "実装は Claude のまま。コーディングを 1 つの AI に統一したい場合に選択。" }
+    ]
+  }]
+}
+```
 
-##### Q2d: Delegate reviewer to Codex?
+Map: `Codex (Recommended)` / `Codex（推奨）` → `USE_CODEX_ENGINEER=yes`. `Claude` → `USE_CODEX_ENGINEER=no`.
 
-- **LANG=en:** "Delegate the reviewer (convention review) subagent to Codex? (y/n, default: y)"
-- **LANG=ja:** "reviewer（規約レビュー）サブエージェントを Codex に委任しますか？ (y/n、デフォルト: y)"
+##### Q2c: Who synthesizes the e2e failure report?
 
-If USE_CODEX=no, all three sub-flags forced to `no`.
+Use `AskUserQuestion`. Note: Playwright/Maestro themselves always run locally under Claude — this question only chooses **who composes the failure-report write-up afterward**.
+
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Who should synthesize the e2e-reviewer failure report? (Playwright/Maestro always run locally under Claude regardless)",
+    "header": "E2E reviewer",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude (Recommended)", "description": "Claude runs the tests AND writes the failure report — single tool surface, no extra Codex round-trip." },
+      { "label": "Codex", "description": "Claude runs the tests; Codex composes the failure-report write-up afterward (synthesis only)." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "e2e-reviewer の失敗レポートは誰が合成しますか？（Playwright/Maestro 自体は常に Claude がローカル実行）",
+    "header": "E2Eレビュー担当",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude（推奨）", "description": "テスト実行と失敗レポート合成の両方を Claude が担当。AI を 1 つに統一でき Codex 経由のラウンドトリップ不要。" },
+      { "label": "Codex", "description": "テストは Claude、失敗レポート合成は Codex に依頼（合成のみ Codex）。" }
+    ]
+  }]
+}
+```
+
+Map: `Claude (Recommended)` / `Claude（推奨）` → `USE_CODEX_E2E_REVIEWER=no`. `Codex` → `USE_CODEX_E2E_REVIEWER=yes`.
+
+##### Q2d: Who runs the reviewer (convention review) subagent?
+
+Use `AskUserQuestion`:
+
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Who should run the reviewer (convention review) subagent?",
+    "header": "Reviewer runner",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex (Recommended)", "description": "Use Codex for convention/style review — second-opinion catches more issues than a single AI." },
+      { "label": "Claude", "description": "Keep reviewer in Claude for a single AI surface." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "reviewer（規約レビュー）サブエージェントは誰が担当しますか？",
+    "header": "レビュー担当",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex（推奨）", "description": "規約・スタイルレビューは Codex に委任。セカンドオピニオンの方が単一 AI より検出が多い。" },
+      { "label": "Claude", "description": "レビューも Claude のままにして AI を 1 つに統一。" }
+    ]
+  }]
+}
+```
+
+Map: `Codex (Recommended)` / `Codex（推奨）` → `USE_CODEX_REVIEWER=yes`. `Claude` → `USE_CODEX_REVIEWER=no`.
+
+If USE_CODEX=no, all three sub-flags forced to `no` (skip Q2b/c/d entirely).
 
 ### Setup Q3: Inherit global CLAUDE.md
 
-**LANG=en:**
-> "Inherit your global `~/.claude/CLAUDE.md` in this project? (y/n, default: y)"
->
-> **What this controls:** `n` writes `dev/.claude/settings.json` with `claudeMdExcludes` listing your absolute `~/.claude/CLAUDE.md` path so the project starts isolated from your personal global instructions.
+Use `AskUserQuestion` (do NOT phrase as y/n):
 
-**LANG=ja:**
-> "個人グローバル `~/.claude/CLAUDE.md` をこのプロジェクトに引き継ぎますか？ (y/n、デフォルト: y)"
->
-> **これが影響する箇所:** `n` を選ぶと `dev/.claude/settings.json` の `claudeMdExcludes` に絶対パス指定で `~/.claude/CLAUDE.md` を登録し、Claude Code がこのプロジェクトでは個人指示を読み込まないようにします。
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "How should this project handle your global `~/.claude/CLAUDE.md`?",
+    "header": "Global CLAUDE.md",
+    "multiSelect": false,
+    "options": [
+      { "label": "Inherit (Recommended)", "description": "Default. Your personal global instructions in `~/.claude/CLAUDE.md` apply to this project too." },
+      { "label": "Isolate", "description": "Writes `dev/.claude/settings.json` with `claudeMdExcludes` pointing at your absolute `~/.claude/CLAUDE.md` path so the project starts free of personal global instructions." }
+    ]
+  }]
+}
+```
 
-Persist `USE_GLOBAL_CLAUDE=yes|no`.
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "個人グローバル `~/.claude/CLAUDE.md` をこのプロジェクトでどう扱いますか？",
+    "header": "グローバル CLAUDE.md",
+    "multiSelect": false,
+    "options": [
+      { "label": "引き継ぐ（推奨）", "description": "デフォルト。`~/.claude/CLAUDE.md` の個人グローバル指示をこのプロジェクトでも適用。" },
+      { "label": "切り離す", "description": "`dev/.claude/settings.json` の `claudeMdExcludes` に `~/.claude/CLAUDE.md` の絶対パスを登録し、このプロジェクトでは個人グローバル指示を読み込まないようにする。" }
+    ]
+  }]
+}
+```
+
+Map: `Inherit (Recommended)` / `引き継ぐ（推奨）` → `USE_GLOBAL_CLAUDE=yes`. `Isolate` / `切り離す` → `USE_GLOBAL_CLAUDE=no`.
 
 ### Setup Q4: Task management
 
-**LANG=en:**
-> "Track tasks via GitHub Issues, or as local markdown in `dev/docs/task/`? (`issues` / `local`, default: `local`)"
+Use `AskUserQuestion` with named options:
 
-**LANG=ja:**
-> "タスク管理は GitHub Issues、それとも `dev/docs/task/` のローカルマークダウン？ (`issues` / `local`、デフォルト: `local`)"
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Where should tasks be tracked?",
+    "header": "Task tracking",
+    "multiSelect": false,
+    "options": [
+      { "label": "Local markdown (Recommended)", "description": "Default. Task files live in `dev/docs/task/` as plain markdown — no GitHub account needed, fully offline-capable." },
+      { "label": "GitHub Issues", "description": "Use `gh issue create` to manage tasks as GitHub Issues. Requires `gh` auth and a remote repo." }
+    ]
+  }]
+}
+```
 
-After these are answered, update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "タスク管理はどこで行いますか？",
+    "header": "タスク管理",
+    "multiSelect": false,
+    "options": [
+      { "label": "ローカルマークダウン（推奨）", "description": "デフォルト。`dev/docs/task/` のマークダウンでタスク管理。GitHub アカウント不要、オフライン可。" },
+      { "label": "GitHub Issues", "description": "`gh issue create` を使って GitHub Issues でタスク管理。`gh` の認証とリモートリポジトリが必要。" }
+    ]
+  }]
+}
+```
+
+Map: `Local markdown (Recommended)` / `ローカルマークダウン（推奨）` → `USE_GITHUB_ISSUES=no`. `GitHub Issues` → `USE_GITHUB_ISSUES=yes`.
+
+After all four are answered, update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 
@@ -974,15 +1145,71 @@ Filter to the user's chosen platforms (don't offer Playwright if no web/desktop,
 
 ### Decision 11 — Claude Code Action (always)
 
-Single-select y/n via AskUserQuestion if not implied.
+Use `AskUserQuestion` with named options (do NOT phrase as y/n):
 
-- `Yes — automated PR review`
-- `No`
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Should this project use Claude Code Action for automated PR review on GitHub?",
+    "header": "PR review automation",
+    "multiSelect": false,
+    "options": [
+      { "label": "Enable automated PR review", "description": "Installs the GitHub Action that auto-reviews pull requests with Claude. Requires either OAuth or an API key (asked next)." },
+      { "label": "Skip PR automation", "description": "No GitHub Action is installed. PR reviews stay fully manual." }
+    ]
+  }]
+}
+```
 
-Persist `USE_CLAUDE_ACTION=yes|no`. If yes, follow up with auth method:
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "Claude Code Action による PR 自動レビューを使いますか？",
+    "header": "PR自動レビュー",
+    "multiSelect": false,
+    "options": [
+      { "label": "自動 PR レビューを有効化", "description": "Claude が PR を自動レビューする GitHub Action をインストール。OAuth か API キーのいずれかが必要（次の質問で選択）。" },
+      { "label": "PR 自動化を入れない", "description": "GitHub Action は入れず、PR レビューは完全に手動。" }
+    ]
+  }]
+}
+```
 
-- `OAuth`
-- `API key`
+Map: `Enable automated PR review` / `自動 PR レビューを有効化` → `USE_CLAUDE_ACTION=yes`. `Skip PR automation` / `PR 自動化を入れない` → `USE_CLAUDE_ACTION=no`.
+
+If `USE_CLAUDE_ACTION=yes`, follow up with auth method via `AskUserQuestion`:
+
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "Which Claude auth should the GitHub Action use?",
+    "header": "Action auth",
+    "multiSelect": false,
+    "options": [
+      { "label": "OAuth", "description": "Browser-based one-time login. No API key in repo secrets." },
+      { "label": "API key", "description": "Anthropic API key stored in `ANTHROPIC_API_KEY` repo secret. Bills the key's account directly." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "GitHub Action で使う Claude 認証方式は？",
+    "header": "Action 認証",
+    "multiSelect": false,
+    "options": [
+      { "label": "OAuth", "description": "ブラウザでワンタイムログイン。リポジトリ Secrets に API キーを置かなくて済む。" },
+      { "label": "API キー", "description": "Anthropic API キーを `ANTHROPIC_API_KEY` Secrets に保存。キーのアカウントへ直接課金。" }
+    ]
+  }]
+}
+```
 
 Persist `CLAUDE_AUTH=api|oauth`.
 

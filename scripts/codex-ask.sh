@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Summary: Bridge script that sends questions from Claude to Codex and receives the response.
-#          Calls `codex exec` directly without depending on OMC or other external plugins.
-#          When --session KEY is specified, Codex maintains a session for true multi-turn dialogue.
+#          Drives `codex app-server --listen stdio://` via JSON-RPC 2.0 (see
+#          codex-app-server-call.py). Replaces the legacy `codex exec` cold-start
+#          per call; only the final assistant body reaches Claude's stdout, so
+#          Claude's context stays small even across many calls.
+#          When --session KEY is specified, the matching Codex thread is auto-resumed
+#          for true multi-turn dialogue (`thread/resume` under the hood).
 #
 #          Codex CLI uses ChatGPT subscription auth via `codex login`. Run it once before using
 #          this script. Image generation, model selection, etc. are Codex features — Claude simply
@@ -49,7 +53,6 @@ ACTIVE_POINTER="${CODEX_ACTIVE_POINTER:-$HOME/.codex-active-session}"
 # ===== Defaults =====
 ROLE=""
 MODEL=""        # Empty by default (defer to Codex CLI default model)
-SANDBOX=""      # Empty by default (defer to Codex CLI default sandbox setting)
 CONTEXT_FILES=()
 OUT_FILE=""
 LOG_FILE=""
@@ -76,7 +79,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --role)            ROLE="$2";          shift 2 ;;
     --model)           MODEL="$2";         shift 2 ;;
-    --sandbox)         SANDBOX="$2";       shift 2 ;;
     --context)         PARSE_CONTEXT=1;    shift ;;
     --out)             OUT_FILE="$2";      shift 2 ;;
     --log)             LOG_FILE="$2";      shift 2 ;;
@@ -332,94 +334,61 @@ if [ "${#CONTEXT_FILES[@]}" -gt 0 ]; then
   } >> "$TMP_PROMPT"
 fi
 
-# ===== Extract only the final assistant message from JSONL =====
-# Codex 0.128.0+ stdout format (--json):
-#   {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"..."}}
-# We pick the LAST agent_message (the final answer) and prefer .item.text.
-# Older formats (top-level type=agent_message with .content / .message) are kept as
-# fallbacks so the wrapper survives a Codex CLI downgrade.
-extract_assistant_text() {
-  local jsonl="$1"
-  # Pipeline must always succeed (|| true) — see extract_session_id note.
-  # Codex 0.128.0+ format (--json):
-  #   {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
-  # Pick the LAST agent_message item (the final answer for that turn).
-  if command -v jq >/dev/null 2>&1; then
-    { jq -r 'select(.type=="item.completed" and .item.type=="agent_message") | .item.text' \
-        "$jsonl" 2>/dev/null || true
-    } | awk 'NF' | tail -1 || true
-  else
-    # Best-effort fallback when jq is missing.
-    grep -oE '"text":"[^"]*"' "$jsonl" 2>/dev/null | tail -1 | sed 's/"text":"//; s/"$//' || true
-  fi
-}
+# ===== Execute Codex via app-server (JSON-RPC stdio) =====
+# Architecture (since v2.x):
+#   `codex exec` per-call cold start replaced by `codex app-server --listen stdio://`
+#   driven by codex-app-server-call.py (a small JSON-RPC 2.0 client). Same per-call
+#   model (one app-server process spawned per question) but with a clean protocol,
+#   first-class thread/resume semantics, and minimal stdout (only the final
+#   assistant text reaches Claude — deltas / plan updates / token-usage are dropped).
+#
+# Thread id storage:
+#   $SESSION_DIR/$SESSION_KEY.id is reused verbatim. Codex 0.128+ thread ids are
+#   compatible with `thread/resume`, so existing files migrate transparently.
+HELPER_PY="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-app-server-call.py"
+if [ ! -f "$HELPER_PY" ]; then
+  echo "::error:: helper not found: $HELPER_PY" >&2
+  echo "  reinstall the plugin or check CLAUDE_PLUGIN_ROOT" >&2
+  exit 1
+fi
+# Dedicated venv with codex_app_server_sdk + websockets + pydantic. Built by
+# scripts/install-codex-sdk.sh. Falls back to system python3 only if the
+# venv is missing — the helper itself will then emit a clear error.
+VENV_PY="${MY_HARNESS_CODEX_PY:-$HOME/.codex/my-harness-venv/bin/python}"
+if [ -x "$VENV_PY" ]; then
+  PYTHON_BIN="$VENV_PY"
+elif command -v python3 >/dev/null 2>&1; then
+  echo "::warning:: SDK venv missing at $VENV_PY; falling back to system python3" >&2
+  echo "  run scripts/install-codex-sdk.sh to install the SDK" >&2
+  PYTHON_BIN="python3"
+else
+  echo "::error:: no python3 found (looked for $VENV_PY and PATH)" >&2
+  exit 1
+fi
 
-# ===== Extract session_id from JSONL =====
-# Codex 0.128.0+ stdout format (--json): {"type":"thread.started","thread_id":"..."}
-# Older codex versions used a top-level .session_id field; we still accept that as fallback.
-extract_session_id() {
-  local jsonl="$1"
-  # Pipeline must always succeed (|| true) because we're under `set -e + pipefail`
-  # and an empty match through grep -v / head should not abort the caller.
-  # Codex 0.128.0+ format: {"type":"thread.started","thread_id":"..."}
-  if command -v jq >/dev/null 2>&1; then
-    { jq -r 'select(.type=="thread.started") | .thread_id' "$jsonl" 2>/dev/null || true
-    } | awk 'NF' | head -1 || true
-  else
-    grep -oE '"thread_id":"[^"]+"' "$jsonl" 2>/dev/null | head -1 \
-      | sed 's/"thread_id":"//; s/"$//' || true
-  fi
-}
-
-# ===== Common flags for Codex execution =====
-#       --model / --sandbox are only added when explicitly specified by the user
-#       --skip-git-repo-check: required for Codex 0.128.0+ when invoked outside a git repo
-#       or a trusted directory (e.g. from Claude Code's Bash tool, /tmp, or home dir).
-COMMON_FLAGS=(--json --skip-git-repo-check)
-[ -n "$MODEL" ]   && COMMON_FLAGS+=(--model "$MODEL")
-[ -n "$SANDBOX" ] && COMMON_FLAGS+=(--sandbox "$SANDBOX")
-
-# ===== Execute Codex =====
-PROMPT_TEXT=$(cat "$TMP_PROMPT")
+HELPER_ARGS=(
+  --prompt-file "$TMP_PROMPT"
+  --cwd "$PWD"
+)
+[ -n "$MODEL" ]    && HELPER_ARGS+=(--model "$MODEL")
+[ -n "$LOG_FILE" ] && HELPER_ARGS+=(--log-file "$LOG_FILE")
 
 if [ -n "$SESSION_KEY" ]; then
   mkdir -p "$SESSION_DIR"
   SESSION_FILE="$SESSION_DIR/$SESSION_KEY.id"
-
+  HELPER_ARGS+=(--thread-id-file "$SESSION_FILE")
   if [ -f "$SESSION_FILE" ]; then
-    SESSION_ID=$(cat "$SESSION_FILE")
-    echo "[codex-ask] resuming session '$SESSION_KEY' (id=$SESSION_ID)" >&2
-    # codex CLI syntax: `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`
-    # Options must come before positional args to avoid misinterpretation by clap
-    codex exec resume "${COMMON_FLAGS[@]}" "$SESSION_ID" "$PROMPT_TEXT" \
-      < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
-    CODEX_EXIT=${PIPESTATUS[0]}
+    echo "[codex-ask] resuming thread for session '$SESSION_KEY' (file=$SESSION_FILE)" >&2
   else
-    echo "[codex-ask] creating new session '$SESSION_KEY'" >&2
-    codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
-      < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
-    CODEX_EXIT=${PIPESTATUS[0]}
-    NEW_ID=$(extract_session_id "$TMP_LOG")
-    if [ -z "$NEW_ID" ]; then
-      # Fallback: get ID from most recent jsonl filename under ~/.codex/sessions.
-      # `|| true` is critical because `head -1` closes the pipe early, which makes
-      # the upstream find/xargs receive SIGPIPE (exit 141). Combined with `set -o
-      # pipefail` and `set -e`, that propagates and kills the whole script.
-      NEW_ID=$(find "${HOME}/.codex/sessions" -name "*.jsonl" -mmin -1 2>/dev/null \
-        | sort -r | head -1 | xargs -I{} basename {} .jsonl 2>/dev/null || true)
-    fi
-    if [ -n "$NEW_ID" ]; then
-      echo "$NEW_ID" > "$SESSION_FILE"
-      echo "[codex-ask] session id saved to $SESSION_FILE" >&2
-    else
-      echo "::warning:: Could not obtain session ID. Next call will start a new session." >&2
-    fi
+    echo "[codex-ask] creating new thread for session '$SESSION_KEY'" >&2
   fi
-else
-  codex exec "${COMMON_FLAGS[@]}" "$PROMPT_TEXT" \
-    < /dev/null 2>"$TMP_LOG.err" | tee "$TMP_LOG" >/dev/null
-  CODEX_EXIT=${PIPESTATUS[0]}
 fi
+
+# Helper writes JSONL to --log-file, the assistant text to stdout, lifecycle
+# messages + the app-server subprocess stderr to stderr. Stderr is captured to
+# $TMP_LOG.err so the auth-detection pass below can scan it.
+ASSISTANT_TEXT=$("$PYTHON_BIN" "$HELPER_PY" "${HELPER_ARGS[@]}" 2>"$TMP_LOG.err")
+CODEX_EXIT=$?
 
 # ===== Post-exec auth / subscription error detection =====
 #       Only fires when codex itself exited non-zero. Many MCP servers (e.g.,
@@ -447,20 +416,13 @@ if [ "${CODEX_EXIT:-0}" -ne 0 ] && [ -f "$TMP_LOG.err" ]; then
   fi
 fi
 
-# ===== Save log =====
-if [ -n "$LOG_FILE" ]; then
-  mkdir -p "$(dirname "$LOG_FILE")"
-  cp "$TMP_LOG" "$LOG_FILE"
-  echo "[codex-ask] JSONL log saved to $LOG_FILE" >&2
-fi
-
-# ===== Output only the assistant body to stdout =====
-ASSISTANT_TEXT=$(extract_assistant_text "$TMP_LOG")
-
+# ===== Output =====
+# The helper already writes JSONL to --log-file (when set) and emits only the
+# assistant body to stdout, so $ASSISTANT_TEXT is final. If empty, treat as
+# failure (helper has already logged the cause to stderr).
 if [ -z "$ASSISTANT_TEXT" ]; then
-  echo "::warning:: Could not extract assistant body. Use --log to save JSONL for inspection." >&2
-  cat "$TMP_LOG" >&2
-  exit 1
+  echo "::warning:: codex app-server returned no assistant body (exit=$CODEX_EXIT). See stderr above." >&2
+  exit "${CODEX_EXIT:-1}"
 fi
 
 if [ -n "$OUT_FILE" ]; then
@@ -470,3 +432,5 @@ if [ -n "$OUT_FILE" ]; then
 else
   printf '%s\n' "$ASSISTANT_TEXT"
 fi
+
+exit "${CODEX_EXIT:-0}"

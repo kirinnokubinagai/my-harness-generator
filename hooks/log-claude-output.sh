@@ -53,9 +53,20 @@ else
   MASKED="$LAST_TEXT"
 fi
 
+# Same dev/ vs worktree-already-resolved logic as log-user-prompt.sh:
+# bootstrap.sh writes .my-harness/.config at BOTH project root and inside each
+# worktree, so the walk-up may stop on the inner copy. Skip the /dev/ prefix
+# in that case to avoid `<root>/dev/dev/docs/talk` paths.
+PARENT_DIR="$(dirname "$PROJECT_ROOT")"
+if [ -f "$PARENT_DIR/.my-harness/.config" ]; then
+  TALK_BASE="$PROJECT_ROOT/docs/talk"
+else
+  TALK_BASE="$PROJECT_ROOT/dev/docs/talk"
+fi
+
 DATE_STR=$(date +%Y-%m-%d)
 TIME_STR=$(date +%H:%M:%S)
-TALK_FILE="$PROJECT_ROOT/dev/docs/talk/${DATE_STR}.md"
+TALK_FILE="$TALK_BASE/${DATE_STR}.md"
 mkdir -p "$(dirname "$TALK_FILE")" 2>/dev/null || exit 0
 {
   printf '\n## %s - Claude\n\n' "$TIME_STR"

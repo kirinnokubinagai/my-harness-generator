@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin",
   "name": "my-harness",
-  "version": "2.0.0",
-  "description": "Generic project harness generator. Bootstraps any combination of Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS. Provides 4-lane parallel development, TDD enforcement, Codex integration, secret masking, and git discipline as composable skills.",
+  "version": "2.2.0",
+  "description": "Generic project harness generator. Bootstraps any combination of Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS. Provides 4-lane parallel development, TDD enforcement, Codex integration via a shared `codex app-server` daemon (~85% RAM cut on 16-lane teams), secret masking, RTK-based Bash output compression, and git discipline as composable skills. Fresh-machine bootstrap from Nix flake alone — no brew/npm/pip required.",
   "author": {
     "name": "kirinnokubinagai",
     "email": "removed@redacted.local"

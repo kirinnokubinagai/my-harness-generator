@@ -40,6 +40,20 @@ source "$ROOT/.my-harness/.config"
 
 If `.config` is missing, tell the user "Run `/my-harness-init` first" and stop.
 
+## Step 0 — Start the shared Codex daemon
+
+Invoke the **`harness-codex-daemon`** skill with action `start`. That skill
+encapsulates the bash boilerplate so this orchestrator stays high-level and
+its context window stays small. The daemon (`codex app-server` listening on
+`ws://127.0.0.1:7373`) is shared by every lane, so 16 concurrent codex calls
+collapse onto one Codex process — measured 55% RAM reduction at 3 lanes,
+~85% projected at 16. Skill is idempotent: no-op if already running.
+
+The daemon survives `/clear` of the lead session and is reused across
+`/harness-team-lead` invocations until explicitly stopped in Step 4. If it
+fails to start, lanes fall back to per-call stdio mode automatically — this
+step is best-effort, not a precondition.
+
 ## Step 1 — Determine issue source
 
 ```bash
@@ -177,6 +191,10 @@ When the user agrees to stop or all conceivable batches are done, send `shutdown
 ```
 TeamDelete({ team_name: "harness-team" })
 ```
+
+Stop the shared Codex daemon by invoking the **`harness-codex-daemon`**
+skill with action `stop` (best-effort; safe to skip if the user wants it
+to keep running for follow-up work).
 
 Print a final summary to the user.
 

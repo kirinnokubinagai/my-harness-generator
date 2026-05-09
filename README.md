@@ -37,8 +37,39 @@ The result on disk is a project where:
 ### Prerequisites
 
 - Claude Code (latest)
-- `git`, `bash`, `jq`, and `direnv` (for Nix dev shell auto-activation)
-- Optional: Codex CLI for AI-assisted design and second-opinion reviews. Install with `npm install -g @openai/codex` and log in once with `codex login` (requires a ChatGPT subscription).
+- One of:
+  - **Recommended — Nix only.** A fresh machine with Nix installed gives you the entire harness runtime (`codex` CLI, `rtk`, Python with `codex-app-server-sdk`, `jq`, `bash`, `git`, etc.) via `nix develop` or `direnv allow`. No `brew install`, no `npm -g`, no `pip --user`. See [Fresh machine setup](#fresh-machine-setup-nix-only) below.
+  - Or, if not using Nix: `git`, `bash`, `jq`, `direnv`, `python3.12+`, plus `codex` CLI (`npm install -g @openai/codex`) and `rtk` (`brew install rtk`) installed manually.
+- Codex CLI authentication (one-time): `codex login` (requires a ChatGPT subscription). Required regardless of which install method above.
+
+### Fresh machine setup (Nix only)
+
+Goal: a brand-new Mac, Linux box, or WSL2 environment goes from zero to a working harness in two manual steps.
+
+```bash
+# 1. Install Nix (Determinate Systems installer is the simplest)
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+
+# 2. Clone the harness, enter the dev shell
+git clone https://github.com/kirinnokubinagai/my-harness-generator
+cd my-harness-generator
+direnv allow                        # auto-activates `nix develop` on cd
+# (or `nix develop` manually if you don't use direnv)
+
+# 3. One-time Codex authentication (opens a browser)
+codex login
+```
+
+That's it — `codex`, `rtk`, `python` (with the SDK), and every other tool the harness scripts need are now on `$PATH`, all version-pinned through `flake.lock`.
+
+**Platform support:**
+- ✅ **macOS** (Apple Silicon / Intel) — direct
+- ✅ **Linux** (x86_64 / aarch64) — direct, fastest first-run (binary cache)
+- ✅ **Windows** — via **WSL2** (Ubuntu recommended); Nix doesn't run natively on Windows but works perfectly inside WSL2
+
+**First-run note:** on macOS arm64 the `codex` package may have to be compiled from source (~20–60 min) the first time you enter the shell, since not every nixpkgs `aarch64-darwin` build is in the public cache. After that initial build, subsequent `nix develop` invocations are instant. On Linux x86_64 the cache hit rate is much higher and the first run is typically under five minutes.
+
+**Memory savings:** when `harness-team-lead` runs lanes in parallel, the harness can route every lane through one shared `codex app-server` daemon (WebSocket transport). Measured locally on macOS arm64 with 3 concurrent lanes: peak 271 MB / 4 processes (stdio per-call) → 120 MB / 2 processes (shared daemon), a 55% drop. Extrapolated to a 16-lane team this is roughly an 85% reduction. The daemon is started/stopped via `scripts/codex-daemon.sh start|stop|status`.
 
 ### Install the plugin
 
