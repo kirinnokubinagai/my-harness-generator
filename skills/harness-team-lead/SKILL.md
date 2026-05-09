@@ -1,13 +1,33 @@
 ---
 name: harness-team-lead
-description: Coordinator for ongoing 4-lane parallel implementation in an existing harnessed project. Reads .my-harness/.config and the project's issue/task list, partitions issues across up to 4 worktree lanes so they don't conflict, and spawns analyst → engineer → e2e-reviewer → reviewer subagents per lane via Task(subagent_type=...). Fires when the user says "/harness-team-lead", "start the team", "next batch of issues", or similar. Required to invoke after /my-harness-init has finished setup.
+description: 4-lane parallel implementation orchestrator using Claude Code Agent Teams. Creates ONE team (`harness-team`) with 16 persistent teammates at session start (4 lanes × 4 roles = analyst-1..4, engineer-1..4, e2e-reviewer-1..4, reviewer-1..4) and keeps them alive for the whole session. team-lead dispatches one issue at a time to whichever lane is idle by SendMessage to that lane's analyst. After each issue completes, team-lead sends `/clear` to all 4 teammates of that lane (fresh-agent-per-issue). Fires when the user says "/harness-team-lead", "start the team", "next batch of issues", or similar. Required after /my-harness-init has finished setup.
 ---
 
 # /harness-team-lead
 
-This is the **only ongoing-development entry point** users invoke after `/my-harness-init` completes. All 4-lane parallel implementation work starts here.
+This is the **only ongoing-development entry point** users invoke after `/my-harness-init` completes. All 4-lane parallel implementation work runs through this skill.
 
-## Precondition check
+The skill is the **team lead** in a Claude Code Agent Teams session. It creates one team (`harness-team`) with **16 persistent teammates** (4 lanes × 4 roles), then dispatches issues to lanes one at a time. Teammates stay alive for the whole session; `/clear` is sent to all 4 teammates of a lane after their issue is complete, never destruction-and-recreation.
+
+## Prerequisite — Agent Teams must be enabled
+
+This skill **requires** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. Without it, `TeamCreate` / `SendMessage` / `TaskList` are not available and the architecture cannot run.
+
+```bash
+grep -q "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" ~/.claude/settings.json 2>/dev/null \
+  || [ -n "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" ] \
+  || {
+    echo "ERROR: Agent Teams is not enabled."
+    echo "Add to ~/.claude/settings.json:"
+    echo '  "env": { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" }'
+    echo "Then restart Claude Code and re-run /harness-team-lead."
+    exit 1
+  }
+```
+
+If not enabled, stop and tell the user how to enable it. Do not proceed.
+
+## Precondition — project must be initialized
 
 ```bash
 ROOT="$(pwd)"
@@ -18,9 +38,9 @@ fi
 source "$ROOT/.my-harness/.config"
 ```
 
-If `.config` is missing, stop and tell the user: "Run `/my-harness-init` first."
+If `.config` is missing, tell the user "Run `/my-harness-init` first" and stop.
 
-## Step 1: Determine issue source
+## Step 1 — Determine issue source
 
 ```bash
 USE_GITHUB_ISSUES=$(grep -E "^USE_GITHUB_ISSUES=" "$ROOT/.my-harness/.config" | cut -d= -f2)
@@ -28,106 +48,212 @@ USE_GITHUB_ISSUES=$(grep -E "^USE_GITHUB_ISSUES=" "$ROOT/.my-harness/.config" | 
 
 - `USE_GITHUB_ISSUES=yes` → fetch from GitHub:
   ```bash
-  gh issue list --label ready --json number,title,body --limit 20
+  gh issue list --label ready --json number,title,body,labels --limit 50
   ```
 - `USE_GITHUB_ISSUES=no` → read from local task files:
   ```bash
-  find "$ROOT/dev/docs/task/child" -name "*.md" | xargs grep -l "status: pending" | head -8
+  find "$ROOT/dev/docs/task/child" -name "*.md" | xargs grep -l "status: pending"
   ```
 
-Select up to 8 candidate issues (2 per lane maximum).
+Build a **pending issue queue** (FIFO). The team can have many pending issues; only 4 are processed in parallel at any moment (one per lane).
 
-## Step 2: Partition issues across lanes (conflict-free)
+## Step 2 — Create the team and 16 teammates (once per session)
 
-Do **not** try to predict file lists statically. Instead:
+If a team called `harness-team` already exists in this session (verify via `TaskList` or by remembering from earlier in the same conversation), skip to Step 3.
 
-1. Spawn one analyst per candidate issue **in parallel** (all at once):
-   ```
-   Task(subagent_type=harness-analyst,
-        prompt="Declare the files you expect to touch for issue #<N>. Output only a JSON list of file paths. No implementation yet. Worktree: $ROOT. Skills to load: harness-tdd, harness-mask, harness-git-discipline, harness-no-hardcoded-secrets")
-   ```
-2. Collect the declared file sets.
-3. Greedy partition: assign issues to `lane/1` through `lane/4` such that no two issues in the same lane share a file path. If an issue conflicts with all 4 lanes, defer it to the next batch.
-4. If mid-run a conflict is detected (analyst reports an unexpected file overlap), re-partition the affected lane by swapping the conflicting issue to the next available lane or the deferred queue.
-
-Maximum 4 lanes active simultaneously.
-
-## Step 3: Spawn the full pipeline per lane
-
-For each lane N with assigned issue #X:
+Otherwise:
 
 ```
-Task(subagent_type=harness-analyst,
-     prompt="lane=N issue=#X worktree=$ROOT/lanes/feat-<issue#>-<slug>/
-Branch: feat/<issue#>-<slug>
-
-Produce the implementation brief, then run the full analyst pipeline:
-  analyst → engineer → e2e-reviewer → reviewer → git commit + PR
-
-Skills to load for this lane:
-  harness-analyst default: harness-tdd, harness-mask, harness-git-discipline, harness-no-hardcoded-secrets
-  Pass to engineer spawn: harness-tdd, harness-jsdoc, harness-hono-clean-arch, harness-drizzle-rules, harness-design-rules, harness-nix-pure, harness-no-hardcoded-secrets, harness-mask
-  Pass to e2e-reviewer spawn: harness-nix-pure, harness-mask
-  Pass to reviewer spawn: harness-jsdoc, harness-tdd, harness-hono-clean-arch, harness-drizzle-rules, harness-design-rules, harness-no-hardcoded-secrets, harness-git-discipline")
+TeamCreate({
+  team_name: "harness-team",
+  description: "4-lane parallel implementation team. 16 teammates: 4 roles × 4 lanes. analyst-N orchestrates lane-N and owns git operations; engineer-N implements; e2e-reviewer-N runs Playwright/Maestro; reviewer-N runs the convention checklist."
+})
 ```
 
-**Never use `SendMessage` continuation.** Every subagent is spawned fresh via `Task(subagent_type=...)`.
-
-## Step 4: Monitor and aggregate
-
-Wait for all lane analysts to report back. Collect status messages:
-```
-[lane=N issue=#X phase=analyst→team-lead status=pr-created pr=<URL>]
-```
-
-Present a consolidated status table to the user when all lanes finish:
+Then **create all 16 teammates in a single message with parallel Agent calls** (4 roles × 4 lanes):
 
 ```
-Lane | Issue | Status      | PR
------|-------|-------------|----
-  1  |  #42  | pr-created  | https://github.com/.../pull/17
-  2  |  #43  | pr-created  | https://github.com/.../pull/18
-  3  |  #44  | blocked     | conflict — deferred to next batch
-  4  |  #45  | pr-created  | https://github.com/.../pull/19
+Agent({ team_name: "harness-team", name: "analyst-1",       subagent_type: "harness-analyst",
+        prompt: "You are analyst-1 of lane-1. Worktree root: <ROOT>. Language: <LANG>. Codex flags: USE_CODEX=<...>, USE_CODEX_ENGINEER=<...>, USE_CODEX_E2E_REVIEWER=<...>, USE_CODEX_REVIEWER=<...>. Acknowledge and idle." })
+
+Agent({ team_name: "harness-team", name: "engineer-1",      subagent_type: "harness-engineer",      prompt: "You are engineer-1 of lane-1. (same setup as analyst-1)" })
+Agent({ team_name: "harness-team", name: "e2e-reviewer-1",  subagent_type: "harness-e2e-reviewer",  prompt: "You are e2e-reviewer-1 of lane-1. (same setup)" })
+Agent({ team_name: "harness-team", name: "reviewer-1",      subagent_type: "harness-reviewer",      prompt: "You are reviewer-1 of lane-1. (same setup)" })
+
+Agent({ team_name: "harness-team", name: "analyst-2",       subagent_type: "harness-analyst",       prompt: "You are analyst-2 of lane-2. ..." })
+Agent({ team_name: "harness-team", name: "engineer-2",      subagent_type: "harness-engineer",      prompt: "You are engineer-2 of lane-2. ..." })
+Agent({ team_name: "harness-team", name: "e2e-reviewer-2",  subagent_type: "harness-e2e-reviewer",  prompt: "You are e2e-reviewer-2 of lane-2. ..." })
+Agent({ team_name: "harness-team", name: "reviewer-2",      subagent_type: "harness-reviewer",      prompt: "You are reviewer-2 of lane-2. ..." })
+
+# ... repeat for lane-3 (4 more teammates) and lane-4 (4 more teammates), 16 total
 ```
 
-Ask the user: "Ready to run the next batch? (y/n)"
+Wait for each teammate's `[<role>-<N> status=ready]` ack. When all 16 have acked, the team is up.
+
+**Hard rule: exactly 4 lanes, exactly 16 teammates. Never create lane-5 or higher; never create a 5th teammate of any role.** When more issues are pending than 4 lanes can hold, they queue — they do not get a 5th lane.
+
+## Step 3 — Dispatch loop
+
+Maintain in-memory state:
+- `pending_queue`: list of issue numbers waiting for a lane
+- `lane_status`: `{ "lane-1": "idle" | { "issue": <#>, "phase": <state> }, "lane-2": ..., ... }`
+- `completed`: list of `{issue, pr_url, commit_sha}`
+
+Loop until `pending_queue` is empty AND all lanes are idle:
+
+### 3a. Wait for an idle lane
+
+A lane-N is idle when:
+- All 4 of its teammates (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N) have most recently sent `status=ready` (just initialized) or `status=cleared` (just /clear'd after an issue), AND
+- `lane_status["lane-N"] == "idle"` in our bookkeeping.
+
+If no lane is idle, wait for inbound `SendMessage` from any analyst-N. The Agent Teams runtime delivers these to the lead.
+
+### 3b. Find the next dispatchable issue (with conflict avoidance)
+
+From `pending_queue`, pop the next issue. Check **file conflicts** against currently-active lanes:
+
+- Read the candidate issue's `owned_files` (from front matter when `USE_GITHUB_ISSUES=no`, or from issue body section when `=yes`).
+- If any active lane is processing an issue with overlapping `owned_files`, **defer this issue back to the queue** and try the next candidate. This avoids merge conflicts during parallel implementation.
+- If no candidate fits, wait for the next lane completion (back to 3a).
+
+### 3c. Assign the issue to the idle lane
+
+Send the assignment ONLY to that lane's analyst-N (analyst-N orchestrates the rest of the lane internally via SendMessage):
+
+```
+SendMessage({
+  to: "analyst-N",
+  type: "message",
+  content: "ASSIGNMENT
+  issue: #<X>
+  branch: feat/<X>-<slug>
+  worktree: <ROOT>/lanes/feat-<X>-<slug>/
+  owned_files: [<list>]
+  language: <LANG>
+  Begin Step 1 (brief production). Then dispatch engineer-N, e2e-reviewer-N, reviewer-N via SendMessage. After all gates pass, run git commit + push + gh pr create yourself. Final completion message to me: [analyst-N issue=#<X> status=pr-created pr=<URL>]."
+})
+```
+
+Update `lane_status["lane-N"] = { issue: X, phase: "1-brief" }`.
+
+**You do NOT message engineer-N / e2e-reviewer-N / reviewer-N directly during processing.** analyst-N talks to them. You only talk to analyst-N (and to all 4 of the lane during the /clear sweep).
+
+### 3d. Aggregate progress
+
+While dispatching, also receive intermediate messages from running lanes. They come from analyst-N (the only teammate that talks to you during processing):
+
+```
+[analyst-N issue=#X step=1-brief status=ready brief=<path>]
+[analyst-N issue=#X status=pr-created pr=https://...]
+[lane=N issue=#X status=blocked-codex-auth role=<engineer|e2e|reviewer> rescue=<path>]
+```
+
+Update `lane_status` accordingly. On `pr-created`, proceed to 3e (clear the lane). On `blocked-codex-auth`, see "Codex auth failure handling" below.
+
+### 3e. Clear the lane (after PR completes)
+
+When analyst-N reports `status=pr-created`, send `/clear` to **all 4 teammates of that lane** (in a single message with 4 parallel SendMessage calls):
+
+```
+SendMessage({ to: "analyst-N",       type: "message", content: "DIRECTIVE: clear_context\nInvoke /clear in your own session, then ack with [analyst-N status=cleared ready-for-issue]." })
+SendMessage({ to: "engineer-N",      type: "message", content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [engineer-N status=cleared ready]." })
+SendMessage({ to: "e2e-reviewer-N",  type: "message", content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [e2e-reviewer-N status=cleared ready]." })
+SendMessage({ to: "reviewer-N",      type: "message", content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [reviewer-N status=cleared ready]." })
+```
+
+Wait for all 4 cleared acks. Only then mark `lane_status["lane-N"] = "idle"` and proceed to 3a (the lane is now ready for its next issue).
+
+### 3f. Loop until queue is empty AND all lanes idle
+
+When all pending issues are done:
+- Print a consolidated status table to the user (lane / last-issue / PR URL / status).
+- Ask the user via `AskUserQuestion`: continue to next batch (more pending issues exist), or shut down the team.
+
+## Step 4 — Shutdown
+
+When the user agrees to stop or all conceivable batches are done, send `shutdown_request` to all 16 teammates (single message, 16 parallel calls). Wait for `shutdown_response` from each, then:
+
+```
+TeamDelete({ team_name: "harness-team" })
+```
+
+Print a final summary to the user.
 
 ## Codex auth failure handling
 
-If any subagent returns `blocked-codex-auth`:
+When any lane reports `[lane=N issue=#X status=blocked-codex-auth role=<engineer|e2e|reviewer> rescue=<path>]` (forwarded by analyst-N from the affected role teammate):
 
-1. Pause that lane.
-2. Read the rescue file to extract the paused session id:
+1. Mark that lane as `paused` (do NOT mark idle — it has unfinished work).
+2. Read the rescue JSON:
    ```bash
-   RESCUE_FILE="<path from status message>"
+   RESCUE_FILE="<rescue_path>"
    RESCUE_SESSION_ID=$(jq -r '.session_id' "$RESCUE_FILE")
-   RESCUE_ROLE=$(jq -r '.role' "$RESCUE_FILE")
-   RESCUE_ISSUE=$(jq -r '.issue' "$RESCUE_FILE")
-   RESCUE_LANE=$(jq -r '.lane' "$RESCUE_FILE")
+   RESCUE_REASON=$(jq -r '.reason' "$RESCUE_FILE")
    ```
 3. Tell the user:
    ```
-   Lane N (issue #X) is paused — Codex auth expired.
-   Run: codex login
-   Then reply: resume lane N
+   Lane N (issue #X, role=<engineer|e2e|reviewer>) is paused — Codex auth/subscription issue (<RESCUE_REASON>).
+   Action required:
+     - login-expired / preflight-not-logged-in: run `codex login`, then say "resume lane N"
+     - subscription-or-quota: renew subscription OR set USE_CODEX_<ROLE>=no in .my-harness/.config, then say "resume lane N"
    ```
-4. On "resume lane N": re-spawn only that lane's subagent with the same issue and worktree, passing the paused session id explicitly so the new spawn inherits it instead of generating a fresh one:
-   ```
-   Task(subagent_type="harness-<RESCUE_ROLE>",
-        prompt="<original brief + worktree + assigned files>
+4. On `"resume lane N"`:
+   - Run `bash scripts/check-codex-auth.sh` to confirm logged-in.
+   - SendMessage to analyst-N:
+     ```
+     RESUME
+     ROLE=<engineer|e2e|reviewer>
+     INHERITED_SESSION_ID=<RESCUE_SESSION_ID>
+     analyst-N: please forward this to the affected teammate so it retries the failing call with this session id.
+     ```
+   - analyst-N forwards: `SendMessage({to: "<role>-N", content: "RESUME\nINHERITED_SESSION_ID=<id>\n<original task>"})`.
+   - Codex's session is preserved server-side, so prior context resumes once the same session id is reused.
 
-   IMPORTANT — auth rescue resume: use existing session id \"${RESCUE_SESSION_ID}\" instead of
-   generating a new one. Set INHERITED_SESSION_ID=\"${RESCUE_SESSION_ID}\" before your first
-   Bash call so the Session id startup block uses it verbatim.")
-   ```
-   The Codex session is preserved server-side; the subagent will resume from where the conversation left off.
+## Stateless across `/clear` of the lead session
 
-## Stateless design
+If the lead session itself becomes too heavy, write the dispatch state to `<ROOT>/.my-harness/team-state.json`:
 
-team-lead is stateless. On each invocation it re-derives everything from:
-- `.my-harness/.config`
-- GitHub Issues (or `dev/docs/task/child/*.md`)
-- `git worktree list`
+```json
+{
+  "team_name": "harness-team",
+  "lane_status": {
+    "lane-1": "idle",
+    "lane-2": { "issue": 47, "phase": "engineer" },
+    "lane-3": { "issue": 48, "phase": "reviewer" },
+    "lane-4": "paused"
+  },
+  "pending_queue": [50, 51, 52],
+  "completed": [{"issue": 41, "pr": "https://..."}, {"issue": 42, "pr": "https://..."}]
+}
+```
 
-There is no `init-state.json` or `team-state.json` continuation path here. If the session becomes heavy (after 10+ issues), tell the user to `/clear` and re-invoke `/harness-team-lead` — it will pick up from the current state of issues and worktrees automatically.
+Tell the user to `/clear` the lead session and re-invoke `/harness-team-lead`. On re-invocation:
+- If teammates are still alive (Agent Teams keeps teammates alive across lead `/clear` per official docs's persistent-teammate model) → re-read `team-state.json` and resume the dispatch loop. Do NOT re-create the team.
+- If teammates were lost (Claude Code restart, etc.) → recreate the team from scratch (Step 2).
+
+## Hard rules (non-negotiable)
+
+- **Exactly 4 lanes × 4 roles = 16 teammates.** Never create a 17th teammate of any kind.
+- **Teammates are persistent.** Created once, kept alive, `/clear`'ed between issues — never destroyed and recreated mid-session (except shutdown at end).
+- **One issue per lane at a time.** Never assign a second issue to a lane before that lane reports `pr-created` AND all 4 teammates of that lane report `cleared`.
+- **`/clear` all 4 teammates after every issue.** Never reuse a lane's context across issues. Never partial-clear (e.g., only clearing the analyst).
+- **You only talk to analysts** during processing. analyst-N is the lane's foreman and dispatches engineer-N / e2e-reviewer-N / reviewer-N internally via SendMessage. The only exception is Step 3e (the post-issue clear sweep) and Step 4 (shutdown), where you message all 4 teammates of the affected lane(s).
+- **No nested teammates.** No teammate creates another teammate. The team is fixed at 16 + lead.
+
+## Output format (status report to user)
+
+After each batch or on user request:
+
+```
+[team-lead summary]
+team: harness-team (16 teammates: 4 lanes × 4 roles)
+lanes:
+  lane-1  idle (last: #41 → https://github.com/.../pull/12)
+  lane-2  in-progress #47 active=engineer-2
+  lane-3  in-progress #48 active=reviewer-3
+  lane-4  paused     #49 stuck-on=engineer-4 reason=blocked-codex-auth
+queue:    [#50, #51, #52]
+codex_auth: paused (1 lane)
+next: waiting on Codex login for lane-4
+```

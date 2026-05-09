@@ -9,7 +9,7 @@ The skill for carrying out staged releases to each environment after implementat
 
 ## Prerequisites
 
-- `harness-deploy-setup` is done (`terraform apply` in `infra/`, `DEPLOY_READY=yes` in `.my-harness/.config`)
+- `harness-deploy-setup` is done (`bunx alchemy deploy --stage prod` for the initial infra bootstrap, `DEPLOY_READY=yes` in `.my-harness/.config`)
 - All features are merged to dev / all CI is green
 
 ## The 3 deployment stages

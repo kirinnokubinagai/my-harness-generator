@@ -42,7 +42,7 @@ nix develop --command pnpm exec tsc --noEmit
 nix develop --command pnpm exec wrangler d1 migrations apply DB --local
 nix develop --command pnpm exec playwright test
 nix develop --command maestro test tests/e2e/mobile
-nix develop --command terraform apply
+nix develop --command bunx alchemy deploy --stage dev
 nix develop --command sops -d secrets/cloudflare.enc.json
 ```
 

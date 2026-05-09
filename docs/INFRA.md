@@ -2,7 +2,7 @@
 
 ## Principles
 
-- **Fully IaC**: manual console changes are prohibited. Terraform is pinned via Nix flake.
+- **Fully IaC**: manual console changes are prohibited. Cloudflare infrastructure is declared in `dev/alchemy.run.ts` and managed by **Alchemy v2 (Effect.ts)** — pinned via `package.json`. Bun (the recommended Alchemy v2 runtime) is pinned via Nix flake.
 - **Nix pure**: the development environment is fully reproducible with a single `nix develop`. Docker images are also built with Nix (`dockerTools.buildImage`).
 - **Immutable infrastructure**: changes are applied via rebuild + redeploy; direct SSH modifications are prohibited.
 
@@ -12,11 +12,12 @@
 |-------|-------------|-------------|
 | Cloud | AWS / GCP / Cloudflare | Fly.io (small scale) |
 | Container runtime | ECS Fargate / Cloud Run | Kubernetes |
-| Database | RDS PostgreSQL / Cloud SQL | Supabase |
+| Database | RDS PostgreSQL / Cloud SQL / Cloudflare D1 | Supabase |
 | Cache | ElastiCache Redis | Upstash |
 | Object storage | S3 / GCS / R2 | - |
 | CDN / WAF | Cloudflare | AWS CloudFront + WAF |
-| Secrets | SOPS + age (in repo) / AWS Secrets Manager (prod) | - |
+| Secrets | SOPS + age (in repo) / AWS Secrets Manager (prod) / GitHub Secrets (CI) | - |
+| Cloudflare IaC | **Alchemy v2** (TypeScript / Effect.ts) | wrangler-only (no IaC) |
 | Monitoring | Datadog / CloudWatch + Grafana | Sentry |
 | CI/CD | GitHub Actions | - |
 
@@ -28,94 +29,119 @@
 | staging | merge to stage | Automatic + human approval |
 | production | merge to main | Automatic + human approval + canary 10% → 100% |
 
-## Using Cloudflare (Terraform-managed)
+## Cloudflare IaC — Alchemy v2
 
-The official Terraform provider `cloudflare/cloudflare` (v4.x) is mature and supports full IaC management for the following resources:
+This harness uses **Alchemy v2** (`alchemy@2.0.0-beta.x`, Effect.ts based) for all Cloudflare infrastructure-as-code. The single source of truth is `dev/alchemy.run.ts` (Effect.gen + `yield*` resource declarations).
 
-| Resource | Provider support |
-|----------|-----------------|
-| DNS records | `cloudflare_record` |
-| Pages projects | `cloudflare_pages_project` / `cloudflare_pages_domain` |
-| Workers / Workers Routes | `cloudflare_workers_script` / `cloudflare_workers_route` |
-| R2 buckets | `cloudflare_r2_bucket` |
-| KV / D1 / Queues | `cloudflare_workers_kv_namespace` / `cloudflare_d1_database` / `cloudflare_queue` |
-| Cloudflare Tunnel (formerly Argo Tunnel) | `cloudflare_zero_trust_tunnel_cloudflared` |
-| Access (ZTNA) | `cloudflare_access_application` / `cloudflare_access_policy` |
-| WAF custom rules | `cloudflare_ruleset` (phase=`http_request_firewall_custom`) |
-| Page Rules / Bulk Redirects | `cloudflare_ruleset` (phase=`http_request_dynamic_redirect`) |
-| Turnstile | `cloudflare_turnstile_widget` |
+**Why not Terraform / OpenTofu**: Alchemy v2 lets us declare Cloudflare infra in the same language as the application (TypeScript), keeps state in a Cloudflare Worker + Durable Object (no AWS dependency), supports `--adopt` for taking over existing resources, and integrates Effect.ts's structured concurrency / retries. Drift detection at Terraform's level is not yet present and the `2.0.0-beta.x` series may introduce breaking changes — pin the version and update intentionally.
 
-### Running Terraform Purely via Nix Flake
+**Cloudflare Pages is intentionally out of scope** for this harness. If a static site is needed, render it via `Cloudflare.Worker` + Workers Static Assets, not Pages.
 
-Since `terraform` is already included in `flake.nix`'s `buildInputs`:
+### Resource coverage in Alchemy v2 (`alchemy/Cloudflare`)
+
+| Resource | Alchemy v2 import |
+|----------|------------------|
+| Workers (script + bindings) | `Cloudflare.Worker` |
+| Durable Objects | `Cloudflare.DurableObjectNamespace` |
+| Workflows | `Cloudflare.Workflow` |
+| D1 databases | `Cloudflare.D1Database` (+ `D1Migrations`, `D1Import`, `D1Export`) |
+| R2 buckets | `Cloudflare.R2Bucket` |
+| KV namespaces | `Cloudflare.KVNamespace` |
+| Queues | `Cloudflare.Queue` / `Cloudflare.QueueConsumer` |
+| Hyperdrive | `Cloudflare.Hyperdrive` |
+| DNS records | `Cloudflare.DnsRecords` |
+| Zone | `Cloudflare.Zone` |
+| Cloudflare Tunnel | `Cloudflare.Tunnel` |
+| Access (ZTNA) | `Cloudflare.AccessApplication` / `AccessPolicy` / etc. |
+| AI Gateway | `Cloudflare.AiGateway` |
+| Images | `Cloudflare.Images` |
+| Secrets Store | `Cloudflare.SecretsStore` / `Secret` |
+| API tokens (programmatic) | `Cloudflare.AccountApiToken` |
+
+### Running Alchemy v2 purely via Nix flake
+
+`bun` is pinned in `templates/nix/flake.nix`. From inside `dev/`:
 
 ```bash
-nix develop --command terraform init
-nix develop --command terraform plan
+nix develop --command bunx alchemy plan   --stage dev
+nix develop --command bunx alchemy deploy --stage dev --yes
+nix develop --command bunx alchemy state  tree
+nix develop --command bunx alchemy destroy --stage dev   # tear down a stage
 ```
 
-run as-is. The Cloudflare API token is assumed to be decrypted from a **SOPS-encrypted file** and injected as an environment variable:
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` must be in the environment. Decrypt from the SOPS-encrypted file when running locally:
 
 ```bash
 nix develop --command sh -c '
   export CLOUDFLARE_API_TOKEN=$(sops -d secrets/cloudflare.enc.json | jq -r .api_token)
-  terraform apply
+  export CLOUDFLARE_ACCOUNT_ID=$(sops -d secrets/cloudflare.enc.json | jq -r .account_id)
+  bunx alchemy deploy --stage dev --yes
 '
 ```
 
-### Minimal Sample (DNS + Pages)
+In CI (GitHub Actions) the same env vars come from `gh secret`s — see `.github/workflows/deploy.yml`.
 
-```hcl
-terraform {
-  required_providers {
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 4.40"
-    }
-  }
-}
+### Minimal sample (`dev/alchemy.run.ts`)
 
-provider "cloudflare" {
-  # CLOUDFLARE_API_TOKEN is passed via environment variable (hardcoding prohibited)
-}
+```typescript
+import * as Alchemy from "alchemy";
+import * as Cloudflare from "alchemy/Cloudflare";
+import * as Effect from "effect/Effect";
 
-variable "zone_id" { type = string }
-variable "account_id" { type = string }
+export default Alchemy.Stack(
+  "harness",
+  {
+    providers: Cloudflare.providers(),
+    state: Cloudflare.state(),     // remote state in Cloudflare DO
+  },
+  Effect.gen(function* () {
+    const stage = process.env.STAGE ?? "dev";
 
-resource "cloudflare_record" "apex" {
-  zone_id = var.zone_id
-  name    = "@"
-  type    = "A"
-  value   = "192.0.2.1"
-  proxied = true
-  comment = "Expose the production apex through Cloudflare"
-}
+    // === D1 (DB_KIND=d1) ===
+    const db = yield* Cloudflare.D1Database("Db", {
+      name: `harness-${stage}`,
+    });
 
-resource "cloudflare_pages_project" "web" {
-  account_id        = var.account_id
-  name              = "harness-web"
-  production_branch = "main"
+    // === R2 backup bucket ===
+    const backupBucket = yield* Cloudflare.R2Bucket("BackupBucket", {
+      name: `harness-${stage}-backups`,
+      location: "APAC",
+    });
 
-  build_config {
-    build_command   = "nix develop --command pnpm build"
-    destination_dir = "dist"
-  }
+    // === Worker (binds D1 + R2) ===
+    const worker = yield* Cloudflare.Worker("Api", {
+      main: "./src/worker.ts",
+      url: true,
+      bindings: {
+        Db: db,
+        BackupBucket: backupBucket,
+      },
+    });
 
-  source {
-    type = "github"
-    config {
-      owner             = "your-org"
-      repo_name         = "your-repo"
-      production_branch = "main"
-      pr_comments_enabled = true
-    }
-  }
-}
+    // === DNS records (USE_EMAIL=yes adds SPF / DKIM / DMARC) ===
+    // const zone = yield* Cloudflare.Zone("ApexZone", { name: "example.com" });
+    // yield* Cloudflare.DnsRecords("EmailDns", {
+    //   zone,
+    //   records: [
+    //     { type: "TXT", name: "@",         content: "v=spf1 include:_spf.resend.com ~all" },
+    //     { type: "TXT", name: "_dmarc",    content: "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com" },
+    //     { type: "TXT", name: "resend._domainkey", content: "<dkim public key from Resend>" },
+    //   ],
+    // });
+
+    return {
+      worker_url: worker.url,
+      d1_id:      db.id,
+      bucket:     backupBucket.name,
+    };
+  }),
+);
 ```
 
 Notes:
-- Literal values such as `value` are for sample purposes only. Production values are managed via `terraform.tfvars` (in `.gitignore`) or SOPS.
-- For state storage, using a `cloudflare_r2_bucket` with Terraform's `s3` backend-compatible R2 eliminates the need for AWS.
+- Literal values are sample only. Real values come from `process.env` / SOPS-decrypted env vars at deploy time. No hardcoding (see `harness-no-hardcoded-secrets`).
+- State store: `Cloudflare.state()` puts Alchemy state in a Cloudflare Worker + Durable Object. No AWS dependency. Manual repair via `bunx alchemy cloudflare ...`.
+- `--adopt`: pass at deploy time (`bunx alchemy deploy --stage prod --adopt`) to take over existing Cloudflare resources without recreation.
 
 ## D1 Backup Operations
 
@@ -128,7 +154,7 @@ Notes:
 | Restore to stage | `wrangler d1 execute DB --env staging --file prod.sql` |
 | Re-apply additional migrations | `wrangler d1 migrations apply DB --env staging --remote` |
 
-All steps run automatically every 3 days via `scheduled-db-backup.yml`. On failure, a GitHub issue is created with the `priority/p0` label.
+The R2 bucket and D1 databases used here are themselves provisioned by `dev/alchemy.run.ts` (see sample above). All steps run automatically every 3 days via `scheduled-db-backup.yml`. On failure, a GitHub issue is created with the `priority/p0` label.
 
 ## Handling the Android SDK
 
@@ -148,3 +174,4 @@ In CI (GitHub Actions), reproducibility is achieved with `actions/setup-java@v4`
 
 - Each environment must be able to immediately redeploy **the previous immutable image tag**.
 - DB migrations are **forward-only**; destructive changes are applied in two phases (add → backfill → switch → drop).
+- Cloudflare Worker rollback: `wrangler rollback <previous-deployment-id>` (Alchemy v2 does not yet expose a first-class rollback command; use wrangler for emergency rollback of the Worker, then `bunx alchemy deploy --adopt` to re-sync state).

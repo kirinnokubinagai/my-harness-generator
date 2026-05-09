@@ -6,6 +6,32 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed (BREAKING) — Agent Teams architecture
+
+- `/harness-team-lead` is now an **Agent Teams** orchestrator (requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json`). It calls `TeamCreate("harness-team")` once and instantiates **16 persistent teammates** (4 lanes × 4 roles): `analyst-1..4`, `engineer-1..4`, `e2e-reviewer-1..4`, `reviewer-1..4`. Teammates stay alive for the whole session.
+- Per-lane orchestration: team-lead only sends issue assignments to `analyst-N` (the lane foreman). analyst-N dispatches `engineer-N` → `e2e-reviewer-N` → `reviewer-N` via `SendMessage`, loops on failures, then runs `git commit` + `git push` + `gh pr create` itself (analyst-N is the only teammate that touches git in its lane).
+- After each issue's PR completes, team-lead sends `DIRECTIVE: clear_context` to **all 4 teammates of that lane**; each invokes `/clear` in its own session before the next assignment (fresh-agent-per-issue).
+- Removed the dead `agents/harness-team-lead.md` subagent definition. team-lead is the slash command (`skills/harness-team-lead/SKILL.md`); it never gets spawned as a subagent. The previous design relied on nested subagent spawning, which is forbidden by Claude Code (and by Agent Teams' "No nested teams" limitation).
+- Reworked `agents/harness-analyst.md`, `harness-engineer.md`, `harness-e2e-reviewer.md`, `harness-reviewer.md` to be teammate definitions (tools = `SendMessage` instead of `Agent`/`Task`). Each agent type is instantiated 4× by team-lead.
+
+### Changed (BREAKING) — Cloudflare IaC: OpenTofu → Alchemy v2
+
+- Cloudflare infrastructure-as-code is now **Alchemy v2** (`alchemy@2.0.0-beta.x`, Effect.ts based). Replaces the previous OpenTofu / Terraform path entirely.
+- `templates/nix/flake.nix` now provides `bun` (Alchemy v2's recommended runtime) instead of `opentofu`. `wrangler` is kept for D1 migration commands.
+- `skills/harness-deploy-setup/SKILL.md` rewritten end-to-end: `bun add alchemy effect @effect/platform-bun @effect/platform-node` → generate `dev/alchemy.run.ts` (Effect.gen + `yield*`) → `bunx alchemy login --configure` → `bunx alchemy plan/deploy --stage <env>`. State store lives on Cloudflare (Worker + Durable Object); no AWS dependency.
+- `docs/INFRA.md` "Using Cloudflare (Terraform-managed)" section replaced by "Cloudflare IaC — Alchemy v2" with a resource coverage table, a sample `dev/alchemy.run.ts`, and SOPS-decrypted env-var injection pattern.
+- `docs/SETUP.md` now lists `CLOUDFLARE_ACCOUNT_ID` alongside `CLOUDFLARE_API_TOKEN`. R2 bucket creation example switched to `bunx alchemy deploy --stage prod`.
+- `skills/harness-nix-pure/SKILL.md` example commands updated (`terraform apply` → `bunx alchemy deploy --stage dev`).
+- `skills/harness-deploy-execute/SKILL.md` Prerequisites updated to reference `bunx alchemy deploy` instead of `terraform apply`.
+- `README.md` / `README.ja.md` lifecycle table cell updated: "Terraform infra" → "Alchemy v2 (Effect.ts) infra script".
+- **Cloudflare Pages remains intentionally out of scope** (not implemented in Alchemy v2 anyway). Static sites should use `Cloudflare.Worker` + Workers Static Assets.
+
+### Migration notes
+
+- Existing projects on the old subagent-spawning architecture must enable Agent Teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) and re-run `/harness-team-lead` to instantiate the new 16-teammate team. Old subagent context is discarded.
+- Existing projects with OpenTofu-managed Cloudflare resources can adopt them into Alchemy v2 via `bunx alchemy deploy --stage <env> --adopt` (per-resource adoption is also supported by adding `adopt: true` in `dev/alchemy.run.ts`).
+- Pin `alchemy` to a specific `2.0.0-beta.x` in `package.json`; the v2 series may introduce breaking changes during beta.
+
 ### Added
 
 - `/my-harness-init` Phase 1 now asks how you want to authenticate Codex (ChatGPT subscription via `codex login`, or API key via `OPENAI_API_KEY`) immediately after `USE_CODEX=yes` is confirmed. The choice is persisted as `CODEX_AUTH=subscription|api-key` in `.my-harness/.config` and `init-state.json`. Auth-failure guidance (LANG=en + LANG=ja) branches on the chosen method: subscription failures instruct the user to run `codex login`; API key failures show exact `export` / `set -x` commands for bash/zsh/fish plus the persistent `~/.zshrc` path. After 3 consecutive failures the skill auto-sets `USE_CODEX=no` and offers to switch methods.
@@ -39,8 +65,22 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
   - Shell wrappers 8: `harness-new-feature`, `harness-new-hotfix`, `harness-resolve-conflict`,
     `harness-sync-features`, `harness-check-codex-auth`, `harness-check-secrets`,
     `harness-setup-secrets`, `harness-branch-protection`
-- 5 agents (for 4-lane parallel development): `harness-team-lead`, `harness-analyst`, `harness-engineer`,
-  `harness-e2e-reviewer`, `harness-reviewer`
+- 4 worker agent definitions: `harness-analyst`, `harness-engineer`, `harness-e2e-reviewer`,
+  `harness-reviewer`. Each is instantiated 4× by `/harness-team-lead` to form a 16-teammate
+  Agent Teams team (4 lanes × 4 roles): analyst-1..4, engineer-1..4, e2e-reviewer-1..4, reviewer-1..4.
+  All 16 teammates are persistent — created once at session start, kept alive for the whole session.
+- Per-lane orchestration: analyst-N is the lane foreman. team-lead only sends issue assignments to
+  analyst-N (never directly to engineer/e2e/reviewer). analyst-N dispatches engineer-N → e2e-reviewer-N
+  → reviewer-N via `SendMessage`, loops on failures, then runs `git commit` + `git push` +
+  `gh pr create` itself (analyst-N is the only teammate that touches git in its lane).
+- After each issue's PR is created, team-lead sends `/clear` to all 4 teammates of that lane
+  (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N) to enforce fresh-agent-per-issue, then
+  dispatches the next pending issue to that lane.
+- `/harness-team-lead` is owned by `skills/harness-team-lead/SKILL.md` (the team lead skill);
+  `TeamCreate` once at start, `TeamDelete` at session end.
+- **Requires** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` because the
+  architecture relies on persistent teammates and `SendMessage`-based coordination, both of which
+  exist only inside Agent Teams.
 - 2 hooks (`hooks.json`):
   - `UserPromptSubmit`: Automatically masks user input with mask-secrets.sh and appends to dev/docs/talk/<date>.md
   - `Stop`: Extracts Claude's final response from transcript, masks it, and appends

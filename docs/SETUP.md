@@ -41,7 +41,8 @@ gh variable set AGE_RECIPIENTS --repo <owner/repo>
 | `R2_ENDPOINT_URL` | R2 endpoint URL |
 | `AGE_SECRET_KEY_STAGE` | age private key for stage restore |
 | `MOBSF_API_KEY` | MobSF authentication |
-| `CLOUDFLARE_API_TOKEN` | For Cloudflare operations via Terraform |
+| `CLOUDFLARE_API_TOKEN` | For Cloudflare operations via Alchemy v2 (`bunx alchemy deploy`) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (read by Alchemy v2 alongside the API token) |
 
 Registration commands:
 
@@ -83,21 +84,23 @@ This applies the following settings in bulk to main / stage / dev:
 ## Resend Domain Authentication
 
 1. Add your domain at <https://resend.com/domains>.
-2. Manage the displayed DNS records (SPF / DKIM / DMARC) via Terraform using `cloudflare_record` resources.
+2. Manage the displayed DNS records (SPF / DKIM / DMARC) via Alchemy v2 by adding `Cloudflare.DnsRecords` declarations to `dev/alchemy.run.ts` (see `harness-deploy-setup`).
 3. After authentication is complete, set `EMAIL_FROM_ADDRESS` to an address under that domain.
 
 ## Cloudflare R2 Backup Bucket
 
 ```bash
-nix develop --command terraform apply -target=cloudflare_r2_bucket.harness_backup
+nix develop --command bunx alchemy deploy --stage prod
+# Creates the R2Bucket("BackupBucket") declared in dev/alchemy.run.ts
 ```
 
-```hcl
-resource "cloudflare_r2_bucket" "harness_backup" {
-  account_id = var.cloudflare_account_id
-  name       = "harness-prod-backups"
-  location   = "APAC"
-}
+Declaration in `dev/alchemy.run.ts` (Alchemy v2 / Effect.gen):
+
+```typescript
+const backupBucket = yield* Cloudflare.R2Bucket("BackupBucket", {
+  name: "harness-prod-backups",
+  location: "APAC",
+});
 ```
 
-Lifecycle rules (delete after 90 days) can be configured in the R2 dashboard or via the `cloudflare_r2_lifecycle` resource.
+Lifecycle rules (delete after 90 days) can be configured in the R2 dashboard. Alchemy v2 R2 lifecycle rule resource availability is in flux during the `2.0.0-beta.x` series — check `v2.alchemy.run` providers list before relying on it.

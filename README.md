@@ -27,7 +27,7 @@ The result on disk is a project where:
 - **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`. Optionally delegate `engineer` / `e2e-reviewer` / `reviewer` subagent roles to Codex per role (independent toggles, master switch via `USE_CODEX`).
 - **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Drizzle + Resend + Playwright + Maestro.
 - **Per-platform framework choice** — Web (`nextjs` or `tanstack`), iOS (`swift` / `expo` / `flutter`), Android (`kotlin` / `expo` / `flutter`), Desktop (`tauri` or `electron` + macOS/Windows/Linux), Backend (`hono` / `gin` / `rust`), DB (`d1` / `postgres` / `mysql` / `sqlite`). Each platform's framework choice is independent.
-- **4-lane parallel development** — `harness-team-lead` agent assigns issues across 4 independent lanes (analyst → engineer → e2e-reviewer → reviewer per lane).
+- **4-lane parallel development via Agent Teams** — `/harness-team-lead` creates a Claude Code Agent Teams team with **16 persistent teammates** (4 lanes × 4 roles: `analyst-N`, `engineer-N`, `e2e-reviewer-N`, `reviewer-N` for N=1..4). team-lead dispatches each pending issue to the analyst of an idle lane; that analyst orchestrates engineer-N → e2e-reviewer-N → reviewer-N via `SendMessage` and runs `git commit` + `gh pr create` itself. After each issue's PR, team-lead sends `/clear` to all 4 teammates of that lane (fresh-agent-per-issue), then dispatches the next issue. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
 - **21 skills, lazy-loaded** — TDD, Hono Clean Architecture, Drizzle migrate-only, Nix-pure execution, design discipline, JSDoc, git discipline, hardcoded-secret prevention, and more.
 - **GitHub-Issue mode toggle** — choose between `gh issue create` and local `dev/docs/task/*.md` files at init time.
@@ -68,7 +68,7 @@ The first question of `/my-harness-init` asks whether to use English or Japanese
 | # | Phase | What you decide |
 |---|-------|-----------------|
 | 0 | **Language** | English or Japanese for the rest of the interview |
-| 1 | **Setup** | Project root path, Codex y/n, global CLAUDE.md inheritance, task management mode (GitHub Issues or local files) |
+| 1 | **Setup** | Project root path, choice of AI helpers (Claude only / Claude + Codex), global CLAUDE.md handling (inherit / isolate), task tracking (Local markdown / GitHub Issues) — all asked as labeled named choices, not y/n |
 | 2 | **Discovery** | Open multi-turn conversation that drills into failure modes, who'd push back, scale breakpoints, trust model, differentiation, day-2 ops — the load-bearing constraints |
 | 3 | **Structure** | Just architecture (client-server / serverless / pure P2P / hybrid P2P) and platform multi-select (web / desktop / mobile + iOS-or-Android) |
 | 4 | **Features** | Complete feature list for the whole project — everything needed before you'd call it done — drilled per feature on access path / failure / observability / onboarding / power-user / empty / failure-recovery / latency budget |
@@ -115,7 +115,7 @@ The plugin enforces a 6-phase flow from idea to production. The first three phas
 | 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Bootstrap phase) |
 | 3.5. Switch session | Restart Claude Code inside `<root>/dev/` so project-scope CLAUDE.md and settings load | `<root>/start-dev.sh` |
 | 4. Implementation | 4-lane parallel feature work; each issue runs in a fresh subagent context | `/harness-new-feature <issue>` |
-| 5. Deploy setup | Terraform infra (Cloudflare D1 / R2 / Pages), wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
+| 5. Deploy setup | Alchemy v2 (Effect.ts) infra script (`alchemy.run.ts`) for Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel, wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |
 
 A separate emergency path (`/harness-new-hotfix`) exists for production fixes; see "Daily commands" below.
@@ -133,7 +133,7 @@ After init, these are the slash commands you'll reach for most often:
 | Ask Codex for a second opinion | `/harness-codex-consult` (or just say "ask Codex") |
 | Manual secret scan | `/harness-check-secrets` |
 | Apply branch protection in bulk | `/harness-branch-protection` |
-| Generate Terraform deploy infrastructure | `/harness-deploy-setup` |
+| Generate Alchemy v2 deploy infrastructure (`alchemy.run.ts`) | `/harness-deploy-setup` |
 | Run a staged production deploy | `/harness-deploy-execute` |
 
 ## Auto-firing skills
@@ -230,7 +230,7 @@ Direct pushes to `main` and `stage` are blocked twice: by the local pre-push hoo
 
 ## Fresh-agent-per-issue principle
 
-Every issue is processed in a brand-new subagent context. `harness-team-lead` always spawns engineer / analyst / e2e-reviewer / reviewer agents via `Task(subagent_type=..., prompt=...)`, never via `SendMessage` continuation. This guarantees:
+Every issue runs inside a freshly-cleared set of 4 teammates (one lane). The `/harness-team-lead` skill keeps the same 16 teammates (4 lanes × 4 roles) alive for the whole session, but after each issue's PR completes it sends `DIRECTIVE: clear_context` to all 4 teammates of that lane (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N), each of whom invokes `/clear` in its own session before the next assignment. This guarantees:
 
 - No bleed-over of decisions or naming choices from previous issues.
 - No accumulating context cost as the project grows.

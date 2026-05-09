@@ -1,6 +1,11 @@
-# 概要: Cloudflare Workers / D1 の設定。
-#       database_id は Cloudflare ダッシュボードで作成後、`wrangler d1 create <name>` の出力をここに貼る。
-#       D1 マイグレーションは drizzle-kit generate で生成し、`wrangler d1 migrations apply` で適用する。
+# 概要: Cloudflare Workers / D1 の設定（wrangler が読む）。
+#       database_id は Alchemy v2 が `dev/alchemy.run.ts` のリソース宣言から作成する。
+#       初回 `bunx alchemy deploy --stage <env>` 後、以下で実 ID を取り出してこのファイルに反映する：
+#         nix develop --command bunx alchemy state get harness <stage> Db | jq -r .id
+#       D1 マイグレーションは drizzle-kit generate で SQL 生成し、
+#       `wrangler d1 migrations apply DB --env <env> --remote` で適用する。
+#       wrangler.toml と wrangler.jsonc は両方とも wrangler が受理する。本テンプレは
+#       既存ツール互換のため .toml を残しているが、Alchemy v2 公式ドキュメントは .jsonc を案内。
 name = "harness-app"
 main = "src/main.ts"
 compatibility_date = "2026-04-01"

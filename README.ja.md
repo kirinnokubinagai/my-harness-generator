@@ -27,7 +27,7 @@
 - **Codex CLI 連携（任意）** — session resume による真のマルチターン対話。ロゴ・UI モックを `gpt-image-2` で生成。さらに `engineer` / `e2e-reviewer` / `reviewer` の subagent 役割を **役割ごとに独立に Codex へ委譲可能**（master switch は `USE_CODEX`、各役割は `USE_CODEX_<ROLE>` で y/n 切替）。
 - **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Drizzle + Resend + Playwright + Maestro。
 - **プラットフォームごとに独立してフレームワーク選択可能** — Web（`nextjs` / `tanstack`）、iOS（`swift` / `expo` / `flutter`）、Android（`kotlin` / `expo` / `flutter`）、Desktop（`tauri` / `electron` + macOS/Windows/Linux）、バックエンド（`hono` / `gin` / `rust`）、DB（`d1` / `postgres` / `mysql` / `sqlite`）。1 つの選択が他のプラットフォームに波及しない。
-- **4 レーン並列開発** — `harness-team-lead` agent が issue を 4 レーンに振り分け、各レーンが analyst → engineer → e2e-reviewer → reviewer のフローで並列実装。
+- **4 レーン並列開発（Agent Teams）** — `/harness-team-lead` が Claude Code Agent Teams のチームを作成し、**16 個の persistent teammate**（4 lane × 4 役: `analyst-N` / `engineer-N` / `e2e-reviewer-N` / `reviewer-N`、N=1..4）を session の最初に立ち上げて keep。team-lead は idle な lane の analyst に pending issue を 1 件ずつ振り分け、analyst-N がレーン内で `SendMessage` を使って engineer-N → e2e-reviewer-N → reviewer-N を順に動かし、最後に analyst-N 自身が `git commit` + `gh pr create` を実行する。issue 完了後、team-lead が **その lane の 4 teammate 全員に `/clear` 指示を送ってからコンテキストをリセット** (fresh-agent-per-issue)、次の issue を振り分ける。`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` が必須。
 - **自動機密マスキング** — `UserPromptSubmit` フックがユーザー入力を `mask-secrets.sh`（9 パターン）に通して `dev/docs/talk/<日付>.md` に記録。
 - **21 個の skill を lazy load** — TDD / Hono Clean Architecture / Drizzle migrate-only / Nix pure / デザイン規律 / JSDoc / Git 規律 / ハードコード機密検出 ほか。
 - **GitHub Issue モード切替（任意）** — init 時に `gh issue create` を使うか、ローカル `dev/docs/task/*.md` で管理するかを選択。
@@ -68,7 +68,7 @@ Claude Code 内で:
 | # | フェーズ | 決めること |
 |---|---------|-----------|
 | 0 | **Language** | 以降のインタビューを英語で進めるか日本語で進めるか |
-| 1 | **Setup** | プロジェクトのルートパス / Codex 連携 y/n / 個人グローバル CLAUDE.md 引き継ぎ y/n / タスク管理方式（GitHub Issue or ローカル） |
+| 1 | **Setup** | プロジェクトのルートパス / AIヘルパー選択（Claude のみ / Claude + Codex）/ 個人グローバル CLAUDE.md の扱い（引き継ぐ / 切り離す）/ タスク管理（ローカル markdown / GitHub Issues）— すべて「y/n」ではなくラベル付きの選択肢として提示 |
 | 2 | **Discovery** | 自由対話で深掘り — 失敗パターン・反対者・スケール限界・信頼根拠・差別化・運用 6 カ月後、といった**支柱になる制約**を引き出す |
 | 3 | **Structure** | アーキテクチャ（client-server / serverless / pure P2P / hybrid P2P）とプラットフォーム複数選択（web / desktop / mobile + iOS / Android）のみ |
 | 4 | **Features** | プロジェクト全体の機能リスト — 各機能ごとに 「経路 / 失敗 / 観測 / オンボード / 上級者ショートカット / 空状態 / 失敗復旧 / レイテンシ予算」 を深掘り |
@@ -115,7 +115,7 @@ bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 | 3. Tasks | issue / task ファイル生成、4 レーンへのファイル所有割当、bootstrap 実行 | `/my-harness-init`（Bootstrap フェーズ） |
 | 3.5. Switch session | `<root>/dev/` 内で Claude Code を再起動してプロジェクトスコープの CLAUDE.md と settings を読み込む | `<root>/start-dev.sh` |
 | 4. Implementation | 4 レーン並列実装、各 issue を fresh subagent で処理 | `/harness-new-feature <issue>` |
-| 5. Deploy setup | Terraform infra（Cloudflare D1 / R2 / Pages）、wrangler bindings、GitHub secrets / vars、fastlane（iOS） | `/harness-deploy-setup` |
+| 5. Deploy setup | Alchemy v2（Effect.ts）の infra スクリプト（`alchemy.run.ts`、Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel）、wrangler bindings、GitHub secrets / vars、fastlane（iOS） | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage`（自動 + 人間ラベル）→ `main`（canary 10% → 100%） | `/harness-deploy-execute` |
 
 緊急修正用の別経路（`/harness-new-hotfix`）もあります。次の「日常コマンド」を参照。
@@ -133,7 +133,7 @@ init 後の開発で使うコマンド一覧:
 | Codex に第二意見を求める | `/harness-codex-consult`（または「Codex に聞いて」） |
 | 機密チェック（手動） | `/harness-check-secrets` |
 | ブランチ保護を一括適用 | `/harness-branch-protection` |
-| Terraform デプロイ設定を生成 | `/harness-deploy-setup` |
+| Alchemy v2 デプロイ設定（`alchemy.run.ts`）を生成 | `/harness-deploy-setup` |
 | 段階的本番デプロイを実行 | `/harness-deploy-execute` |
 
 ## 自動発火する規約 skill
@@ -230,7 +230,7 @@ init 後の開発で使うコマンド一覧:
 
 ## Fresh-agent-per-issue 原則
 
-各 issue は **完全に新規の subagent context** で処理されます。`harness-team-lead` は engineer / analyst / e2e-reviewer / reviewer を **必ず `Task(subagent_type=..., prompt=...)` で fresh spawn** し、`SendMessage` で前回の subagent を継続呼び出ししません。これにより:
+各 issue は **完全にクリアされた lane (4 teammate 分) のコンテキスト** で処理されます。`/harness-team-lead` skill は 16 個の teammate (4 lane × 4 役) を session 通して keep しますが、issue が完了して PR が立った直後、その lane の **4 teammate 全員 (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N) に `DIRECTIVE: clear_context` を送り、各自が自分のセッションで `/clear` を実行**します。これにより:
 
 - 前 issue の判断や命名が現 issue に染み込まないことを保証。
 - context 累積によるトークンコスト増を抑制。
