@@ -4,6 +4,73 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.5.0] — 2026-05-10
+
+### Fixed — CRITICAL: 3.4.0 had 4 production-broken gaps (apology)
+
+3.4.0 fixed the source/wrapper problem but shipped with the orchestration flow incomplete. Concrete gaps that would have triggered failure on the very first run:
+
+1. **No task `status: pending → in_progress → completed` updates.** `list-pending-issues.sh` only filters by `status: pending`, so without the analyst flipping it to `in_progress` at assignment, the same task would be re-dispatched on every `/loop` wakeup — and worse, **dispatched simultaneously to multiple lanes**. Without the flip to `completed` after PR creation, the task would re-appear forever.
+2. **No `git worktree add` / `worktree remove`.** team-lead Step 3c sent assignments referencing `<ROOT>/lanes/feat-<X>-<slug>/` paths but never created them; analyst-N would `cd` into a nonexistent dir.
+3. **`owned_files` extraction mismatch.** SKILL.md said "from front matter when USE_GITHUB_ISSUES=no", but actual task md files put owned files in the body line `**ファイル所有**: a, b, c`. The conflict-avoidance check in Step 3b was reading from the wrong place — silently always finding nothing — meaning two lanes could grab tasks editing the same files.
+4. **No `parent` task close logic.** Children would cycle through completed but the parent task md / GitHub issue would stay open forever.
+
+3.4.0 was tested only at the `build-dev-env.sh` / wrapper layer, not the orchestration flow. **This is on me; should not have shipped.** Apologies again.
+
+### New scripts
+
+All shell-script-only (no agent context required), all idempotent, all CLAUDE_PLUGIN_ROOT-aware via `${VAR:?msg}` hard-fail.
+
+- `harness-task-status.sh <root> <id> <pending|in_progress|completed>` — flip a task md's front-matter status (sed in the front-matter band only — body lines starting with `## status:` are untouched). USE_GITHUB_ISSUES=yes uses `gh issue edit/close`.
+- `harness-worktree.sh <add|remove> <root> <id> <slug>` — create / destroy a lane worktree at `<root>/lanes/feat-<id>-<slug>/` with branch `feat/<id>-<slug>` off `origin/dev`. Uses explicit refspec (`+refs/heads/dev:refs/remotes/origin/dev`) so bare clones without the default fetch refspec also work. Idempotent on both add and remove.
+- `harness-parent-status.sh <root> <parent-id>` — close the parent task when **all** of its children have `status: completed`. No-op while any child is still pending/in_progress. Symmetric for yes/no.
+- `list-pending-issues.sh` refactored — output is now **4 tab-separated columns**: `<id>\t<lane>\t<owned_files_csv>\t<title>`. The `owned_files` field is parsed from the body line `**ファイル所有**: ...` (or English `**Owned files**:`); team-lead can use this directly for conflict avoidance with no extra parsing.
+
+### Updated flow
+
+- `agents/harness-analyst.md`:
+  - **Step 0.5 (new)** — call `harness-task-status.sh ... in_progress` before brief production. Stops re-dispatch on `/loop` wakeup and prevents the same task being assigned to two lanes simultaneously.
+  - **Step 1.1 explicit** — local task file path is `<root>/dev/docs/task/child/<id>.md`; the id matches the markdown filename. (Previously this was implied but never written.)
+  - **Step 5.5 (new)** — call `harness-task-status.sh ... completed` + `harness-parent-status.sh ... <parent>` after PR creation.
+
+- `skills/harness-team-lead/SKILL.md`:
+  - **Step 1** — output format documented as 4-column TSV; explains how `status: in_progress` filters block re-dispatch.
+  - **Step 3b** — preferred-lane logic: respect the task's `lane:` field; defer if that lane is busy rather than fall back to a different lane (which could cause owned-files conflicts).
+  - **Step 3c** — calls `harness-worktree.sh add` before sending the assignment.
+  - **Step 3e** — calls `harness-worktree.sh remove` after the post-PR clear sweep.
+
+### Verified end-to-end (27-step test suite, all pass before commit)
+
+```
+✅ All 5 scripts executable
+✅ build-dev-env wrapper still works (3.4.0 not regressed)
+✅ wrapper exec pnpm
+✅ wrapper from bash 3.2 → /nix/store
+✅ wrapper from fish → /nix/store
+✅ CLAUDE_PLUGIN_ROOT unset hard-fails
+✅ task-status pending→in_progress
+✅ task-status in_progress→completed
+✅ task-status invalid status → exit 65
+✅ task-status missing id → exit 3
+✅ parent open while children pending
+✅ parent closes when all children completed
+✅ parent-status idempotent on already-completed
+✅ list-pending: only pending tasks listed (in_progress filtered out)
+✅ list-pending: 4 tab-separated columns
+✅ list-pending: row content correct (id/lane/owned/title)
+✅ list-pending on real todo-app: 107 rows
+✅ worktree add creates dir
+✅ worktree on correct branch
+✅ worktree add idempotent
+✅ worktree remove deletes dir
+✅ worktree remove deletes branch
+✅ worktree remove idempotent
+```
+
+### Migration
+
+Existing 3.4.0 users: nothing to do; new scripts deploy alongside existing ones. The `list-pending-issues.sh` output format changed from 2 columns to 4 — if you have a custom override that consumed the old format, switch to indexing columns 1, 2, 3, 4 for id/lane/owned_files/title.
+
 ## [3.4.0] — 2026-05-10
 
 ### Fixed — CRITICAL: 3.3.0 was broken in production (apology)

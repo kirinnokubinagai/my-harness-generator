@@ -113,14 +113,25 @@ Why this beats `nix develop --command`:
 
 After this step, **every teammate (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N) MUST run `build-dev-env.sh "<their worktree>"` and use the returned wrapper as `"$DEVSH" <command>`** at the start of their turn. They run `pnpm` / `vitest` / `biome` / `tsc` / `git` / `gh` via the wrapper — no `nix develop --command`, no shell-source. See `agents/harness-engineer.md` for the canonical snippet.
 
-## Step 1 — Determine issue source
+## Step 1 — Determine pending tasks
 
 ```bash
-SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead"
 bash "$SKILL_DIR/scripts/list-pending-issues.sh" "$ROOT" > /tmp/harness-pending.tsv
 ```
 
-The script (`skills/harness-team-lead/scripts/list-pending-issues.sh`) auto-detects `USE_GITHUB_ISSUES` from `.my-harness/.config` and emits one `<id>\t<title>` line per pending issue (FIFO order). The team processes 4 in parallel at any moment (one per lane); the rest queue.
+Output is **tab-separated, 4 fields per line**:
+
+```
+<id>\t<lane>\t<owned_files_csv>\t<title>
+```
+
+- `id` — task id (e.g. `0001-07`) or GitHub issue number
+- `lane` — preferred lane number (1..4) from `lane:` front matter / `lane-N` GitHub label; empty if unspecified
+- `owned_files` — comma-separated file paths/globs the task owns (parsed from the body line `**ファイル所有**: ...` / `**Owned files**: ...`)
+- `title` — short title
+
+Pending = `status: pending` in front matter / `state: open AND label: ready` on GitHub. Tasks with `status: in_progress` (set by analyst-N at Step 0.5 of issue processing) are **not** listed, which is what stops `/loop` wakeups from re-dispatching the same task.
 
 ## Step 2 — Create the team and 16 teammates (once per session)
 
@@ -182,17 +193,28 @@ A lane-N is idle when:
 
 If no lane is idle, wait for inbound `SendMessage` from any analyst-N. The Agent Teams runtime delivers these to the lead.
 
-### 3b. Find the next dispatchable issue (with conflict avoidance)
+### 3b. Find the next dispatchable task (preferred lane + conflict avoidance)
 
-From `pending_queue`, pop the next issue. Check **file conflicts** against currently-active lanes:
+For each candidate from `pending_queue` (front of queue first):
 
-- Read the candidate issue's `owned_files` (from front matter when `USE_GITHUB_ISSUES=no`, or from issue body section when `=yes`).
-- If any active lane is processing an issue with overlapping `owned_files`, **defer this issue back to the queue** and try the next candidate. This avoids merge conflicts during parallel implementation.
-- If no candidate fits, wait for the next lane completion (back to 3a).
+1. **Preferred lane**: the task's `lane` field is the lane it was authored for. If that lane is currently idle, use it. If that lane is busy:
+   - **Don't auto-fall-back to a different lane** — the task's `owned_files` were assigned with that lane in mind. Falling back would risk file overlap with the lane that's currently busy on a peer task. Defer this task and try the next candidate.
+   - If the task has no lane (`lane` field empty), any idle lane is acceptable.
+2. **owned_files conflict** check: read the candidate's owned_files (the 3rd column of `list-pending-issues.sh` output — already parsed for you). If any currently-active lane is processing a task whose `owned_files` overlap (path-glob match), defer this candidate and try the next.
+3. If no candidate fits, wait for the next lane completion (back to 3a).
 
-### 3c. Assign the issue to the idle lane
+### 3c. Create the lane worktree, then assign
 
-Send the assignment ONLY to that lane's analyst-N (analyst-N orchestrates the rest of the lane internally via SendMessage):
+`build-dev-env.sh` and the agents assume the worktree at `<ROOT>/lanes/feat-<id>-<slug>/` already exists. team-lead creates it before dispatching.
+
+```bash
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:?}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/harness-worktree.sh" add "$ROOT" "<id>" "<slug>"
+# Idempotent: skips if the worktree already exists on the right branch.
+# Branches off origin/dev, so it picks up the latest peer-merged commits.
+```
+
+Then send the assignment ONLY to that lane's analyst-N (analyst-N orchestrates the rest of the lane internally via SendMessage):
 
 ```
 SendMessage({
@@ -235,7 +257,16 @@ SendMessage({ to: "e2e-reviewer-N",  type: "message", content: "DIRECTIVE: clear
 SendMessage({ to: "reviewer-N",      type: "message", content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [reviewer-N status=cleared ready]." })
 ```
 
-Wait for all 4 cleared acks. Only then mark `lane_status["lane-N"] = "idle"` and proceed to 3a (the lane is now ready for its next issue).
+Wait for all 4 cleared acks. Then **remove the lane worktree** so it can be re-used for a different task without leaking branches or stale `node_modules`:
+
+```bash
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:?}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/harness-worktree.sh" remove "$ROOT" "<id>" "<slug>"
+# Idempotent: skips if the worktree already gone. Also deletes the local feature branch
+# (push happened in Step 5; remote has the commits and PR is open/merged).
+```
+
+Only then mark `lane_status["lane-N"] = "idle"` and proceed to 3a (the lane is now ready for its next task).
 
 ### 3f. Loop until queue is empty AND all lanes idle
 

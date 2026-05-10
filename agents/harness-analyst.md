@@ -53,9 +53,20 @@ fi
 # At this point HEAD includes everything in origin/dev. Brief production proceeds on a fresh base.
 ```
 
+### Step 0.5 — Mark task in_progress (mandatory)
+
+Right after dev sync, mark the task as `in_progress` so list-pending-issues.sh stops listing it (prevents the same task being re-dispatched on a `/loop` wakeup or to another lane). Symmetric for both USE_GITHUB_ISSUES=yes (gh issue label) and =no (front-matter sed).
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead/scripts/harness-task-status.sh" \
+  "$ROOT" "<task id from team-lead's ASSIGNMENT>" in_progress
+```
+
 ### Step 1 — Brief production (you do this)
 
-1. Read the GitHub issue (or local task file when `USE_GITHUB_ISSUES=no`) via Bash + `gh` / Read.
+1. Read the task source:
+   - **USE_GITHUB_ISSUES=yes**: `gh issue view <X> --json title,body,labels` (reads from GitHub).
+   - **USE_GITHUB_ISSUES=no**: `Read <root>/dev/docs/task/child/<id>.md` (the local task file). The id is exactly what team-lead sent in the ASSIGNMENT message and matches the markdown filename (without `.md`).
 2. Investigate related code via Read / Grep.
 3. Produce the structured brief in this exact format:
    ```
@@ -120,6 +131,25 @@ fi
     ```
 
     Do **not** wrap any of these in `nix develop --command` — that re-runs the evaluator and triggers the fork-bomb. The wrapper provides everything via a single nix-bash-5 exec. `build-dev-env.sh` is content-hash-cached, so the second-and-later calls in the same issue (after engineer's vitest run) are instant.
+
+### Step 5.5 — Mark task completed (mandatory)
+
+After the PR is created (push + `gh pr create` succeeded), flip this task's status to `completed`. Otherwise list-pending-issues.sh keeps returning it and team-lead may re-dispatch it on the next idle lane.
+
+```bash
+SCRIPTS="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead/scripts"
+bash "$SCRIPTS/harness-task-status.sh" "$ROOT" "<task id>" completed
+
+# If the task md / GitHub issue knows its parent, also try to close the parent.
+# The script is idempotent — it only acts when ALL siblings are completed.
+PARENT_ID="<parent id read from task front matter or GitHub issue body>"
+[ -n "$PARENT_ID" ] && bash "$SCRIPTS/harness-parent-status.sh" "$ROOT" "$PARENT_ID"
+```
+
+When USE_GITHUB_ISSUES=no the task md commit (status: pending → completed in the same edit) should ride the same `git commit` as the implementation OR be a separate trailing commit on the same feature branch — analyst's choice. Either way, the change ends up on `feat/<X>-<slug>` and lands in dev when the PR merges.
+
+When USE_GITHUB_ISSUES=yes the script just calls `gh issue close --reason completed` — no extra commit needed.
+
 20. **Final completion**: `SendMessage({to: "team-lead", content: "[analyst-N issue=#X status=pr-created pr=<URL> commit=<sha>]"})`. Enter idle state.
 
 ## Hard rules during processing
