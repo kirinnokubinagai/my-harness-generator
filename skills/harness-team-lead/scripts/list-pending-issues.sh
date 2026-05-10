@@ -25,7 +25,16 @@
 
 set -u
 
-ROOT="${1:-$PWD}"
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
+ROOT="$(__resolve_project_root "${1:-$PWD}")"
 CFG="$ROOT/.my-harness/.config"
 
 if [ ! -f "$CFG" ]; then

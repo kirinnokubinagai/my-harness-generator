@@ -18,10 +18,23 @@ If non-zero, surface the remediation message to the user and stop.
 
 ## Precondition — project initialized + resources OK
 
+The user is expected to launch Claude Code from `<project>/dev/` via `start-dev.sh` (or `cd <project>/dev && claude`). All scripts resolve `ROOT` to the project root (the directory holding `.bare/`) regardless of cwd, so passing `$(pwd)` is always safe.
+
 ```bash
 ROOT="$(pwd)"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead"
 bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
+# After preflight, normalise ROOT for the rest of this session so messages and
+# state files agree on a single canonical path.
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+ROOT="$(__resolve_project_root "$ROOT")"
 ```
 
 `preflight.sh` checks: `.my-harness/.config` exists, ≥ 20 GB disk, ≥ 4 GB reclaimable RAM, swap ≤ 1 GB, compressor ≤ 6 GB, no `nix-collect-garbage` running. On any failure the script writes the remediation message to stderr — surface it to the user, do not retry silently.
@@ -168,6 +181,7 @@ SendMessage({
   to: "analyst-N",
   type: "message",
   content: "ASSIGNMENT
+    root: <ROOT>
     issue: #<X>
     branch: feat/<X>-<slug>
     worktree: <ROOT>/lanes/feat-<X>-<slug>/

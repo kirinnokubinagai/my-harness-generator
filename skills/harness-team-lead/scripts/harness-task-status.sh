@@ -31,7 +31,16 @@ if [ $# -ne 3 ]; then
   exit 64
 fi
 
-ROOT="$1"
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
+ROOT="$(__resolve_project_root "$1")"
 ID="$2"
 NEW_STATUS="$3"
 CFG="$ROOT/.my-harness/.config"

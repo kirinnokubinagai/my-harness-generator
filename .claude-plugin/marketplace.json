@@ -6,16 +6,16 @@
     "email": "removed@redacted.local"
   },
   "description": "Generic project harness generator. /my-harness-init walks you through a structured interview, produces spec markdowns, and bootstraps the project end-to-end. Supports Hono + Cloudflare D1 + Resend + Playwright + Maestro, with 4-lane parallel development, TDD enforcement, Codex integration, secret masking, and git discipline.",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "metadata": {
-    "version": "3.8.0"
+    "version": "3.8.1"
   },
   "plugins": [
     {
       "name": "my-harness",
       "source": "./",
       "description": "Harness generator core. 21 skills (entry point + conventions + shell wrappers + /harness-team-lead Agent Teams orchestrator) + 4 worker agent definitions (harness-analyst / harness-engineer / harness-e2e-reviewer / harness-reviewer, each instantiated 4× to form a 16-teammate Agent Teams team: 4 lanes × 4 roles) + 2 hooks (auto-logged conversations). Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1.",
-      "version": "3.8.0",
+      "version": "3.8.1",
       "author": {
         "name": "kirinnokubinagai",
         "email": "removed@redacted.local"

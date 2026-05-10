@@ -20,7 +20,17 @@
 set -u
 
 TEAM_CFG="$HOME/.claude/teams/harness-team/config.json"
-ROOT="${1:-$PWD}"
+
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
+ROOT="$(__resolve_project_root "${1:-$PWD}")"
 
 # >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
 __test_log() {

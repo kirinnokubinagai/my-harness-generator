@@ -4,6 +4,12 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.1] — 2026-05-10
+
+- Every script in `skills/harness-team-lead/scripts/` now resolves `ROOT` to the project root (the directory holding `.bare/`) regardless of cwd. Fixes `harness-worktree.sh` creating lanes under `dev/lanes/` when launched from `dev/`.
+- `harness-team-lead` SKILL.md normalises `ROOT` after `preflight.sh` and includes `root: <ROOT>` in the analyst-N ASSIGNMENT.
+- `agents/harness-analyst.md` binds `ROOT` from the ASSIGNMENT message instead of `$(pwd)`; reads `$ROOT/dev/docs/task/child/<id>.md` correctly when launched from `dev/`.
+
 ## [3.8.0] — 2026-05-10
 
 - Lanes are spawned one at a time, gated by `spawn-lane-decision.sh` (resource probe + name-collision check). Empty team after `TeamCreate`.

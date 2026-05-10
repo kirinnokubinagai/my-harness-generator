@@ -27,7 +27,16 @@ if [ $# -ne 2 ]; then
   exit 64
 fi
 
-ROOT="$1"
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
+ROOT="$(__resolve_project_root "$1")"
 PARENT_ID="$2"
 CFG="$ROOT/.my-harness/.config"
 

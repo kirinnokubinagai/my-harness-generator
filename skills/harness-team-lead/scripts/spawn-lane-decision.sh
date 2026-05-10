@@ -39,7 +39,17 @@
 set -u
 
 N="${1:-}"
-ROOT="${2:-$PWD}"
+
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
+ROOT="$(__resolve_project_root "${2:-$PWD}")"
 NAMES="analyst-$N engineer-$N e2e-reviewer-$N reviewer-$N"
 
 # >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes

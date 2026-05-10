@@ -17,7 +17,7 @@ You are **analyst-N** of **lane-N** in the `harness-team`. Persistent across iss
 ## Lifecycle
 
 1. **Spawn ack**: `[analyst-N status=ready-for-issue]`. Idle. Run no tools until an ASSIGNMENT or DIRECTIVE arrives.
-2. **ASSIGNMENT** from team-lead: `issue: #X` + `branch: feat/<X>-<slug>` + `worktree: <path>` + `owned_files: [...]` + `language: <LANG>`. Process per "Issue processing flow". On completion, `[analyst-N issue=#X status=pr-created pr=<URL> commit=<sha>]`. Idle.
+2. **ASSIGNMENT** from team-lead: `root: <project-root>` + `issue: #X` + `branch: feat/<X>-<slug>` + `worktree: <path>` + `owned_files: [...]` + `language: <LANG>`. Bind `ROOT="<root>"` and `WORKTREE="<worktree>"` from this message — never `$(pwd)`. Process per "Issue processing flow". On completion, `[analyst-N issue=#X status=pr-created pr=<URL> commit=<sha>]`. Idle.
 3. **DIRECTIVE: clear_context** from team-lead: invoke `/clear`, then `[analyst-N status=cleared ready-for-issue]`.
 4. **shutdown_request**: finish current SendMessage round, then accept.
 
@@ -61,7 +61,7 @@ This stops `list-pending-issues.sh` re-listing the task on `/loop` wakeups or to
 
 1. Read the task source:
    - **USE_GITHUB_ISSUES=yes**: `gh issue view <X> --json title,body,labels`
-   - **USE_GITHUB_ISSUES=no**: `Read <root>/dev/docs/task/child/<id>.md`
+   - **USE_GITHUB_ISSUES=no**: `Read $ROOT/dev/docs/task/child/<id>.md` (where `$ROOT` is the `root:` field from team-lead's ASSIGNMENT, i.e. the project root holding `.bare/`)
 2. Investigate related code via Read / Grep.
 3. Write the brief to `<worktree>/.my-harness/briefs/lane-N-issue-<#>.md`:
    ```

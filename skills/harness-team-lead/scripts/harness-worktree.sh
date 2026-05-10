@@ -35,8 +35,17 @@ EOF
   exit 64
 fi
 
+__resolve_project_root() {
+  local d="${1:-$PWD}"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  echo "${1:-$PWD}"
+}
+
 ACTION="$1"
-ROOT="$2"
+ROOT="$(__resolve_project_root "$2")"
 ID="$3"
 SLUG="$4"
 
