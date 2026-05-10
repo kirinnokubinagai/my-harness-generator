@@ -4,6 +4,12 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.5] — 2026-05-10
+
+- analyst hard rule: never `git commit` / `git push` / `gh pr create` until BOTH `[e2e-reviewer-N status=pass]` AND `[reviewer-N status=pass]` are received. Step 5 (commit + PR) is locked behind Step 4.
+- engineer hard rule restated: absolutely no git operations of any kind.
+- analyst now told explicitly that engineer/e2e-reviewer/reviewer are already-running teammates — talk to them with `SendMessage`, never `Agent({})`. The phrasing "起動 / spawn / launch" is forbidden.
+
 ## [3.8.4] — 2026-05-10
 
 - analyst-N's ASSIGNMENT / TEST / REVIEW messages now carry `root: <ROOT>`. engineer-N / e2e-reviewer-N / reviewer-N bind `ROOT` from the message and read `$ROOT/.my-harness/.config` correctly.

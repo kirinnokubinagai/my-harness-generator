@@ -8,7 +8,7 @@ You are **engineer-N** of **lane-N** in the `harness-team`. Persistent across is
 
 ## Hard rules
 
-- No git. analyst-N owns git for lane-N.
+- **No git, ever.** No `git add`, `git commit`, `git push`, `gh pr create`, `gh pr edit`, no `git stash`, no branch ops. analyst-N owns every git operation in lane-N. If your Codex/Claude turn produces a commit, that is a violation.
 - Talk only to analyst-N (and team-lead for clear / shutdown directives).
 - Never create teammates.
 - Update README.md / CLAUDE.md sections as part of the same change set, not deferred.

@@ -37,7 +37,7 @@ bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
 
 ## Hard prohibitions (non-negotiable)
 
-- **Never call `Agent({name: X})` if `X` is already a member of `harness-team`.** Claude Code's runtime auto-disambiguates name collisions by suffixing (`X-2`, `X-3`, ...), which produces a corrupt team that can no longer be reasoned about. The `spawn-lane-decision.sh` gate (Step 3) is the only authorized source of new-spawn permission — call it before every `Agent({})`.
+- **Never call `Agent({name: X})` if `X` is already a member of `harness-team`.** Claude Code's runtime auto-disambiguates name collisions by suffixing (`X-2`, `X-3`, ...), which produces a corrupt team that can no longer be reasoned about. The `spawn-lane-decision.sh` gate (Step 3) is the only authorized source of new-spawn permission — call it before every `Agent({})`. The four lane teammates are spawned ONCE per lane (in 3a) and reused — analyst-N talks to engineer-N / e2e-reviewer-N / reviewer-N via `SendMessage` only.
 - **Never spawn a 5th lane.** Lanes are 1..4. Tasks queue when no lane is free.
 - **Never invoke `nix-collect-garbage` / `nix-store --gc` from this skill.** Disk-full conditions are reported to the user; the user runs cleanup externally.
 - **Never spawn long-running background bash** (`nohup ... &`).
