@@ -18,26 +18,22 @@ If non-zero, surface the remediation message to the user and stop.
 
 ## Precondition — project initialized + resources OK
 
-The user is expected to launch Claude Code from `<project>/dev/` via `start-dev.sh` (or `cd <project>/dev && claude`). All scripts resolve `ROOT` to the project root (the directory holding `.bare/`) regardless of cwd, so passing `$(pwd)` is always safe.
+The user launches Claude Code from `<project>/dev/` via `start-dev.sh`. Pass `$(pwd)` to every script — they normalise to the project root (the directory holding `.bare/`) internally.
 
 ```bash
 ROOT="$(pwd)"
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead"
 bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
-# After preflight, normalise ROOT for the rest of this session so messages and
-# state files agree on a single canonical path.
-__resolve_project_root() {
-  local d="${1:-$PWD}"
-  while [ "$d" != "/" ]; do
-    [ -d "$d/.bare" ] && { echo "$d"; return 0; }
-    d="$(dirname "$d")"
-  done
-  echo "${1:-$PWD}"
-}
-ROOT="$(__resolve_project_root "$ROOT")"
 ```
 
 `preflight.sh` checks: `.my-harness/.config` exists, ≥ 20 GB disk, ≥ 4 GB reclaimable RAM, swap ≤ 1 GB, compressor ≤ 6 GB, no `nix-collect-garbage` running. On any failure the script writes the remediation message to stderr — surface it to the user, do not retry silently.
+
+## Output discipline (non-negotiable)
+
+- **Do not narrate intermediate steps.** No "preflight OK", "ROOT confirmed", "Codex daemon started", "next step", "team created". Run the bash, move on.
+- **Do not cat/display script output.** `preflight.sh`, `list-pending-issues.sh`, `check-team-exists.sh`, `spawn-lane-decision.sh` print machine-readable output that the lead consumes internally. The user does not need to see it.
+- **The only user-facing output is the final status table** (Step 3f) and any user-actionable error (corrupt team, blocked lane, etc.).
+- **Do not run `ls`, `echo $VAR`, or other introspection commands** to "verify" what just happened. Trust the script exit codes.
 
 ## Hard prohibitions (non-negotiable)
 
@@ -83,19 +79,13 @@ If any analyst-N reports `[lane=N issue=#X status=blocked-disk-full ...]` (or an
 
 Invoke the `harness-codex-daemon` skill with action `start`. Idempotent: no-op if already running. The daemon is a single Codex `app-server` listening on `ws://127.0.0.1:7373` shared across lanes, so 4 concurrent Codex calls collapse onto one process. If startup fails, lanes fall back to per-call stdio — best-effort, not a precondition.
 
-## Step 0.5 — Pre-build the project-root devshell (warmup)
-
-```bash
-bash "$SKILL_DIR/scripts/build-dev-env.sh" "$ROOT" || exit $?
-```
-
-Pre-evaluates the master `flake.nix` once so subsequent per-lane builds reuse `/nix/store` derivations and finish in seconds. The script is content-hash-cached and idempotent. Each teammate later runs the same script against its own worktree (which may have lane-local `flake.nix` edits) and uses the returned wrapper as `"$DEVSH" <command>`.
-
 ## Step 1 — List pending tasks
 
 ```bash
 bash "$SKILL_DIR/scripts/list-pending-issues.sh" "$ROOT" > /tmp/harness-pending.tsv
 ```
+
+Capture stdout to the file; do NOT cat or display the contents. The lead consumes the rows internally for the dispatch loop. Each teammate runs `build-dev-env.sh "$WORKTREE"` itself when its ASSIGNMENT/TEST/REVIEW arrives — there is no project-root devshell warmup, because the project-root holds only `.bare/` and worktrees, not a `flake.nix`.
 
 Output is tab-separated, four fields per line: `<id>\t<lane>\t<owned_files_csv>\t<title>`.
 

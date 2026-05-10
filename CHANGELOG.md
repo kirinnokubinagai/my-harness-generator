@@ -4,6 +4,13 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.2] — 2026-05-10
+
+- Removed Step 0.5 project-root devshell warmup. The project root holds only `.bare/` and worktrees; the `flake.nix` lives in `dev/`. Each teammate runs `build-dev-env.sh "$WORKTREE"` itself.
+- Removed the duplicate ROOT normalisation block in SKILL.md. Each script normalises internally; passing `$(pwd)` is enough.
+- New "Output discipline" section: no intermediate narration, no `cat` of script output, no `ls`/`echo` introspection.
+- Step 1 explicitly says do not display the captured pending list.
+
 ## [3.8.1] — 2026-05-10
 
 - Every script in `skills/harness-team-lead/scripts/` now resolves `ROOT` to the project root (the directory holding `.bare/`) regardless of cwd. Fixes `harness-worktree.sh` creating lanes under `dev/lanes/` when launched from `dev/`.
