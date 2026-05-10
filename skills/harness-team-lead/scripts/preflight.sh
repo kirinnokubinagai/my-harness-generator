@@ -1,21 +1,40 @@
 #!/usr/bin/env bash
-# Resource pre-flight gate for /harness-team-lead.
-# Refuses to proceed if disk / memory / nix-gc state would risk a kernel panic
-# under 16 in-process teammates.
+# preflight.sh — resource gate for /harness-team-lead.
 #
-# Exit codes:
-#   0  pre-flight passed, proceed
-#   1  insufficient disk
-#   2  memory under pressure
-#   3  nix-collect-garbage already running
-#   4  .my-harness/.config missing (project not initialized)
+# Refuses to start if the host cannot safely host even one lane (4 teammates).
+# The per-lane go/no-go gate lives in spawn-lane-decision.sh and re-checks
+# resources before each lane is added.
+#
+# Gates (in order):
+#   0. <root>/.my-harness/.config exists                  → exit 4 init-required
+#   1. Data volume has ≥ 20 GB free                       → exit 1 disk
+#   2. Reclaimable RAM ≥ 4 GB
+#      AND swap ≤ 1 GB
+#      AND compressor ≤ 6 GB                              → exit 2 memory
+#   3. No nix-collect-garbage / nix-store --gc running    → exit 3 nix-gc
+#
+# Stdout: nothing on failure; on success, an info line on stderr.
+# This script does NOT mutate the caller's environment.
 
 set -u
 
 ROOT="${1:-$PWD}"
 
-# 0) project initialized
+# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
+__test_log() {
+  local logdir="$ROOT/.my-harness/logs"
+  mkdir -p "$logdir" 2>/dev/null
+  printf '[%s] [pid=%d] [preflight] %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
+    >> "$logdir/harness-test.log" 2>/dev/null
+}
+__test_log "STARTED root=$ROOT argv=$*"
+# <<< TEST-LOG
+
 if [ ! -f "$ROOT/.my-harness/.config" ]; then
+  # >>> TEST-LOG
+  __test_log "EXIT code=4 reason=init-required"
+  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: $ROOT/.my-harness/.config not found.
          Run /my-harness-init first.
@@ -23,50 +42,69 @@ EOF
   exit 4
 fi
 
-# 1) Disk: Data volume must have ≥ 30 GB available
 DATA_AVAIL_GB=$(df -g /System/Volumes/Data 2>/dev/null | awk 'NR==2{print $4}')
-DATA_AVAIL_GB=${DATA_AVAIL_GB:-$(df -g / | awk 'NR==2{print $4}')}
+DATA_AVAIL_GB=${DATA_AVAIL_GB:-$(df -g / 2>/dev/null | awk 'NR==2{print $4}')}
+# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
+__test_log "DISK_GATE avail_gb=${DATA_AVAIL_GB:-?} threshold_gb=20"
+# <<< TEST-LOG
 if [ "${DATA_AVAIL_GB:-0}" -lt 20 ]; then
+  # >>> TEST-LOG
+  __test_log "EXIT code=1 reason=disk avail_gb=${DATA_AVAIL_GB}"
+  # <<< TEST-LOG
   cat >&2 <<EOF
-::error:: insufficient disk: ${DATA_AVAIL_GB} GB available on /System/Volumes/Data
-         /harness-team-lead requires ≥ 20 GB. Engineers running pnpm install /
-         vitest / nix builds will hit ENOSPC and trigger lane stalls or kernel panic.
-         Run cleanup before retrying:
-           bash \$HOME/harness-monitor/cleanup.sh
-         Or manually free space (~/.codex/sessions, ~/.codex/log,
-         old git worktrees holding nix gc roots).
+::error:: insufficient disk: ${DATA_AVAIL_GB} GB available
+         /harness-team-lead needs ≥ 20 GB for nix store, pnpm store, and
+         per-lane worktrees. Free disk space, then retry.
 EOF
   exit 1
 fi
 
-# 2) Memory: macOS keeps "free" small intentionally — inactive pages are
-#    reclaimable instantly. Real pressure shows up as compressor > 6 GB or
-#    swap actually being used. Refuse only on those terminal signals.
-PAGE_KB=16
-PAGES_FREE=$(vm_stat 2>/dev/null | awk '/Pages free:/{gsub(/\./,"",$3); print $3}')
-PAGES_INACTIVE=$(vm_stat 2>/dev/null | awk '/Pages inactive:/{gsub(/\./,"",$3); print $3}')
-PAGES_SPEC=$(vm_stat 2>/dev/null | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3}')
-FREE_MB=$(( ${PAGES_FREE:-0} * PAGE_KB / 1024 ))
-RECLAIMABLE_MB=$(( ( ${PAGES_FREE:-0} + ${PAGES_INACTIVE:-0} + ${PAGES_SPEC:-0} ) * PAGE_KB / 1024 ))
-COMP_BYTES=$(sysctl -n vm.compressor_bytes_used 2>/dev/null)
-COMP_MB=$(( ${COMP_BYTES:-0} / 1048576 ))
-SWAP_USED_MB=$(sysctl -n vm.swapusage 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="used")print $(i+2)}' | sed 's/M$//')
-SWAP_USED_INT=${SWAP_USED_MB%.*}
+if [ -r /proc/meminfo ]; then
+  AVAIL_KB=$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo)
+  AVAIL_MB=$(( ${AVAIL_KB:-0} / 1024 ))
+  SWAP_USED_KB=$(awk '/^SwapTotal:/{t=$2}/^SwapFree:/{f=$2} END{print (t-f)>0?(t-f):0}' /proc/meminfo)
+  SWAP_USED_MB=$(( ${SWAP_USED_KB:-0} / 1024 ))
+  COMP_MB=0
+elif command -v vm_stat >/dev/null 2>&1; then
+  PAGE_BYTES=$(vm_stat | awk '/page size of/{print $8}')
+  PAGE_BYTES=${PAGE_BYTES:-16384}
+  PFREE=$(vm_stat | awk '/Pages free:/{gsub(/\./,"",$3); print $3; exit}')
+  PINACT=$(vm_stat | awk '/Pages inactive:/{gsub(/\./,"",$3); print $3; exit}')
+  PSPEC=$(vm_stat | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3; exit}')
+  AVAIL_MB=$(( ( ${PFREE:-0} + ${PINACT:-0} + ${PSPEC:-0} ) * PAGE_BYTES / 1024 / 1024 ))
+  COMP_MB=$(( $(sysctl -n vm.compressor_bytes_used 2>/dev/null || echo 0) / 1024 / 1024 ))
+  SWAP_RAW=$(sysctl -n vm.swapusage 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="used")print $(i+2)}' | sed 's/M$//')
+  SWAP_USED_MB=${SWAP_RAW%.*}
+  SWAP_USED_MB=${SWAP_USED_MB:-0}
+else
+  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
+  __test_log "EXIT code=2 reason=no-mem-probe"
+  # <<< TEST-LOG
+  echo "::error:: preflight.sh: cannot probe memory (no /proc/meminfo, no vm_stat)" >&2
+  exit 2
+fi
 
-# Hard fail on real pressure signals only
-if [ "${RECLAIMABLE_MB:-0}" -lt 1024 ] || [ "${COMP_MB:-0}" -gt 6144 ] || [ "${SWAP_USED_INT:-0}" -gt 1024 ]; then
+# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
+__test_log "MEM_GATE reclaimable_mb=$AVAIL_MB compressor_mb=$COMP_MB swap_used_mb=$SWAP_USED_MB ram_threshold=4096 swap_threshold=1024 comp_threshold=6144"
+__test_log "PROCSNAP node_count=$(pgrep -c node 2>/dev/null || echo 0) claude_count=$(pgrep -c claude 2>/dev/null || echo 0) total_procs=$(ps -A 2>/dev/null | wc -l | tr -d ' ')"
+# <<< TEST-LOG
+if [ "$AVAIL_MB" -lt 4096 ] || [ "$COMP_MB" -gt 6144 ] || [ "$SWAP_USED_MB" -gt 1024 ]; then
+  # >>> TEST-LOG
+  __test_log "EXIT code=2 reason=memory-pressure reclaimable=$AVAIL_MB comp=$COMP_MB swap=$SWAP_USED_MB"
+  # <<< TEST-LOG
   cat >&2 <<EOF
-::error:: memory under real pressure:
-         free=${FREE_MB}MB inactive+spec+free=${RECLAIMABLE_MB}MB
-         compressor=${COMP_MB}MB swap_used=${SWAP_USED_MB:-0}MB
-         /harness-team-lead spawns 16 in-process teammates (~5–8 GB committed).
-         Close other heavy apps (Chrome, LM Studio, Codex.app) and re-run.
+::error:: memory under pressure:
+         reclaimable=${AVAIL_MB}MB compressor=${COMP_MB}MB swap=${SWAP_USED_MB}MB
+         Need at least 4 GB reclaimable, compressor ≤ 6 GB, swap ≤ 1 GB to
+         host even one lane. Close other heavy applications and retry.
 EOF
   exit 2
 fi
 
-# 3) No nix-collect-garbage / nix-store --gc currently running
 if pgrep -f "nix-collect-garbage|nix-store --gc|nix store gc" >/dev/null 2>&1; then
+  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
+  __test_log "EXIT code=3 reason=nix-gc-running"
+  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: nix garbage collection is currently running.
          Wait for it to finish (\`pgrep -af nix-collect-garbage\`), then retry.
@@ -74,14 +112,8 @@ EOF
   exit 3
 fi
 
-# Pre-flight info (success path, on stderr to keep stdout clean)
-echo "[preflight] disk_data=${DATA_AVAIL_GB}GB free=${FREE_MB}MB compressor=${COMP_MB}MB swap=${SWAP_USED_MB:-0}MB — OK" >&2
-
-# Idempotency hint: if a team already exists, callers should skip TeamCreate
-TEAM_CFG="$HOME/.claude/teams/harness-team/config.json"
-if [ -f "$TEAM_CFG" ]; then
-  EXISTING_LEAD=$(grep -o '"leadSessionId": *"[^"]*"' "$TEAM_CFG" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-  echo "[preflight] existing harness-team detected (lead=${EXISTING_LEAD:-unknown}). Step 2 must reuse, not recreate." >&2
-fi
-
+# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
+__test_log "EXIT code=0 reason=ok disk=${DATA_AVAIL_GB}GB ram=${AVAIL_MB}MB comp=${COMP_MB}MB swap=${SWAP_USED_MB}MB"
+# <<< TEST-LOG
+echo "[preflight] disk=${DATA_AVAIL_GB}GB reclaimable=${AVAIL_MB}MB compressor=${COMP_MB}MB swap=${SWAP_USED_MB}MB — OK" >&2
 exit 0

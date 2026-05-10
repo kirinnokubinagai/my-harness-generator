@@ -4,6 +4,13 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.0] — 2026-05-10
+
+- Lanes are spawned one at a time, gated by `spawn-lane-decision.sh` (resource probe + name-collision check). Empty team after `TeamCreate`.
+- `Agent({name})` for an existing name is structurally prevented (gate returns `SKIP`); pre-existing `analyst-N-M` suffixes are detected as `corrupt`.
+- Removed: `OMC_SKIP_HOOKS` export, MCP server enumeration in `preflight.sh`, `scripts/launch-harness.sh`, `templates/harness.mcp.json`, `lane-capacity.sh`.
+- Temporary test logging in every script writes to `<ROOT>/.my-harness/logs/harness-test.log`. Removal command documented in `SKILL.md`.
+
 ## [3.5.0] — 2026-05-10
 
 ### Fixed — CRITICAL: 3.4.0 had 4 production-broken gaps (apology)

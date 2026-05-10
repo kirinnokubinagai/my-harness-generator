@@ -40,6 +40,19 @@ ROOT="$2"
 ID="$3"
 SLUG="$4"
 
+# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
+__test_log() {
+  local logdir="$ROOT/.my-harness/logs"
+  mkdir -p "$logdir" 2>/dev/null
+  printf '[%s] [pid=%d] [harness-worktree] %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
+    >> "$logdir/harness-test.log" 2>/dev/null
+}
+__test_log "STARTED action=$ACTION root=$ROOT id=$ID slug=$SLUG"
+T0=$(date +%s)
+trap '__test_log "FINISHED action=$ACTION id=$ID slug=$SLUG elapsed_s=$(( $(date +%s) - T0 )) exit_code=$?"' EXIT
+# <<< TEST-LOG
+
 case "$ACTION" in
   add|remove) : ;;
   *)
@@ -80,21 +93,36 @@ case "$ACTION" in
       exit 2
     fi
 
-    # Fetch origin/dev with an explicit refspec so refs/remotes/origin/dev is
-    # always populated (some bare clones lack the default `+refs/heads/*:refs/remotes/origin/*`
-    # fetch refspec, in which case `git fetch origin dev` only updates FETCH_HEAD).
-    if ! git --git-dir="$GIT_DIR" fetch origin '+refs/heads/dev:refs/remotes/origin/dev' 2>&1; then
-      echo "::error:: harness-worktree.sh: git fetch origin dev failed (does origin have a 'dev' branch?)" >&2
-      exit 3
+    # Decide base ref:
+    #   - If `origin` remote exists, fetch refs/heads/dev → refs/remotes/origin/dev,
+    #     then use that as the worktree base (gives us the latest peer-merged commits).
+    #   - If `origin` remote is missing (e.g. /my-harness-init produced a local-only repo
+    #     and the user hasn't pushed to GitHub yet), fall back to local refs/heads/dev.
+    #     The lane still works; analyst's PR step will detect no-origin and skip.
+    HAS_ORIGIN=$(git --git-dir="$GIT_DIR" remote 2>/dev/null | grep -cx origin || true)
+    if [ "${HAS_ORIGIN:-0}" -gt 0 ]; then
+      if ! git --git-dir="$GIT_DIR" fetch origin '+refs/heads/dev:refs/remotes/origin/dev' 2>&1; then
+        echo "::error:: harness-worktree.sh: git fetch origin dev failed (does origin have a 'dev' branch?)" >&2
+        exit 3
+      fi
+      BASE="refs/remotes/origin/dev"
+    else
+      echo "[harness-worktree] no 'origin' remote — using local refs/heads/dev as base (local-only mode)" >&2
+      BASE="refs/heads/dev"
+      if ! git --git-dir="$GIT_DIR" rev-parse --verify "$BASE" >/dev/null 2>&1; then
+        echo "::error:: harness-worktree.sh: no 'origin' remote AND no local 'dev' branch" >&2
+        echo "         create the dev branch first: git --git-dir='$GIT_DIR' branch dev" >&2
+        exit 7
+      fi
     fi
 
     # If branch already exists locally (left over from a previous run), reuse it.
     if git --git-dir="$GIT_DIR" rev-parse --verify "refs/heads/$BRANCH" >/dev/null 2>&1; then
       git --git-dir="$GIT_DIR" worktree add "$WT_PATH" "$BRANCH" 2>&1 || exit $?
     else
-      git --git-dir="$GIT_DIR" worktree add -b "$BRANCH" "$WT_PATH" refs/remotes/origin/dev 2>&1 || exit $?
+      git --git-dir="$GIT_DIR" worktree add -b "$BRANCH" "$WT_PATH" "$BASE" 2>&1 || exit $?
     fi
-    echo "[harness-worktree] added $WT_PATH (branch $BRANCH off origin/dev)" >&2
+    echo "[harness-worktree] added $WT_PATH (branch $BRANCH off $BASE)" >&2
     ;;
 
   remove)
