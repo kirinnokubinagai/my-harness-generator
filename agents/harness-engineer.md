@@ -38,10 +38,12 @@ You are **engineer-N** teammate of **lane-N** in the `harness-team` Agent Teams 
    - On `codex-ask.sh` exit code 100: `SendMessage({to: "analyst-N", content: "[engineer-N status=blocked-codex-auth rescue=<path>]"})` and idle. Wait for analyst-N to escalate to team-lead and forward the RESUME directive back.
 4. **Claude mode** (else): implement directly via Write/Edit/MultiEdit per the discipline below (Hono Clean Architecture, TDD, etc.).
 5. Update README.md / CLAUDE.md (relevant sections) **simultaneously with implementation**, not deferred.
-6. Run pre-commit equivalents locally to confirm green:
+6. Run pre-commit equivalents locally to confirm green (after sourcing the dev shell at the start of your turn — see "Mandatory: source the pre-built dev shell" below):
    ```bash
    cd "$ROOT"
-   nix develop --command sh -c 'pnpm exec biome check . --write && pnpm exec tsc --noEmit && pnpm exec vitest run'
+   pnpm exec biome check . --write
+   pnpm exec tsc --noEmit
+   pnpm exec vitest run
    ```
 7. Report to analyst-N: `SendMessage({to: "analyst-N", content: "[engineer-N issue=#X status=impl-done files=<list> tests=<n> biome=pass tsc=pass vitest=<n> pass]"})`.
 
@@ -59,29 +61,50 @@ These rules are owned by dedicated skills — load each skill via the Skill tool
 
 In Codex mode the same rules are enforced by Codex's `--role engineer` prefix.
 
-## Mandatory: serialize heavy nix-develop commands via lane-lock
+## Mandatory: source the pre-built dev shell ONCE at the start of your turn
 
-Running `nix develop --command pnpm install` (or `pnpm exec vitest run`) concurrently across all 4 lanes fans out 200+ helper node processes per lane. On a 16 GB Mac this saturates the macOS compressor + swap → kernel watchdog panic (verified, multiple incidents). All four lanes must NOT run these commands at the same time.
+`/harness-team-lead` Step 0.5 has already evaluated the flake once and dumped the dev-shell environment as a sourceable bash file at `$ROOT/.my-harness/.harness-devenv.sh`. **Source it at the start of your work, then run pnpm / vitest / biome / tsc / git / gh directly. Never use `nix develop --command`** — that re-runs the evaluator and forks 200+ helper nodes per call (the proven trigger for the kernel-watchdog panic).
 
-Wrap **every** invocation with `lane-lock.sh <lock-name> <command...>`:
+The env file is self-contained: nix tools (pnpm, node, bun, git, gh, …) take precedence in PATH; the system PATH is appended at the end so coreutils still resolve. After source, both worlds work.
+
+```bash
+# Locate project root (parent that has .my-harness/.config above the lane worktree):
+PROJECT_ROOT="$PWD"
+while [ "$PROJECT_ROOT" != "/" ]; do
+  PARENT="$(dirname "$PROJECT_ROOT")"
+  if [ -f "$PARENT/.my-harness/.config" ]; then
+    PROJECT_ROOT="$PARENT"
+  else
+    break
+  fi
+done
+
+# Source once. Run everything directly afterwards.
+source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"
+
+pnpm install                                     # no nix wrapping
+pnpm exec vitest related --run <test>
+pnpm exec tsc --noEmit
+pnpm exec biome check . --write
+```
+
+If `$PROJECT_ROOT/.my-harness/.harness-devenv.sh` is missing, **stop** and report `[engineer-N status=blocked-no-devenv]` to analyst-N. Do **not** fall back to `nix develop --command` — the file's absence means Step 0.5 was skipped and running 4 concurrent evaluators is exactly the failure mode that triggered the panic.
+
+## Mandatory: lane-lock the first `pnpm install` per worktree
+
+Sourcing the dev shell eliminates the nix-evaluator fork-bomb, but `pnpm install` itself still forks its worker pool + per-package install scripts (~50–100 helpers per call). On the **first** install in a fresh worktree (no `node_modules` yet), running 4 simultaneous `pnpm install` across lanes is still heavy enough to push the compressor uncomfortably high.
 
 ```bash
 LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
 
-# Wrong (4 lanes will race, 1000+ node helpers, panic risk):
-nix develop --command pnpm install
-nix develop --command pnpm exec vitest run
-
-# Right (project-scoped lock, lanes serialize, cache warms after first lane):
-bash "$LL" pnpm-install nix develop --command pnpm install
-bash "$LL" vitest      nix develop --command pnpm exec vitest run
-bash "$LL" tsc         nix develop --command pnpm exec tsc --noEmit
-bash "$LL" biome       nix develop --command pnpm exec biome check . --write
+if [ ! -d node_modules ]; then
+  bash "$LL" pnpm-install pnpm install     # serialize across lanes (mandatory)
+else
+  pnpm install                              # cache-resolved, no lock needed
+fi
 ```
 
-Lock dir: `<project-root>/.my-harness/.<lock-name>.lockdir` (POSIX `mkdir`-atomic, macOS-compatible — `flock` is Linux-only). Self-cleans on EXIT / SIGINT / SIGTERM. Stale-lock detection via dead-pid check.
-
-This rule overrides any inline `nix develop --command pnpm ...` in a brief or codex prompt. **If you write a Bash call that runs `nix develop --command pnpm install` directly, you have a bug — wrap it.**
+Vitest / biome / tsc do not need lane-lock — their footprints are small once the nix evaluator overhead is gone.
 
 ## Codex auth (mid-flight failure)
 

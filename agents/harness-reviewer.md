@@ -102,15 +102,23 @@ scripts/codex-ask.sh --role harness-reviewer --session "$SESSION_ID" \
 
 ### Detection (run at start of every review)
 
+Source the pre-built dev shell first (provides biome / tsc / pnpm / grep from /nix/store). Do not wrap in `nix develop --command`.
+
 ```bash
+# Locate project root and source the env once at the start of your turn:
+PROJECT_ROOT="$ROOT"
+while [ "$PROJECT_ROOT" != "/" ]; do
+  PARENT="$(dirname "$PROJECT_ROOT")"
+  [ -f "$PARENT/.my-harness/.config" ] && PROJECT_ROOT="$PARENT" || break
+done
+source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"
+
 cd "$ROOT"
-nix develop --command sh -c '
-  pnpm exec biome check .
-  pnpm exec tsc --noEmit
-  grep -rn "\bany\b" --include="*.ts" src/ | grep -v "// reviewer-ok" || true
-  grep -rn "console.log" --include="*.ts" src/ || true
-  grep -rn "drizzle-kit push" --include="*.json" . || true
-'
+pnpm exec biome check .
+pnpm exec tsc --noEmit
+grep -rn "\bany\b" --include="*.ts" src/ | grep -v "// reviewer-ok" || true
+grep -rn "console.log" --include="*.ts" src/ || true
+grep -rn "drizzle-kit push" --include="*.json" . || true
 ```
 
 ## Reply format

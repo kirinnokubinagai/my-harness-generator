@@ -4,6 +4,32 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.2.0] — 2026-05-10
+
+### Added — Pre-built dev shell environment (eliminates `nix develop --command` fork-bomb at the source)
+
+3.1.0's `lane-lock.sh` was a band-aid. The real waste was every engineer / analyst / e2e-reviewer / reviewer running `nix develop --command <cmd>` per command — each call re-evaluates the flake, runs shellHook, forks helper processes (verified at ~200 helpers per call). With 4 lanes × ~10 commands/lane × evaluator fork = ~1000 node helpers in 90 seconds = compressor saturation = kernel-watchdog panic.
+
+Fix: evaluate the flake **once per `/harness-team-lead` session** (`nix print-dev-env --impure` → bash dump) and have all 4 lanes `source` the resulting file. After source, the dev shell's PATH / env vars / shell functions are active in the engineer's bash. Running `pnpm install` / `vitest` / `biome` / `tsc` / `git` / `gh` is direct — zero nix evaluator fork.
+
+- New `skills/harness-team-lead/scripts/build-dev-env.sh` — runs `nix print-dev-env --impure <flake>`, validates non-empty bash output, atomically writes to `<project-root>/.my-harness/.harness-devenv.sh`. Appends a final line that restores `$nix_saved_PATH` so system tools (git, gh, coreutils) remain available alongside the nix-provided ones (pnpm, node, bun, …). Verified on the user's flake: file is ~96 KB, all of pnpm 10.15.1 / node 22.20.0 / git 2.50.1 / gh 2.72.0 resolve from /nix/store after source.
+- `skills/harness-team-lead/SKILL.md` — new "Step 0.5 — Pre-build the shared dev shell environment". Mandatory between Codex daemon start (Step 0) and issue source detection (Step 1). Idempotent: subsequent `/harness-team-lead` invocations regenerate.
+- `agents/harness-engineer.md` — "Mandatory" section rewritten. Engineers source `$PROJECT_ROOT/.my-harness/.harness-devenv.sh` once at start of turn, then run pnpm / vitest / biome / tsc / git directly. `nix develop --command` is hard-prohibited. The "Optional lane-lock" became "Mandatory: lane-lock the first `pnpm install` per worktree" — pnpm's own worker pool is still ~50–100 helpers per call, so the first install per fresh worktree is still serialized; subsequent installs are cache-resolved and skip the lock.
+- `agents/harness-analyst.md` Step 5 — analyst sources the env before `git add / commit / push / gh pr create`. The dev shell provides git + gh from /nix/store, so the husky pre-commit hook (which runs biome / tsc / vitest / gitleaks) succeeds. Without this, husky's pnpm lookup would fail.
+- `agents/harness-e2e-reviewer.md` — sources the env, runs playwright / maestro directly. First install gets `lane-lock pnpm-install`.
+- `agents/harness-reviewer.md` — sources the env for the detection block (biome / tsc / grep). No more `nix develop --command sh -c '...'`.
+- `skills/harness-nix-pure/SKILL.md` — canonical rule reference. Documents source-based pattern as the in-team default; `nix develop --command` is reserved for one-shot user invocations outside the team.
+
+### Why this beats direnv
+
+direnv requires `direnv allow` per worktree — manual user step, per-worktree cache, 4 lanes each pay first-allow cost. The pre-built file is one shared artifact regenerated once per session; all 4 lanes immediately reuse it with no setup ceremony.
+
+### Migration
+
+Existing 3.1.0 users: nothing to do; `/harness-team-lead` runs `build-dev-env.sh` automatically at Step 0.5. The env file lands at `<root>/.my-harness/.harness-devenv.sh` and is gitignored via the existing `.my-harness/` ignore pattern.
+
+If your engineer / analyst / reviewer was instructed to use `nix develop --command` from a custom override, that path now contradicts the rule. Switch to the source pattern and remove the wrapper.
+
 ## [3.1.0] — 2026-05-10
 
 ### Added — `lane-lock.sh` to prevent fork-bomb panic from concurrent `nix develop --command pnpm install`

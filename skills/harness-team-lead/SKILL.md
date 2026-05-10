@@ -83,6 +83,24 @@ The daemon survives `/clear` of the lead session and is reused across
 fails to start, lanes fall back to per-call stdio mode automatically — this
 step is best-effort, not a precondition.
 
+## Step 0.5 — Pre-build the shared dev shell environment (mandatory)
+
+Before any engineer is dispatched, evaluate the project's nix flake **once** and dump the resulting bash env to a sourceable file. All four lanes will `source` it instead of wrapping every command in `nix develop --command`.
+
+```bash
+SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
+bash "$SKILL_DIR/scripts/build-dev-env.sh" "$ROOT" || exit $?
+# Output file: $ROOT/.my-harness/.harness-devenv.sh
+```
+
+Why this is mandatory (not optional):
+
+- `nix develop --command pnpm install` evaluates the flake **per call**. Each evaluation forks the nix evaluator + shellHook + helper processes (verified: 4 concurrent calls fan out to 200+ helper nodes per call, which compounds across lanes to ~1000 nodes — the proven trigger for the kernel-watchdog panic at compressor segments=100%).
+- `nix print-dev-env` runs the evaluator **exactly once**, dumps PATH / env / functions as plain bash. Engineers `source` the file: `~0` fork, `~10ms` activation.
+- Better than direnv for this orchestrator: direnv requires `direnv allow` per worktree, manual user step, per-worktree cache. The pre-built file is one shared artifact, all 4 lanes immediately reuse it.
+
+After this step, **engineers MUST source `$ROOT/.my-harness/.harness-devenv.sh`** at the start of their work and run `pnpm` / `vitest` / `biome` / `tsc` directly — no `nix develop --command` prefix.
+
 ## Step 1 — Determine issue source
 
 ```bash

@@ -46,20 +46,35 @@ nix develop --command bunx alchemy deploy --stage dev
 nix develop --command sops -d secrets/cloudflare.enc.json
 ```
 
-## Heavy commands MUST be lane-locked when running under /harness-team-lead
+## Under /harness-team-lead: source the pre-built dev shell, do not invoke `nix develop --command`
 
-`pnpm install`, `pnpm exec vitest`, `pnpm exec tsc`, `pnpm exec biome` each fork 200+ helper node processes per call (nix shell setup + pnpm worker pool + per-package install scripts). With 4 lanes running these concurrently, the macOS compressor + swap saturates and the kernel watchdog panics. Always wrap with `lane-lock.sh`:
+`/harness-team-lead` Step 0.5 evaluates the flake once via `nix print-dev-env` and dumps the result to `$ROOT/.my-harness/.harness-devenv.sh`. All four lanes source the same file. **Engineers do not run `nix develop --command`.**
 
 ```bash
-LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
+# Right — once per engineer turn:
+source "$ROOT/.my-harness/.harness-devenv.sh"
+pnpm install
+pnpm exec vitest related --run <test>
+pnpm exec tsc --noEmit
+pnpm exec biome check . --write
 
-bash "$LL" pnpm-install nix develop --command pnpm install
-bash "$LL" vitest      nix develop --command pnpm exec vitest run
-bash "$LL" tsc         nix develop --command pnpm exec tsc --noEmit
-bash "$LL" biome       nix develop --command pnpm exec biome check . --write
+# Wrong (re-evaluates flake every call, 200+ helper fork per call, 4 lanes × 200 = ~1000 helpers = kernel-watchdog panic):
+nix develop --command pnpm install
 ```
 
-The lock is project-scoped (lives at `<root>/.my-harness/.<lock-name>.lockdir`). First lane warms the nix store + pnpm store; subsequent lanes resolve from cache (~10x faster, ~10x fewer helpers). One-shot user invocations (outside the team) can skip the wrapper.
+Why source-based, not `nix develop --command`:
+
+- The evaluator runs **once per session**, not per call. 4 lanes × ~10 commands each → 1 evaluation, not 40.
+- Engineers only pay shell variable assignments on activation: ~10 ms, ~0 fork.
+- Beats direnv: no `direnv allow` per worktree, no per-worktree cache, no manual user step.
+
+Why `pnpm install` may still need `lane-lock.sh` on first run:
+
+`pnpm install` itself forks worker-pool + per-package install scripts (~50–100 helpers per call). The first install per worktree across 4 lanes is still heavy. Subsequent installs are cache-resolved and cheap. See `agents/harness-engineer.md` for the conditional wrap pattern.
+
+## Outside /harness-team-lead (one-shot user invocations)
+
+When you run a single command manually, `nix develop --command ...` is fine — there is no parallel-lane fork-bomb risk. The mandatory source pattern above only applies inside an Agent-Teams session.
 
 ## Prohibited patterns
 
