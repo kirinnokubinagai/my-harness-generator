@@ -4,6 +4,11 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.4] — 2026-05-10
+
+- analyst-N's ASSIGNMENT / TEST / REVIEW messages now carry `root: <ROOT>`. engineer-N / e2e-reviewer-N / reviewer-N bind `ROOT` from the message and read `$ROOT/.my-harness/.config` correctly.
+- Fixes Codex-mode flags (`USE_CODEX_*`) being read as empty (because `$ROOT` was undefined), which silently dropped every teammate into Claude fallback even when the project was configured for Codex.
+
 ## [3.8.3] — 2026-05-10
 
 - Step 3 rewritten so dispatch is parallel. Spawn stays sequential (one lane at a time, gated by resources), but ASSIGNMENT is sent to each lane and the lead immediately moves on to fill the next lane — no blocking on completion. Completion handling is "wait for any inbound message" and refill that lane.

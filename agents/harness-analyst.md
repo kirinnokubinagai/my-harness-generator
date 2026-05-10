@@ -80,6 +80,7 @@ This stops `list-pending-issues.sh` re-listing the task on `/loop` wakeups or to
 
 ```
 SendMessage({to: "engineer-N", content: "ASSIGNMENT
+root: <ROOT>
 brief: <path>
 worktree: <path>
 lane: N
@@ -105,6 +106,7 @@ Skip only if the diff is doc/typo/format-only.
 
 ```
 SendMessage({to: "e2e-reviewer-N", content: "TEST
+root: <ROOT>
 worktree: <path>
 lane: N
 issue: #<X>
@@ -120,6 +122,7 @@ On `fail`: `SendMessage(engineer-N, "FIX: <e2e-reviewer-N's failure report>")`, 
 
 ```
 SendMessage({to: "reviewer-N", content: "REVIEW
+root: <ROOT>
 worktree: <path>
 lane: N
 issue: #<X>

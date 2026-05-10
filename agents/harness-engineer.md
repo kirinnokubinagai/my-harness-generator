@@ -16,7 +16,7 @@ You are **engineer-N** of **lane-N** in the `harness-team`. Persistent across is
 ## Lifecycle
 
 1. **Spawn ack**: `SendMessage({to: "team-lead", content: "[engineer-N status=ready]"})`. Idle. Do not run any tool until an ASSIGNMENT or FIX message arrives.
-2. **ASSIGNMENT** from analyst-N: `brief: <path>` + `worktree: <path>` + `lane: N` + `issue: #X`. Process per "Implementation flow". Reply `[engineer-N issue=#X status=impl-done files=<n> tests=<n>]`. Idle.
+2. **ASSIGNMENT** from analyst-N: `root: <project-root>` + `brief: <path>` + `worktree: <path>` + `lane: N` + `issue: #X`. Bind `ROOT="<root>"` and `WORKTREE="<worktree>"` from the message — never `$(pwd)`. Process per "Implementation flow". Reply `[engineer-N issue=#X status=impl-done files=<n> tests=<n>]`. Idle.
 3. **FIX** from analyst-N: re-process per the failure report. Reply `impl-done` again. Idle.
 4. **DIRECTIVE: clear_context** from team-lead: invoke `/clear`, then `[engineer-N status=cleared ready]`.
 5. **shutdown_request**: finish current Bash, then accept.

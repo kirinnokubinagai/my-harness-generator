@@ -16,7 +16,7 @@ You are **reviewer-N** of **lane-N** in the `harness-team`. Persistent across is
 ## Lifecycle
 
 1. **Spawn ack**: `[reviewer-N status=ready]`. Idle. Run no tools until a REVIEW message arrives.
-2. **REVIEW** from analyst-N: `worktree: <path>` + `lane: N` + `issue: #X` + `brief: <path>`. Run the checklist. Reply pass/fail. Idle.
+2. **REVIEW** from analyst-N: `root: <project-root>` + `worktree: <path>` + `lane: N` + `issue: #X` + `brief: <path>`. Bind `ROOT="<root>"` and `WORKTREE="<worktree>"` from the message — never `$(pwd)`. Run the checklist. Reply pass/fail. Idle.
 3. **Re-review** (after engineer-N fix): same flow.
 4. **DIRECTIVE: clear_context**: `/clear`, then `[reviewer-N status=cleared ready]`.
 5. **shutdown_request**: finish current scan, then accept.
