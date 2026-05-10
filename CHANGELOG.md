@@ -4,6 +4,78 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.4.0] — 2026-05-10
+
+### Fixed — CRITICAL: 3.3.0 was broken in production (apology)
+
+3.3.0 shipped with a `source $DEV_ENV` pattern that does not work in production:
+
+- macOS `/bin/bash` 3.2.57 cannot parse `nix print-dev-env` output (uses bash-4+ `;&` case fall-through, `declare -a` arrays). Source fails with `syntax error near unexpected token`.
+- zsh accepts the parse but does not execute it as bash; the resulting PATH does not contain /nix/store paths (system pnpm/git/node remain).
+- fish has its own syntax entirely.
+
+3.3.0 was tested only against the build-dev-env.sh write path, not the actual source step. **This is on me; it should not have shipped.** Apologies.
+
+### New — devshell wrapper, callable from any shell
+
+build-dev-env.sh now generates a shell-agnostic wrapper at `<flake-dir>/.my-harness/devshell`. The wrapper's shebang points to nix-provided bash 5+:
+
+```
+#!/nix/store/.../bash-5.2p37/bin/bash
+set -e
+source <raw env file> >/dev/null 2>&1
+exec "$@"
+```
+
+Callers from any shell — bash 3.2 / zsh / fish / sh — invoke `"$DEVSH" <command>` and the wrapper handles the bash-4-syntax env file internally. Verified end-to-end:
+
+- bash 3.2 / zsh / fish all run pnpm/git/node/gh from /nix/store correctly
+- shellHook side effects (PNPM_HOME, PLAYWRIGHT_BROWSERS_PATH, MAESTRO_DRIVER_STARTUP_TIMEOUT) all evaluated and exported
+- Cache hit < 25 ms, cold rebuild only on flake content change (sha256 of flake.nix + flake.lock)
+- Per-worktree isolation: lane-3 modifying its flake.nix does not affect lane-1/2/4
+
+### New — Step 0 dev sync in analyst flow
+
+When team-lead assigns an issue, analyst-N now runs `git fetch origin dev && git merge --no-ff --no-edit origin/dev` before brief production. Previously, lanes accumulated stale dev base across PR merges; now each new issue starts from current dev. Conflicts escalate to team-lead (no silent --abort, no --no-verify, no --hard reset).
+
+### Fixed — preflight threshold doc drift
+
+SKILL.md previously said "disk ≥ 30 GB / compressor < 4 GB"; preflight.sh implements "disk ≥ 20 GB / compressor < 6 GB / swap < 1 GB" (per user spec). Doc updated to match implementation.
+
+### Fixed — CLAUDE_PLUGIN_ROOT silent broken
+
+`${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}` fallback was a developer-only path. End-users install the plugin under `~/.claude/plugins/cache/{marketplace}/{plugin}/{version}/` and the fallback would silently resolve to a non-existent path, producing `script not found` errors with no clear cause.
+
+Replaced everywhere with `${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}` so a missing env var fails immediately with a clear message instead of silently breaking.
+
+### Verified end-to-end (17-step test suite, all pass before commit)
+
+```
+Test 1   cold rebuild                          OK (96585-byte raw + executable wrapper)
+Test 2   cache hit                             21 ms
+Test 3   wrapper file content                  nix bash 5 shebang verified
+Test 4   bash 3.2 caller → nix tools           ✅ pnpm / git / node / gh / biome / maestro
+Test 5   zsh caller → nix tools                ✅
+Test 6   fish caller → nix tools               ✅
+Test 7   shellHook env vars exported           PNPM_HOME / PLAYWRIGHT_BROWSERS_PATH / MAESTRO_DRIVER_STARTUP_TIMEOUT
+Test 8   pnpm/node/git/gh real exec            10.29.2 / 22.20.0 / 2.50.1 / 2.72.0
+Test 9   touch flake.nix only → cache hit      ✅ (content unchanged)
+Test 10  real content edit → rebuild           ✅
+Test 11  content restored → rebuild            ✅
+Test 12  cache hit after restore               ✅
+Test 13  lane-3 separate worktree              separate env, hash-distinct
+Test 14  unset CLAUDE_PLUGIN_ROOT              hard fail with clear message
+Test 15  git via wrapper                       ✅ rev-parse / remote / status
+Test 16  compound shell command via wrapper    ✅
+Test 17  monitoring start preparation          confirmed manual start.sh
+```
+
+### Migration
+
+3.3.0 users: nothing to do; `/harness-team-lead` Step 0.5 invokes the new `build-dev-env.sh` and your worktrees get the wrapper auto-built. Old `.harness-devenv.sh` files are obsolete (the new artifacts are `.harness-devenv-raw.sh` + executable `devshell`); they're harmless to leave in place but can be removed.
+
+Engineers who scripted `source $DEV_ENV` from a custom override must switch to `"$DEVSH" <command>` form.
+
 ## [3.3.0] — 2026-05-10
 
 ### Fixed — Per-worktree dev shell with content-hash cache invalidation

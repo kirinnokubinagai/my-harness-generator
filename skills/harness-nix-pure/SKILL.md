@@ -46,45 +46,64 @@ nix develop --command bunx alchemy deploy --stage dev
 nix develop --command sops -d secrets/cloudflare.enc.json
 ```
 
-## Under /harness-team-lead: build & source the per-worktree dev shell, do not invoke `nix develop --command`
+## Under /harness-team-lead: use the per-worktree devshell wrapper, do not invoke `nix develop --command`
 
-`/harness-team-lead` Step 0.5 warms the project-root flake. **Each lane teammate then runs `build-dev-env.sh "<their worktree>"` themselves** to get a per-worktree env that reflects any `flake.nix` edits the lane made for the current issue. The script is **content-hash-cached** — second-and-later calls return instantly when the flake content is unchanged, and rebuild automatically when you (or a peer's commit synced into your worktree) change it. **Engineers do not run `nix develop --command`.**
+`/harness-team-lead` Step 0.5 warms the project-root flake. **Each lane teammate then runs `build-dev-env.sh "<their worktree>"` themselves** to get a per-worktree devshell wrapper that reflects any `flake.nix` edits the lane made for the current issue. The script is **content-hash-cached** — second-and-later calls return instantly when the flake content is unchanged, and rebuild automatically when content changes. **Engineers do not run `nix develop --command`.**
 
 ```bash
 # Right — at the start of every teammate turn:
 WORKTREE="<your lane's worktree path>"   # supplied by analyst-N's ASSIGNMENT/REVIEW/TEST message
-DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
-source "$DEV_ENV"
+DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
 
 cd "$WORKTREE"
-pnpm install
-pnpm exec vitest related --run <test>
-pnpm exec tsc --noEmit
-pnpm exec biome check . --write
+"$DEVSH" pnpm install
+"$DEVSH" pnpm exec vitest related --run <test>
+"$DEVSH" pnpm exec tsc --noEmit
+"$DEVSH" pnpm exec biome check . --write
+"$DEVSH" git status
+"$DEVSH" gh pr create --base dev --title "..."
 
 # Wrong (re-evaluates flake every call, 200+ helper fork per call, 4 lanes × 200 = ~1000 helpers = kernel-watchdog panic):
 nix develop --command pnpm install
 ```
 
-Why per-worktree, not one shared file:
+Why a wrapper, not shell-source:
+
+- `nix print-dev-env` emits bash-4+ syntax. macOS bash 3.2 can't parse it; zsh accepts the parse but doesn't execute it as bash; fish has its own syntax entirely. Source is unsound across shells.
+- The wrapper's shebang is **nix-provided bash 5+**. It sources the env there, then OS-execs your command. The wrapper itself is callable from bash 3.2 / zsh / fish / sh — any caller shell.
+- shellHook side effects (`PNPM_HOME`, `PLAYWRIGHT_BROWSERS_PATH`, `MAESTRO_DRIVER_STARTUP_TIMEOUT`, etc.) are fully evaluated. Verified.
+
+Why per-worktree, not one shared wrapper:
 
 - /nix/store is system-shared (one copy of every derivation), but the **evaluator output** must reflect the lane's current `flake.nix` content. lane-3 editing `flake.nix` as part of an issue must not be forced to use lane-1's stale evaluation.
 - Hash-based caching ensures correctness even when two edits happen in the same wall-clock second (mtime-based caching with macOS bash's second-resolution `-nt` would miss this).
 - Touching `flake.nix` with no real change does **not** trigger a rebuild — only content changes do.
 
-Why source-based, not `nix develop --command`:
+Why this beats `nix develop --command`:
 
-- The evaluator runs **once per flake-content-version**, not per call. 4 lanes × ~10 commands each → 4 evaluations (one per lane), not 40.
-- Engineers only pay shell variable assignments on activation: ~10 ms, ~0 fork.
+- The evaluator runs **once per flake-content-version**, not per call. 4 lanes × ~10 commands each → 4 evaluations total (one per lane), not 40.
+- Each subsequent invocation is a single nix-bash exec (~5 ms), zero evaluator fork.
 - Beats direnv: no `direnv allow` per worktree, no manual user step.
 
 Why `pnpm install` may still need `lane-lock.sh` on first run:
 
-`pnpm install` itself forks worker-pool + per-package install scripts (~50–100 helpers per call). The first install per worktree across 4 lanes is still heavy. Subsequent installs are cache-resolved and cheap. See `agents/harness-engineer.md` for the conditional wrap pattern.
+`pnpm install` itself forks worker-pool + per-package install scripts (~50–100 helpers per call). The first install per worktree across 4 lanes is still heavy. Subsequent installs are cache-resolved and cheap. See `agents/harness-engineer.md` for the conditional wrap pattern (`bash $LL pnpm-install "$DEVSH" pnpm install`).
+
+## Fish / zsh users running tools manually
+
+Outside `/harness-team-lead`, you can use the same wrapper for ad-hoc commands. fish syntax:
+
+```fish
+set DEVSH (bash $HOME/.claude/plugins/cache/.../my-harness/skills/harness-team-lead/scripts/build-dev-env.sh ./)
+$DEVSH pnpm install
+$DEVSH git status
+```
+
+Or stay with `nix develop --command` for one-shot user invocations — there's no parallel-lane fork-bomb risk in single-shot use.
 
 ## Outside /harness-team-lead (one-shot user invocations)
 
-When you run a single command manually, `nix develop --command ...` is fine — there is no parallel-lane fork-bomb risk. The mandatory source pattern above only applies inside an Agent-Teams session.
+When you run a single command manually, `nix develop --command ...` is fine — there is no parallel-lane fork-bomb risk. The mandatory wrapper pattern above only applies inside an Agent-Teams session.
 
 ## Prohibited patterns
 

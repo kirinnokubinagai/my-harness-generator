@@ -40,29 +40,28 @@ USE_MAESTRO=$(grep -E "^USE_MAESTRO=" "$ROOT/.my-harness/.config" | cut -d= -f2)
 
 ## Execution flow
 
-Build & source the lane worktree's dev shell once at the start of your turn (it provides pnpm, node, playwright, maestro from /nix/store — no `nix develop --command` wrapping). The script is content-hash-cached, so per-issue re-tests are instant.
+Build the lane worktree's devshell wrapper once at the start of your turn (it provides pnpm, node, playwright, maestro from /nix/store — no `nix develop --command` wrapping). The script is content-hash-cached, so per-issue re-tests are instant. The wrapper is callable from any shell (bash 3.2 / zsh / fish / sh).
 
 ```bash
 WORKTREE="<worktree>"   # from analyst-N's TEST message
-DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
-source "$DEV_ENV"
+DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
 ```
 
 1. Run Web E2E (when `USE_PLAYWRIGHT=yes`):
    ```bash
-   cd "<worktree>"
+   cd "$WORKTREE"
    # First install in a fresh worktree only — wrap with lane-lock to serialize across lanes
-   LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
+   LL="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead/scripts/lane-lock.sh"
    if [ ! -d node_modules ]; then
-     bash "$LL" pnpm-install pnpm install --frozen-lockfile
+     bash "$LL" pnpm-install "$DEVSH" pnpm install --frozen-lockfile
    else
-     pnpm install --frozen-lockfile
+     "$DEVSH" pnpm install --frozen-lockfile
    fi
-   pnpm exec playwright test --reporter=line 2>&1 | tee /tmp/playwright-out-<issue#>.txt
+   "$DEVSH" pnpm exec playwright test --reporter=line 2>&1 | tee /tmp/playwright-out-<issue#>.txt
    ```
 2. Run Mobile E2E (when `USE_MAESTRO=yes`):
    ```bash
-   maestro test tests/e2e/mobile 2>&1 | tee /tmp/maestro-out-<issue#>.txt
+   "$DEVSH" maestro test tests/e2e/mobile 2>&1 | tee /tmp/maestro-out-<issue#>.txt
    ```
 3. Capture exit code, stdout/stderr, screenshot paths from `test-results/`.
 4. **Codex mode**: forward the captured output to `scripts/codex-ask.sh --role e2e-reviewer --session "e2e-<issue#>-<lane#>-$(date +%s)-$$" --out <report.md> "<output + diff context>"` and use Codex's structured report.

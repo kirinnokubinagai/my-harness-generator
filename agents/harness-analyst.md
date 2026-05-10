@@ -27,6 +27,32 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
 
 ## Issue processing flow (sequential, all internal to lane-N)
 
+### Step 0 — Sync the lane worktree from origin/dev (mandatory, before everything)
+
+When team-lead assigns an issue, peer lanes may have already merged their PRs into `dev` since this worktree was last touched. Pull those changes in first so the brief and engineer's work are based on current dev state. Without this, lane-2 finishing #41 first means lanes-1/3/4 keep building on a stale base and PR-merge conflicts pile up at the end.
+
+```bash
+WORKTREE="<worktree from team-lead's ASSIGNMENT>"
+DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+
+cd "$WORKTREE"
+"$DEVSH" git fetch origin dev
+
+# Merge origin/dev into the current feature branch. --no-ff so the merge is
+# explicit; never --squash, never --hard reset. If we're behind, this fast-
+# forwards or makes a 3-way merge commit.
+if ! "$DEVSH" git merge --no-ff --no-edit origin/dev; then
+  # Conflict. Do NOT --abort and DO NOT bypass — escalate to team-lead.
+  CONFLICTED=$("$DEVSH" git diff --name-only --diff-filter=U)
+  SendMessage({to: "team-lead", content: "[analyst-N issue=#X status=blocked-merge-conflict files=$CONFLICTED step=0-dev-sync]"})
+  # Stay paused. Resume only when team-lead sends a directive that resolves the conflict
+  # (typically: a manual hint or an instruction to invoke .harness/scripts/resolve-conflict.sh).
+  exit 1
+fi
+
+# At this point HEAD includes everything in origin/dev. Brief production proceeds on a fresh base.
+```
+
 ### Step 1 — Brief production (you do this)
 
 1. Read the GitHub issue (or local task file when `USE_GITHUB_ISSUES=no`) via Bash + `gh` / Read.
@@ -43,13 +69,7 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
    Reference: https://github.com/<owner>/<repo>/issues/<N>
    ```
 4. Save the brief to `<worktree>/.my-harness/briefs/lane-N-issue-<#>.md`.
-5. Pre-flight conflict probe:
-   ```bash
-   git -C <worktree> fetch origin dev
-   git -C <worktree> merge-tree --write-tree HEAD origin/dev
-   ```
-   Note any likely conflicts in the brief's Constraints section.
-6. `SendMessage({to: "team-lead", content: "[analyst-N issue=#X step=1-brief status=ready brief=<path>]"})` (progress report only).
+5. `SendMessage({to: "team-lead", content: "[analyst-N issue=#X step=1-brief status=ready brief=<path>]"})` (progress report only).
 
 ### Step 2 — Dispatch to engineer-N
 
@@ -79,15 +99,14 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
 
 ### Step 5 — Git commit + PR (you do this, no other teammate touches git)
 
-19. Build & source the lane's per-worktree dev shell first (it provides git, gh, and the husky-required pnpm/biome/tsc/vitest binaries from /nix/store — and reflects any `flake.nix` edits engineer-N made for this issue), then stage explicit files, commit with conventional-commit message (1 issue = 1 commit), push, open PR:
+19. Build the lane's per-worktree devshell wrapper first (it provides git, gh, and the husky-required pnpm/biome/tsc/vitest binaries from /nix/store — reflecting any `flake.nix` edits engineer-N made for this issue). All git/gh/pnpm calls go through `$DEVSH` so husky pre-commit can find pnpm/biome/tsc/vitest:
     ```bash
     WORKTREE="<worktree>"
-    DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
-    source "$DEV_ENV"   # MUST source — husky pre-commit needs pnpm/biome/tsc/vitest from /nix/store
+    DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
 
     cd "$WORKTREE"
-    git add <explicit list>          # never `git add -A` / `.`
-    git commit -m "feat(<scope>): <issue summary>
+    "$DEVSH" git add <explicit list>          # never `git add -A` / `.`
+    "$DEVSH" git commit -m "feat(<scope>): <issue summary>
 
     <body in $LANG, multi-paragraph allowed>
 
@@ -95,12 +114,12 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
     # husky pre-commit runs biome / vitest / tsc / gitleaks. If it blocks:
     # - DO NOT bypass with --no-verify or --amend
     # - SendMessage(engineer-N, "FIX: <hook output>"), loop back to step 8
-    git push origin <branch>
-    gh pr create --base dev --title "feat(#<issue#>): <summary>" --body-file <pr-body.md>
-    gh pr edit <PR#> --add-label auto-merge
+    "$DEVSH" git push origin <branch>
+    "$DEVSH" gh pr create --base dev --title "feat(#<issue#>): <summary>" --body-file <pr-body.md>
+    "$DEVSH" gh pr edit <PR#> --add-label auto-merge
     ```
 
-    Do **not** wrap any of these in `nix develop --command` — that re-runs the evaluator and triggers the fork-bomb. The sourced env provides everything. `build-dev-env.sh` is content-hash-cached, so the second-and-later calls in the same issue (after engineer's vitest run) are instant.
+    Do **not** wrap any of these in `nix develop --command` — that re-runs the evaluator and triggers the fork-bomb. The wrapper provides everything via a single nix-bash-5 exec. `build-dev-env.sh` is content-hash-cached, so the second-and-later calls in the same issue (after engineer's vitest run) are instant.
 20. **Final completion**: `SendMessage({to: "team-lead", content: "[analyst-N issue=#X status=pr-created pr=<URL> commit=<sha>]"})`. Enter idle state.
 
 ## Hard rules during processing

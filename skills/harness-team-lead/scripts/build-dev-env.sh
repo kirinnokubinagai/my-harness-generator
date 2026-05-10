@@ -1,47 +1,59 @@
 #!/usr/bin/env bash
-# Build a project- or worktree-scoped nix dev shell once and dump it as a
-# sourceable bash file. Per-worktree caching with mtime invalidation: the env
-# is rebuilt only when flake.nix or flake.lock is newer than the cached env.
-# Engineers source the env instead of wrapping each command in
-# `nix develop --command`, which eliminates the 4× nix-evaluator + shellHook
-# fork-out across 4 lanes (the verified cause of the kernel-watchdog panic at
-# ~1000 node helpers).
+# build-dev-env.sh — generate a shell-agnostic wrapper around the nix dev shell.
+#
+# Why a wrapper, not `source`:
+#   `nix print-dev-env` emits bash-4+ syntax (`;&` case fall-through, declare -a
+#   arrays, etc). macOS ships /bin/bash 3.2 which can't parse it; zsh accepts the
+#   parse but doesn't execute it as bash; fish has its own syntax entirely. The
+#   shell-source approach is therefore unsound across the three shells our
+#   teammates and end-users actually run.
+#
+#   nix already provides bash 5+ in the dev shell. We extract its absolute path
+#   from the raw env's PATH and generate an executable wrapper:
+#
+#       #!/nix/store/.../bin/bash
+#       source <raw env file>
+#       exec "$@"
+#
+#   Callers (regardless of shell) just exec the wrapper:
+#
+#       DEVSH=$(bash build-dev-env.sh "$WORKTREE")
+#       "$DEVSH" pnpm install
+#       "$DEVSH" git status
+#
+#   The wrapper inherits cwd from the caller (no cd inside), so `cd $WORKTREE &&
+#   "$DEVSH" pnpm install` Just Works.
+#
+# Per-worktree caching:
+#   Each lane has its own git worktree with its own flake.nix. lane-3 may be
+#   editing flake.nix as part of an in-flight issue; its env must reflect its
+#   flake, not the project master. The wrapper + raw env are written under
+#   <flake-dir>/.my-harness/, not at the project root.
+#
+# Content-hash invalidation:
+#   The first line of the raw env is `# harness-flake-sha256:<hash>` where hash =
+#   sha256(flake.nix + flake.lock). Cache check compares the marker to the
+#   currently-computed hash. macOS bash's [-nt] is whole-second resolution and
+#   would silently miss same-second edits — hashing avoids that.
+#
+# Output:
+#   stdout (single line): absolute path of the wrapper script.
+#   stderr: progress / errors.
 #
 # Usage:
 #   bash build-dev-env.sh [<worktree-or-project-root>]
 #     defaults to $PWD
-#
-# Behavior:
-#   - Find the nearest flake.nix walking up from the given dir (worktree first,
-#     then project parents). Each lane worktree typically has its own flake.nix
-#     (git worktree of the same branch — initially identical, can diverge as
-#     engineer-N edits flake.nix for an in-flight issue).
-#   - Cache file lives at <worktree>/.my-harness/.harness-devenv.sh — per-worktree,
-#     so per-lane edits to flake.nix produce per-lane env files.
-#   - mtime cache: if env file exists AND is newer than flake.nix AND flake.lock,
-#     skip rebuild (instant return — script noop).
-#   - On rebuild: nix print-dev-env --impure → atomic write → append PATH-restore
-#     line so git / gh / coreutils stay resolvable alongside nix-provided tools.
-#   - Stdout (single line): absolute path of the generated env file (so caller can
-#     pipe / capture). Stderr: progress messages.
-#
-# Why per-worktree, not project-shared:
-#   - lane-3 may be editing flake.nix as part of an issue (e.g., flake-nix-direnv).
-#     Their env must reflect their flake.nix, not dev/'s.
-#   - /nix/store is system-shared, so per-lane evaluation only re-runs the
-#     evaluator (cheap) — the actual package builds are cache hits.
 
 set -u
 
 START="${1:-$PWD}"
 
-# Resolve absolute
 if ! START="$(cd "$START" 2>/dev/null && pwd)"; then
   echo "::error:: build-dev-env.sh: cannot cd to $1" >&2
   exit 1
 fi
 
-# Find nearest flake.nix walking up from START.
+# Walk up from START to find the nearest flake.nix.
 FLAKE_DIR=""
 SEARCH="$START"
 while [ "$SEARCH" != "/" ]; do
@@ -62,14 +74,11 @@ if ! command -v nix >/dev/null 2>&1; then
   exit 3
 fi
 
-# Cache lives next to the flake (worktree-scoped).
 OUT_DIR="$FLAKE_DIR/.my-harness"
-OUT="$OUT_DIR/.harness-devenv.sh"
+RAW="$OUT_DIR/.harness-devenv-raw.sh"
+WRAPPER="$OUT_DIR/devshell"
 mkdir -p "$OUT_DIR"
 
-# Cache check: hash flake.nix + flake.lock content and compare against the
-# marker line we wrote into the env file at last build. mtime-based caching
-# would miss same-second edits on macOS bash (which compares whole seconds).
 compute_hash() {
   if [ -f "$FLAKE_DIR/flake.lock" ]; then
     cat "$FLAKE_DIR/flake.nix" "$FLAKE_DIR/flake.lock" | shasum -a 256 | awk '{print $1}'
@@ -81,55 +90,72 @@ compute_hash() {
 CURRENT_HASH=$(compute_hash)
 HASH_MARKER="# harness-flake-sha256:$CURRENT_HASH"
 
-if [ -f "$OUT" ] && head -1 "$OUT" 2>/dev/null | grep -qx "$HASH_MARKER"; then
-  echo "[build-dev-env] cache hit — $OUT (flake content unchanged since last build)" >&2
-  echo "$OUT"
+# Cache hit: raw + wrapper both present, raw's first-line hash matches.
+if [ -f "$RAW" ] && [ -x "$WRAPPER" ] && head -1 "$RAW" 2>/dev/null | grep -qx "$HASH_MARKER"; then
+  echo "[build-dev-env] cache hit — $WRAPPER (flake content unchanged since last build)" >&2
+  echo "$WRAPPER"
   exit 0
 fi
 
-TMP="$OUT.tmp.$$"
-ERR="$OUT.err.$$"
+RAW_TMP="$RAW.tmp.$$"
+WRAPPER_TMP="$WRAPPER.tmp.$$"
+ERR="$OUT_DIR/.build-dev-env.err.$$"
 
 echo "[build-dev-env] evaluating $FLAKE_DIR/flake.nix..." >&2
 
-# Build into TMP starting with the hash marker so the cache check above can
-# detect content equality without ever touching mtimes.
+# Step 1: dump nix print-dev-env into raw, prefixed with the hash marker.
 {
   echo "$HASH_MARKER"
   nix print-dev-env --impure "$FLAKE_DIR" 2>"$ERR"
-} > "$TMP" || {
+} > "$RAW_TMP" || {
   echo "::error:: build-dev-env.sh: nix print-dev-env failed. stderr:" >&2
   cat "$ERR" >&2
-  rm -f "$TMP" "$ERR"
+  rm -f "$RAW_TMP" "$WRAPPER_TMP" "$ERR"
   exit 4
 }
 
-# Sanity: ensure body (after the marker line) is non-empty bash with PATH or shellHook.
-if ! tail -n +2 "$TMP" | grep -q "^export\|^PATH=\|^declare -"; then
-  echo "::error:: build-dev-env.sh: nix print-dev-env produced an unexpected output" >&2
+# Sanity check: body (after marker) must have actual bash env content.
+if ! tail -n +2 "$RAW_TMP" | grep -q "^export\|^PATH=\|^declare -"; then
+  echo "::error:: build-dev-env.sh: nix print-dev-env produced unexpected output" >&2
   echo "         (no export / PATH= / declare lines). Check $FLAKE_DIR/flake.nix." >&2
   cat "$ERR" >&2 2>/dev/null
-  rm -f "$TMP" "$ERR"
+  rm -f "$RAW_TMP" "$WRAPPER_TMP" "$ERR"
   exit 5
 fi
 
-# Append PATH-restore so git / gh / system tools remain available alongside the
-# nix-provided pnpm / node / bun / etc. nix print-dev-env replaces $PATH with
-# nix-store-only paths and saves the original to $nix_saved_PATH; we re-append
-# it at the end so engineers can `git commit && gh pr create` without resorting
-# to absolute paths or installing more tools into the flake.
-{
-  echo ""
-  echo "# harness: restore system PATH so git / gh / coreutils remain available"
-  echo "# alongside the nix-provided pnpm / node / bun / etc. nix tools take"
-  echo "# precedence (they appear first); system tools fill in the gaps."
-  echo '[ -n "${nix_saved_PATH:-}" ] && export PATH="$PATH:$nix_saved_PATH"'
-} >> "$TMP"
+# Step 2: locate nix-provided bash 5+ from the raw env's PATH.
+NIX_BASH=$(grep -oE "/nix/store/[^\"' ]+/bin/bash" "$RAW_TMP" | head -1)
 
-mv "$TMP" "$OUT"
+if [ -z "$NIX_BASH" ] || [ ! -x "$NIX_BASH" ]; then
+  echo "::error:: build-dev-env.sh: could not locate nix-provided bash in dev shell PATH" >&2
+  echo "         got: NIX_BASH='$NIX_BASH'" >&2
+  echo "         add 'pkgs.bashInteractive' (or 'pkgs.bash') to your flake's mkShell buildInputs." >&2
+  rm -f "$RAW_TMP" "$WRAPPER_TMP" "$ERR"
+  exit 6
+fi
+
+# Step 3: generate the wrapper. shebang -> nix bash; source raw; exec "$@".
+{
+  echo "#!$NIX_BASH"
+  echo "# Auto-generated by skills/harness-team-lead/scripts/build-dev-env.sh"
+  echo "# Do not edit. Re-run build-dev-env.sh after editing flake.nix."
+  echo "#"
+  echo "# Source the dev shell env in nix bash 5+, then exec the requested command."
+  echo "# Callable from any shell (bash 3.2 / zsh / fish / sh):"
+  echo "#   DEVSH=\$(bash .../build-dev-env.sh \"\$WORKTREE\")"
+  echo "#   \"\$DEVSH\" pnpm install"
+  echo "set -e"
+  echo "source '$RAW' >/dev/null 2>&1"
+  echo 'exec "$@"'
+} > "$WRAPPER_TMP"
+chmod +x "$WRAPPER_TMP"
+
+# Step 4: atomic install.
+mv "$RAW_TMP" "$RAW"
+mv "$WRAPPER_TMP" "$WRAPPER"
 rm -f "$ERR"
 
-SIZE=$(wc -c < "$OUT" | tr -d ' ')
-echo "[build-dev-env] OK — $OUT ($SIZE bytes)" >&2
+RAW_SIZE=$(wc -c < "$RAW" | tr -d ' ')
+echo "[build-dev-env] OK — wrapper=$WRAPPER (nix bash=$NIX_BASH, raw=$RAW_SIZE bytes)" >&2
 
-echo "$OUT"
+echo "$WRAPPER"

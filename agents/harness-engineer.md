@@ -38,12 +38,12 @@ You are **engineer-N** teammate of **lane-N** in the `harness-team` Agent Teams 
    - On `codex-ask.sh` exit code 100: `SendMessage({to: "analyst-N", content: "[engineer-N status=blocked-codex-auth rescue=<path>]"})` and idle. Wait for analyst-N to escalate to team-lead and forward the RESUME directive back.
 4. **Claude mode** (else): implement directly via Write/Edit/MultiEdit per the discipline below (Hono Clean Architecture, TDD, etc.).
 5. Update README.md / CLAUDE.md (relevant sections) **simultaneously with implementation**, not deferred.
-6. Run pre-commit equivalents locally to confirm green (after sourcing the dev shell at the start of your turn — see "Mandatory: source the pre-built dev shell" below):
+6. Run pre-commit equivalents locally to confirm green (using `$DEVSH` resolved per "Mandatory: build & use the per-worktree devshell wrapper" below):
    ```bash
-   cd "$ROOT"
-   pnpm exec biome check . --write
-   pnpm exec tsc --noEmit
-   pnpm exec vitest run
+   cd "$WORKTREE"
+   "$DEVSH" pnpm exec biome check . --write
+   "$DEVSH" pnpm exec tsc --noEmit
+   "$DEVSH" pnpm exec vitest run
    ```
 7. Report to analyst-N: `SendMessage({to: "analyst-N", content: "[engineer-N issue=#X status=impl-done files=<list> tests=<n> biome=pass tsc=pass vitest=<n> pass]"})`.
 
@@ -61,42 +61,44 @@ These rules are owned by dedicated skills — load each skill via the Skill tool
 
 In Codex mode the same rules are enforced by Codex's `--role engineer` prefix.
 
-## Mandatory: build & source the per-worktree dev shell ONCE at the start of your turn
+## Mandatory: build & use the per-worktree devshell wrapper
 
-Each lane has its own git worktree at `<worktree>` (passed in by analyst-N's ASSIGNMENT message). That worktree has its own `flake.nix` — and lane-3 may be editing it as part of an in-flight issue (e.g. flake-nix-direnv changes), so engineer-3's env must reflect lane-3's `flake.nix`, not the project's master copy.
+Each lane has its own git worktree at `<worktree>` (passed in by analyst-N's ASSIGNMENT message). That worktree has its own `flake.nix` — and lane-3 may be editing it as part of an in-flight issue, so engineer-3's env must reflect lane-3's `flake.nix`, not the project's master copy.
 
-The orchestrator script `build-dev-env.sh` evaluates that worktree's flake **once** and writes a sourceable bash env file to `<worktree>/.my-harness/.harness-devenv.sh`. The script caches by **content hash** of `flake.nix` + `flake.lock`: subsequent calls return instantly (cache hit ≈ 7 ms) when the flake content is unchanged, and rebuild automatically when you (or a peer engineer's commit synced into your worktree) change `flake.nix`. **`nix develop --command` is forbidden** — it re-runs the full evaluator per call and forks 200+ helper nodes (verified trigger for kernel-watchdog panic at compressor=100% across 4 lanes).
+`build-dev-env.sh` evaluates that worktree's flake **once** and generates an executable wrapper at `<worktree>/.my-harness/devshell`. The wrapper's shebang points to nix-provided bash 5+, sources the dev env (with all shellHook side effects), and exec's whatever you pass it. **The wrapper works from any caller shell — bash 3.2, zsh, fish, sh — because it's an OS exec, not a shell-source.** This eliminates the `nix print-dev-env` bash-4-syntax problem entirely.
 
-The env file is self-contained: nix tools (pnpm, node, bun, git, gh, …) take precedence in PATH; the original system PATH is re-appended at the end so coreutils still resolve. After source, both worlds work.
+The script caches by **content hash** of `flake.nix` + `flake.lock`: subsequent calls return instantly (cache hit ≈ 7 ms) when the flake content is unchanged, and rebuild automatically when `flake.nix` content changes. **`nix develop --command` is forbidden** — it re-runs the full evaluator per call and forks 200+ helper nodes (verified trigger for kernel-watchdog panic at compressor=100% across 4 lanes).
 
 ```bash
-# At the start of your turn (and after any flake.nix edit):
-WORKTREE="<worktree>"   # supplied by analyst-N in the ASSIGNMENT message
-DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
-source "$DEV_ENV"
+# At the start of every turn (and after any flake.nix edit):
+WORKTREE="<worktree>"   # supplied by analyst-N's ASSIGNMENT message
+DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
 
 cd "$WORKTREE"
-pnpm install                                     # no nix wrapping
-pnpm exec vitest related --run <test>
-pnpm exec tsc --noEmit
-pnpm exec biome check . --write
+"$DEVSH" pnpm install                                     # nix tools, no nix evaluator fork
+"$DEVSH" pnpm exec vitest related --run <test>
+"$DEVSH" pnpm exec tsc --noEmit
+"$DEVSH" pnpm exec biome check . --write
 ```
 
-If `build-dev-env.sh` exits non-zero, **stop** and report `[engineer-N status=blocked-devenv-build exit=<code>]` to analyst-N (the script's stderr will name the cause: missing flake.nix, nix CLI absent, evaluator failure, etc.). Do **not** fall back to `nix develop --command`.
+`${CLAUDE_PLUGIN_ROOT:?...}` makes bash exit immediately with the message if the variable is unset (silent broken > visible failure). Inside an Agent Teams session this should always be set; if it isn't, escalate to team-lead.
 
-If you edit `flake.nix` mid-issue (e.g. adding a tool to the dev shell), simply re-run the source command — `build-dev-env.sh` detects the content change via hash and rebuilds automatically.
+If `build-dev-env.sh` exits non-zero, **stop** and report `[engineer-N status=blocked-devenv-build exit=<code>]` to analyst-N (stderr names the cause: missing flake.nix, nix CLI absent, evaluator failure, no nix-provided bash in flake's PATH). Do **not** fall back to `nix develop --command`.
+
+If you edit `flake.nix` mid-issue (e.g. adding a tool to the dev shell), simply re-run the build script — it detects the content change via hash and rebuilds the wrapper. Existing `$DEVSH` paths remain valid (the wrapper file is overwritten in-place).
 
 ## Mandatory: lane-lock the first `pnpm install` per worktree
 
-Sourcing the dev shell eliminates the nix-evaluator fork-bomb, but `pnpm install` itself still forks its worker pool + per-package install scripts (~50–100 helpers per call). On the **first** install in a fresh worktree (no `node_modules` yet), running 4 simultaneous `pnpm install` across lanes is still heavy enough to push the compressor uncomfortably high.
+Using `$DEVSH` eliminates the nix-evaluator fork-bomb, but `pnpm install` itself still forks its worker pool + per-package install scripts (~50–100 helpers per call). On the **first** install in a fresh worktree (no `node_modules` yet), running 4 simultaneous `pnpm install` across lanes is still heavy enough to push the compressor uncomfortably high.
 
 ```bash
-LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
+LL="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harness-team-lead/scripts/lane-lock.sh"
 
+cd "$WORKTREE"
 if [ ! -d node_modules ]; then
-  bash "$LL" pnpm-install pnpm install     # serialize across lanes (mandatory)
+  bash "$LL" pnpm-install "$DEVSH" pnpm install     # serialize across lanes (mandatory)
 else
-  pnpm install                              # cache-resolved, no lock needed
+  "$DEVSH" pnpm install                              # cache-resolved, no lock needed
 fi
 ```
 

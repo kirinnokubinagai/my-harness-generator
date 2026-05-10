@@ -102,20 +102,19 @@ scripts/codex-ask.sh --role harness-reviewer --session "$SESSION_ID" \
 
 ### Detection (run at start of every review)
 
-Build & source the lane worktree's dev shell first (provides biome / tsc / pnpm / grep from /nix/store, reflecting any `flake.nix` edits engineer-N made for this issue). Do not wrap in `nix develop --command`.
+Build the lane worktree's devshell wrapper first (provides biome / tsc / pnpm / grep from /nix/store, reflecting any `flake.nix` edits engineer-N made for this issue). Do not wrap in `nix develop --command`.
 
 ```bash
 # `<worktree>` comes from analyst-N's REVIEW message:
 WORKTREE="<worktree>"
-DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
-source "$DEV_ENV"
+DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set in this Agent Teams session}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
 
 cd "$WORKTREE"
-pnpm exec biome check .
-pnpm exec tsc --noEmit
-grep -rn "\bany\b" --include="*.ts" src/ | grep -v "// reviewer-ok" || true
-grep -rn "console.log" --include="*.ts" src/ || true
-grep -rn "drizzle-kit push" --include="*.json" . || true
+"$DEVSH" pnpm exec biome check .
+"$DEVSH" pnpm exec tsc --noEmit
+"$DEVSH" grep -rn "\bany\b" --include="*.ts" src/ | grep -v "// reviewer-ok" || true
+"$DEVSH" grep -rn "console.log" --include="*.ts" src/ || true
+"$DEVSH" grep -rn "drizzle-kit push" --include="*.json" . || true
 ```
 
 ## Reply format
