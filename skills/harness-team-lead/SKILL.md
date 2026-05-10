@@ -109,83 +109,72 @@ TEAM_STATE=$(bash "$SKILL_DIR/scripts/check-team-exists.sh")
 
 Empty teams are valid. The team file exists from `TeamCreate`; its members grow as lanes are added in Step 3.
 
-## Step 3 — Dispatch loop
+## Step 3 — Parallel dispatch loop
 
 In-memory state:
 - `pending_queue` — task ids waiting for a lane
-- `lane_status` — `{ "lane-1": "idle" | { "issue": <id>, "phase": <state> } | "paused-..." | "absent", ... }`
+- `lane_status` — `{ "lane-1": "absent" | "idle" | { "issue": <id>, "phase": <state> } | "paused-...", ... }` (init: all `"absent"`)
 - `completed` — list of `{issue, pr_url, commit_sha}`
 
-Initialize each lane's status to `"absent"` (not yet spawned). Loop until `pending_queue` is empty AND every lane is `idle` or `absent`.
+**Spawn is sequential, dispatch is parallel.** Lanes are added one at a time (resource check before each), but once spawned they run concurrently. The lead never blocks on a single lane.
 
-### 3a. Pick a candidate task and a target lane
+### 3a. Fill all available lanes (initial burst)
 
-For each task at the front of `pending_queue`:
+Repeat until either `pending_queue` is empty OR no more lanes can be assigned:
 
-1. **Preferred lane**: if the task has a `lane` field and that lane is `idle`, use it. If that lane is `absent`, use it (the lane will be added in 3b). If that lane is busy, defer this task and try the next.
-2. **No preferred lane**: pick any `idle` lane. If none, pick any `absent` lane (it will be added in 3b).
-3. **owned_files conflict** check: if any active lane is processing a task whose `owned_files` overlap with the candidate, defer.
-4. If no candidate fits, wait for a lane to free up (Step 3d).
+1. Pick the next dispatchable task: walk `pending_queue` from the front; for each candidate apply preferred-lane and `owned_files` conflict checks (see 3a-rules below). Stop at the first task that fits some target lane.
+2. Decide the target lane:
+   - If the task's preferred lane is `idle`, target it.
+   - If the task's preferred lane is `absent`, target it (it will be spawned).
+   - If the preferred lane is busy, defer the task and look at the next candidate.
+   - If no preferred lane, prefer the lowest-numbered `idle` lane; fall back to the lowest-numbered `absent` lane.
+3. If the target lane is `absent`, run the spawn gate:
+   ```bash
+   bash "$SKILL_DIR/scripts/spawn-lane-decision.sh" <N> "$ROOT"
+   # stdout: DECISION=<SPAWN|SKIP|REFUSE> LANE=<N> NAMES=... REASON=...
+   ```
+   - `SPAWN` → call `Agent({})` for each name in `NAMES`, **one at a time**, waiting for each `[<name> status=ready]` ack before the next. When all four have acked, set `lane_status["lane-N"] = "idle"`.
+     ```
+     Agent({
+       team_name: "harness-team",
+       name: "analyst-N",        // or engineer-N / e2e-reviewer-N / reviewer-N
+       subagent_type: "harness-analyst",   // or harness-engineer / harness-e2e-reviewer / harness-reviewer
+       prompt: "You are analyst-N of lane-N. Acknowledge with [analyst-N status=ready] and idle. Do not Read, run Bash, or call any tool until you receive an ASSIGNMENT message."
+     })
+     ```
+   - `SKIP` → the four teammates are already in the team config (e.g. after `/loop` re-entry). Set `lane_status["lane-N"] = "idle"`. Do NOT call `Agent({})` (would trigger the suffix bug).
+   - `REFUSE` (resource pressure) → stop the burst loop. The lanes already running stay running; pending tasks wait. Surface the REASON to the user (one short line).
+   - `REFUSE` (corruption / `partial-lane` / `corrupt-team`) → stop entirely and surface the recovery instructions.
+4. Create the lane worktree, then send the ASSIGNMENT (do not wait for completion; immediately loop back to step 1 to fill the next lane):
+   ```bash
+   bash "$SKILL_DIR/scripts/harness-worktree.sh" add "$ROOT" "<id>" "<slug>"
+   ```
+   ```
+   SendMessage({
+     to: "analyst-N",
+     type: "message",
+     content: "ASSIGNMENT
+       root: <ROOT>
+       issue: #<X>
+       branch: feat/<X>-<slug>
+       worktree: <ROOT>/lanes/feat-<X>-<slug>/
+       owned_files: [<list>]
+       language: <LANG>
+       Begin Step 1 (brief production), then dispatch engineer-N → e2e-reviewer-N → reviewer-N. After all gates pass, run git commit + push + gh pr create yourself. Final completion message to me: [analyst-N issue=#<X> status=pr-created pr=<URL>]."
+   })
+   ```
+   Set `lane_status["lane-N"] = { issue: X, phase: "1-brief" }`. **Loop back to step 1 immediately** — do not wait for the analyst.
 
-### 3b. Ensure the target lane exists (add lanes one at a time)
+The burst exits when `pending_queue` is empty OR every active lane is busy AND `spawn-lane-decision.sh` last returned `REFUSE` for the next absent lane (resource pressure).
 
-If `lane_status["lane-N"] == "absent"`, the four teammates have not been spawned yet. Run the gate:
+### 3a-rules (preferred-lane and owned_files)
 
-```bash
-bash "$SKILL_DIR/scripts/spawn-lane-decision.sh" N "$ROOT"
-# stdout (key=value lines):
-#   DECISION=<SPAWN|SKIP|REFUSE>
-#   LANE=N
-#   NAMES=analyst-N engineer-N e2e-reviewer-N reviewer-N
-#   REASON=...
-```
+- **Preferred lane**: if a task has a `lane` field, that's the lane it was authored for (its `owned_files` were chosen with that lane in mind). Defer the task rather than send it to a different lane.
+- **owned_files conflict**: if any currently-active lane is processing a task whose `owned_files` overlap (path-glob match) with the candidate's `owned_files`, defer the candidate.
 
-Act mechanically on `DECISION`:
+### 3b. Wait for any completion
 
-- **`SPAWN`** — call `Agent({})` for each name in `NAMES`, **one call at a time**, waiting for each `[<name> status=ready]` ack before sending the next. Spawn template:
-  ```
-  Agent({
-    team_name: "harness-team",
-    name: "analyst-N",        // or engineer-N / e2e-reviewer-N / reviewer-N
-    subagent_type: "harness-analyst",   // or harness-engineer / harness-e2e-reviewer / harness-reviewer
-    prompt: "You are analyst-N of lane-N. Acknowledge with [analyst-N status=ready] and idle. Do not Read, run Bash, or call any tool until you receive an ASSIGNMENT message."
-  })
-  ```
-  When all four have acked, mark `lane_status["lane-N"] = "idle"` and proceed to 3c.
-- **`SKIP`** — the four teammates are already in the team config (e.g. after `/loop` re-entry). Mark `lane_status["lane-N"] = "idle"` and proceed to 3c. Do NOT call `Agent({})` — that would trigger the suffix bug.
-- **`REFUSE`** — surface `REASON` to the user. If the reason is resource pressure, leave the task in the queue and wait for an existing lane to finish (a finishing lane frees ~4 GB; the next 3a iteration retries this task). If the reason is corruption (`corrupt-team` / `partial-lane`), stop entirely.
-
-If `lane_status["lane-N"]` is already `idle` (the lane is spawned and free), skip the gate and proceed directly to 3c.
-
-### 3c. Create the worktree, then assign
-
-```bash
-bash "$SKILL_DIR/scripts/harness-worktree.sh" add "$ROOT" "<id>" "<slug>"
-# Idempotent. Branches off origin/dev so the worktree starts on the latest peer-merged commits.
-```
-
-Send the assignment to that lane's analyst-N (and only the analyst — analyst-N dispatches the rest internally):
-
-```
-SendMessage({
-  to: "analyst-N",
-  type: "message",
-  content: "ASSIGNMENT
-    root: <ROOT>
-    issue: #<X>
-    branch: feat/<X>-<slug>
-    worktree: <ROOT>/lanes/feat-<X>-<slug>/
-    owned_files: [<list>]
-    language: <LANG>
-    Begin Step 1 (brief production), then dispatch engineer-N → e2e-reviewer-N → reviewer-N. After all gates pass, run git commit + push + gh pr create yourself. Final completion message to me: [analyst-N issue=#<X> status=pr-created pr=<URL>]."
-})
-```
-
-Update `lane_status["lane-N"] = { issue: X, phase: "1-brief" }`.
-
-### 3d. Receive progress messages
-
-Lanes report only via analyst-N during processing:
+When the burst exits with at least one lane busy, wait for inbound `SendMessage` from any analyst-N. The Agent Teams runtime delivers it to the lead. Possible messages:
 
 ```
 [analyst-N issue=#X step=<step> status=<state>]
@@ -194,31 +183,34 @@ Lanes report only via analyst-N during processing:
 [lane=N issue=#X status=blocked-disk-full]
 ```
 
-Update `lane_status` accordingly. On `pr-created`, proceed to 3e. On `blocked-codex-auth`, see "Codex auth handling" below. On `blocked-disk-full`, see top of file.
+On `pr-created`: proceed to 3c for that lane.
+On `blocked-codex-auth`: see "Codex auth handling".
+On `blocked-disk-full`: see top of file.
+On any intermediate `step=<step> status=<state>`: just update bookkeeping; do not interrupt other lanes.
 
-### 3e. Clear the lane after PR completes
+### 3c. Clear the finishing lane and refill it
 
-When analyst-N reports `status=pr-created`, send the clear directive to all four teammates of that lane in one message (four parallel SendMessage calls):
+When analyst-N reports `status=pr-created`:
 
-```
-SendMessage({ to: "analyst-N",       content: "DIRECTIVE: clear_context\nInvoke /clear in your own session, then ack with [analyst-N status=cleared ready-for-issue]." })
-SendMessage({ to: "engineer-N",      content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [engineer-N status=cleared ready]." })
-SendMessage({ to: "e2e-reviewer-N",  content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [e2e-reviewer-N status=cleared ready]." })
-SendMessage({ to: "reviewer-N",      content: "DIRECTIVE: clear_context\nInvoke /clear, then ack with [reviewer-N status=cleared ready]." })
-```
+1. Send `/clear` to all four teammates of that lane in one message (four parallel `SendMessage` calls):
+   ```
+   SendMessage({ to: "analyst-N",      content: "DIRECTIVE: clear_context\nInvoke /clear in your own session, then ack [analyst-N status=cleared ready-for-issue]." })
+   SendMessage({ to: "engineer-N",     content: "DIRECTIVE: clear_context\nInvoke /clear, then ack [engineer-N status=cleared ready]." })
+   SendMessage({ to: "e2e-reviewer-N", content: "DIRECTIVE: clear_context\nInvoke /clear, then ack [e2e-reviewer-N status=cleared ready]." })
+   SendMessage({ to: "reviewer-N",     content: "DIRECTIVE: clear_context\nInvoke /clear, then ack [reviewer-N status=cleared ready]." })
+   ```
+2. Wait for all four `cleared` acks (other lanes keep working in the background).
+3. Remove the lane worktree:
+   ```bash
+   bash "$SKILL_DIR/scripts/harness-worktree.sh" remove "$ROOT" "<id>" "<slug>"
+   ```
+4. Set `lane_status["lane-N"] = "idle"`.
+5. **Try to refill this lane immediately** by re-running step 3a's pick-and-dispatch logic. This way a finished lane is back to work as soon as its `/clear` completes, without waiting for other lanes.
+6. Return to 3b (wait for the next completion).
 
-Wait for all four `cleared` acks. Then remove the lane worktree:
+### 3d. Loop exit
 
-```bash
-bash "$SKILL_DIR/scripts/harness-worktree.sh" remove "$ROOT" "<id>" "<slug>"
-# Idempotent. Also deletes the local feature branch (the remote has the commits via the PR).
-```
-
-Mark `lane_status["lane-N"] = "idle"` and continue from 3a.
-
-### 3f. Loop until queue is empty AND all lanes are idle
-
-When done, print a status table to the user (lane / last issue / PR URL / status), then ask via `AskUserQuestion`: continue with another batch of pending issues, or shut down the team.
+When `pending_queue` is empty AND every lane is `"idle"` or `"absent"`, the batch is done. Print a status table to the user (lane / last issue / PR URL / status), then ask via `AskUserQuestion`: continue with another batch, or shut down.
 
 ## Step 4 — Shutdown
 

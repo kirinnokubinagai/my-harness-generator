@@ -4,6 +4,11 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.8.3] — 2026-05-10
+
+- Step 3 rewritten so dispatch is parallel. Spawn stays sequential (one lane at a time, gated by resources), but ASSIGNMENT is sent to each lane and the lead immediately moves on to fill the next lane — no blocking on completion. Completion handling is "wait for any inbound message" and refill that lane.
+- Previous 3.8.x flow blocked the lead on a single lane between dispatch and PR, defeating parallelism. Lanes now run concurrently as expected.
+
 ## [3.8.2] — 2026-05-10
 
 - Removed Step 0.5 project-root devshell warmup. The project root holds only `.bare/` and worktrees; the `flake.nix` lives in `dev/`. Each teammate runs `build-dev-env.sh "$WORKTREE"` itself.
