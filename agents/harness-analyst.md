@@ -79,17 +79,13 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
 
 ### Step 5 — Git commit + PR (you do this, no other teammate touches git)
 
-19. Source the pre-built dev shell first (it provides git, gh, and the husky-required pnpm/biome/tsc/vitest binaries from /nix/store), then stage explicit files, commit with conventional-commit message (1 issue = 1 commit), push, open PR:
+19. Build & source the lane's per-worktree dev shell first (it provides git, gh, and the husky-required pnpm/biome/tsc/vitest binaries from /nix/store — and reflects any `flake.nix` edits engineer-N made for this issue), then stage explicit files, commit with conventional-commit message (1 issue = 1 commit), push, open PR:
     ```bash
-    # Locate project root (parent of the lane worktree that has .my-harness/.config):
-    PROJECT_ROOT="<worktree>"
-    while [ "$PROJECT_ROOT" != "/" ]; do
-      PARENT="$(dirname "$PROJECT_ROOT")"
-      [ -f "$PARENT/.my-harness/.config" ] && PROJECT_ROOT="$PARENT" || break
-    done
-    source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"   # MUST source — husky pre-commit needs pnpm/biome/tsc/vitest
+    WORKTREE="<worktree>"
+    DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+    source "$DEV_ENV"   # MUST source — husky pre-commit needs pnpm/biome/tsc/vitest from /nix/store
 
-    cd <worktree>
+    cd "$WORKTREE"
     git add <explicit list>          # never `git add -A` / `.`
     git commit -m "feat(<scope>): <issue summary>
 
@@ -104,7 +100,7 @@ You are **analyst-N** teammate of **lane-N** in the `harness-team` Agent Teams t
     gh pr edit <PR#> --add-label auto-merge
     ```
 
-    Do **not** wrap any of these in `nix develop --command` — that re-runs the evaluator and triggers the fork-bomb. The sourced env provides everything.
+    Do **not** wrap any of these in `nix develop --command` — that re-runs the evaluator and triggers the fork-bomb. The sourced env provides everything. `build-dev-env.sh` is content-hash-cached, so the second-and-later calls in the same issue (after engineer's vitest run) are instant.
 20. **Final completion**: `SendMessage({to: "team-lead", content: "[analyst-N issue=#X status=pr-created pr=<URL> commit=<sha>]"})`. Enter idle state.
 
 ## Hard rules during processing

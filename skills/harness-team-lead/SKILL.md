@@ -83,23 +83,29 @@ The daemon survives `/clear` of the lead session and is reused across
 fails to start, lanes fall back to per-call stdio mode automatically — this
 step is best-effort, not a precondition.
 
-## Step 0.5 — Pre-build the shared dev shell environment (mandatory)
+## Step 0.5 — Pre-build (warmup) the project-root dev shell environment
 
-Before any engineer is dispatched, evaluate the project's nix flake **once** and dump the resulting bash env to a sourceable file. All four lanes will `source` it instead of wrapping every command in `nix develop --command`.
+Build the dev shell env for the **project root** (`$ROOT/dev` or wherever the master flake lives — handled by build-dev-env.sh's walk-up). This pre-evaluates the nix flake once, populating /nix/store and the evaluator cache so subsequent per-lane builds reuse all package derivations.
 
 ```bash
 SKILL_DIR="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead"
 bash "$SKILL_DIR/scripts/build-dev-env.sh" "$ROOT" || exit $?
-# Output file: $ROOT/.my-harness/.harness-devenv.sh
+# Output: <ROOT-or-nearest-flake-parent>/.my-harness/.harness-devenv.sh
 ```
 
-Why this is mandatory (not optional):
+Why per-lane build (not one shared env file):
+
+- Each lane has its own git worktree at `<ROOT>/lanes/feat-<X>-<slug>/`. Lane-N may be **editing** its `flake.nix` as part of an in-flight issue (e.g., `flake-nix-direnv` issue or adding a tool to the dev shell). lane-N's env must reflect lane-N's flake content, not the project master copy.
+- `build-dev-env.sh` is idempotent and **content-hash-cached**: caller passes a worktree path, the script walks up to the nearest `flake.nix`, hashes `flake.nix + flake.lock`, and reuses the cached env file (`<flake-dir>/.my-harness/.harness-devenv.sh`) when the hash matches. Cache hit ≈ 7 ms.
+- Hash-based (not mtime-based) so `touch flake.nix` with no real edit doesn't force a rebuild, and a real edit always triggers one — even within the same wall-clock second (macOS bash `-nt` is second-resolution and would miss this).
+
+Why this beats `nix develop --command`:
 
 - `nix develop --command pnpm install` evaluates the flake **per call**. Each evaluation forks the nix evaluator + shellHook + helper processes (verified: 4 concurrent calls fan out to 200+ helper nodes per call, which compounds across lanes to ~1000 nodes — the proven trigger for the kernel-watchdog panic at compressor segments=100%).
-- `nix print-dev-env` runs the evaluator **exactly once**, dumps PATH / env / functions as plain bash. Engineers `source` the file: `~0` fork, `~10ms` activation.
-- Better than direnv for this orchestrator: direnv requires `direnv allow` per worktree, manual user step, per-worktree cache. The pre-built file is one shared artifact, all 4 lanes immediately reuse it.
+- `nix print-dev-env` runs the evaluator **exactly once per flake-content-version**, dumps PATH / env / functions as plain bash. Engineers `source` the file: `~0` fork, `~10ms` activation.
+- Better than direnv for this orchestrator: direnv requires `direnv allow` per worktree (manual user step). build-dev-env.sh runs automatically and caches by content hash.
 
-After this step, **engineers MUST source `$ROOT/.my-harness/.harness-devenv.sh`** at the start of their work and run `pnpm` / `vitest` / `biome` / `tsc` directly — no `nix develop --command` prefix.
+After this step, **every teammate (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N) MUST run `build-dev-env.sh "<their worktree>"` and `source` the returned path** at the start of their turn. They run `pnpm` / `vitest` / `biome` / `tsc` / `git` / `gh` directly — no `nix develop --command` prefix. See `agents/harness-engineer.md` for the canonical snippet.
 
 ## Step 1 — Determine issue source
 

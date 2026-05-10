@@ -1,55 +1,59 @@
 #!/usr/bin/env bash
-# Evaluate the project's nix dev shell ONCE per /harness-team-lead session and
-# dump it as a sourceable bash file. Engineers `source` this file instead of
-# wrapping each command in `nix develop --command`, which eliminates the
-# 4× nix-evaluator + shellHook fork-out across 4 lanes (the proven cause of
-# the kernel-watchdog panic at ~1000 node helpers).
+# Build a project- or worktree-scoped nix dev shell once and dump it as a
+# sourceable bash file. Per-worktree caching with mtime invalidation: the env
+# is rebuilt only when flake.nix or flake.lock is newer than the cached env.
+# Engineers source the env instead of wrapping each command in
+# `nix develop --command`, which eliminates the 4× nix-evaluator + shellHook
+# fork-out across 4 lanes (the verified cause of the kernel-watchdog panic at
+# ~1000 node helpers).
 #
 # Usage:
-#   bash build-dev-env.sh [<project-root>]      # defaults to $PWD
+#   bash build-dev-env.sh [<worktree-or-project-root>]
+#     defaults to $PWD
 #
-# Output (stdout, single line): absolute path to the generated env file.
-# Output file: <project-root>/.my-harness/.harness-devenv.sh
+# Behavior:
+#   - Find the nearest flake.nix walking up from the given dir (worktree first,
+#     then project parents). Each lane worktree typically has its own flake.nix
+#     (git worktree of the same branch — initially identical, can diverge as
+#     engineer-N edits flake.nix for an in-flight issue).
+#   - Cache file lives at <worktree>/.my-harness/.harness-devenv.sh — per-worktree,
+#     so per-lane edits to flake.nix produce per-lane env files.
+#   - mtime cache: if env file exists AND is newer than flake.nix AND flake.lock,
+#     skip rebuild (instant return — script noop).
+#   - On rebuild: nix print-dev-env --impure → atomic write → append PATH-restore
+#     line so git / gh / coreutils stay resolvable alongside nix-provided tools.
+#   - Stdout (single line): absolute path of the generated env file (so caller can
+#     pipe / capture). Stderr: progress messages.
 #
-# After this runs, engineers do:
-#   source $ROOT/.my-harness/.harness-devenv.sh
-#   pnpm install                                 # no nix develop --command needed
-#   pnpm exec vitest related --run <test>
-#
-# Why this is better than direnv:
-#   - direnv requires `direnv allow` per worktree, manually, by the user.
-#   - direnv caches per-worktree, so 4 lanes still each pay the first-allow cost.
-#   - nix print-dev-env runs the evaluator exactly once per session, all 4 lanes
-#     reuse the bash output. No per-lane evaluator fork.
-#
-# Why this is better than `nix develop --command pnpm install`:
-#   - That re-evaluates the flake every call (nix evaluator + shellHook fork).
-#   - 4 lanes × N commands per lane × evaluator = the fork bomb that crashed the kernel.
-#   - Sourcing a pre-built bash file is just shell `export` lines: ~0 fork.
+# Why per-worktree, not project-shared:
+#   - lane-3 may be editing flake.nix as part of an issue (e.g., flake-nix-direnv).
+#     Their env must reflect their flake.nix, not dev/'s.
+#   - /nix/store is system-shared, so per-lane evaluation only re-runs the
+#     evaluator (cheap) — the actual package builds are cache hits.
 
 set -u
 
-ROOT="${1:-$PWD}"
+START="${1:-$PWD}"
 
-if [ ! -f "$ROOT/.my-harness/.config" ]; then
-  echo "::error:: build-dev-env.sh: $ROOT/.my-harness/.config not found" >&2
+# Resolve absolute
+if ! START="$(cd "$START" 2>/dev/null && pwd)"; then
+  echo "::error:: build-dev-env.sh: cannot cd to $1" >&2
   exit 1
 fi
 
-# Locate flake.nix. The harness convention is that flake.nix lives at the dev/
-# worktree (per bootstrap.sh / templates/nix/flake.nix). Project root rarely
-# has its own flake.nix; if it does, prefer it.
+# Find nearest flake.nix walking up from START.
 FLAKE_DIR=""
-for c in "$ROOT" "$ROOT/dev"; do
-  if [ -f "$c/flake.nix" ]; then
-    FLAKE_DIR="$c"
+SEARCH="$START"
+while [ "$SEARCH" != "/" ]; do
+  if [ -f "$SEARCH/flake.nix" ]; then
+    FLAKE_DIR="$SEARCH"
     break
   fi
+  SEARCH="$(dirname "$SEARCH")"
 done
 
 if [ -z "$FLAKE_DIR" ]; then
-  echo "::error:: build-dev-env.sh: no flake.nix found at $ROOT or $ROOT/dev" >&2
-  echo "         The harness expects a flake.nix at one of those locations." >&2
+  echo "::error:: build-dev-env.sh: no flake.nix found at or above $START" >&2
   exit 2
 fi
 
@@ -58,49 +62,74 @@ if ! command -v nix >/dev/null 2>&1; then
   exit 3
 fi
 
-OUT_DIR="$ROOT/.my-harness"
+# Cache lives next to the flake (worktree-scoped).
+OUT_DIR="$FLAKE_DIR/.my-harness"
 OUT="$OUT_DIR/.harness-devenv.sh"
+mkdir -p "$OUT_DIR"
+
+# Cache check: hash flake.nix + flake.lock content and compare against the
+# marker line we wrote into the env file at last build. mtime-based caching
+# would miss same-second edits on macOS bash (which compares whole seconds).
+compute_hash() {
+  if [ -f "$FLAKE_DIR/flake.lock" ]; then
+    cat "$FLAKE_DIR/flake.nix" "$FLAKE_DIR/flake.lock" | shasum -a 256 | awk '{print $1}'
+  else
+    cat "$FLAKE_DIR/flake.nix" | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+CURRENT_HASH=$(compute_hash)
+HASH_MARKER="# harness-flake-sha256:$CURRENT_HASH"
+
+if [ -f "$OUT" ] && head -1 "$OUT" 2>/dev/null | grep -qx "$HASH_MARKER"; then
+  echo "[build-dev-env] cache hit — $OUT (flake content unchanged since last build)" >&2
+  echo "$OUT"
+  exit 0
+fi
+
 TMP="$OUT.tmp.$$"
 ERR="$OUT.err.$$"
 
-mkdir -p "$OUT_DIR"
+echo "[build-dev-env] evaluating $FLAKE_DIR/flake.nix..." >&2
 
-echo "[build-dev-env] evaluating $FLAKE_DIR/flake.nix (one-shot, all 4 lanes will source the result)..." >&2
-
-if ! nix print-dev-env --impure "$FLAKE_DIR" > "$TMP" 2>"$ERR"; then
+# Build into TMP starting with the hash marker so the cache check above can
+# detect content equality without ever touching mtimes.
+{
+  echo "$HASH_MARKER"
+  nix print-dev-env --impure "$FLAKE_DIR" 2>"$ERR"
+} > "$TMP" || {
   echo "::error:: build-dev-env.sh: nix print-dev-env failed. stderr:" >&2
   cat "$ERR" >&2
   rm -f "$TMP" "$ERR"
   exit 4
-fi
+}
 
-# Sanity: ensure output is non-empty bash and has at least PATH or shellHook.
-if ! grep -q "^export\|^PATH=\|^declare -" "$TMP"; then
+# Sanity: ensure body (after the marker line) is non-empty bash with PATH or shellHook.
+if ! tail -n +2 "$TMP" | grep -q "^export\|^PATH=\|^declare -"; then
   echo "::error:: build-dev-env.sh: nix print-dev-env produced an unexpected output" >&2
   echo "         (no export / PATH= / declare lines). Check $FLAKE_DIR/flake.nix." >&2
+  cat "$ERR" >&2 2>/dev/null
   rm -f "$TMP" "$ERR"
   exit 5
 fi
 
-mv "$TMP" "$OUT"
-rm -f "$ERR"
-
 # Append PATH-restore so git / gh / system tools remain available alongside the
 # nix-provided pnpm / node / bun / etc. nix print-dev-env replaces $PATH with
-# nix-store-only paths and saves the original to $nix_saved_PATH; we re-append it
-# at the end so engineers can `git commit && gh pr create` without resorting to
-# absolute paths or installing more tools into the flake.
+# nix-store-only paths and saves the original to $nix_saved_PATH; we re-append
+# it at the end so engineers can `git commit && gh pr create` without resorting
+# to absolute paths or installing more tools into the flake.
 {
   echo ""
   echo "# harness: restore system PATH so git / gh / coreutils remain available"
   echo "# alongside the nix-provided pnpm / node / bun / etc. nix tools take"
   echo "# precedence (they appear first); system tools fill in the gaps."
   echo '[ -n "${nix_saved_PATH:-}" ] && export PATH="$PATH:$nix_saved_PATH"'
-} >> "$OUT"
+} >> "$TMP"
+
+mv "$TMP" "$OUT"
+rm -f "$ERR"
 
 SIZE=$(wc -c < "$OUT" | tr -d ' ')
 echo "[build-dev-env] OK — $OUT ($SIZE bytes)" >&2
-echo "[build-dev-env] engineers should: source $OUT (then pnpm/vitest/biome/tsc directly)" >&2
 
-# Stdout: absolute path (so callers can pipe / capture)
 echo "$OUT"

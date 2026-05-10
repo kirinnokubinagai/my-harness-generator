@@ -4,6 +4,47 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.3.0] — 2026-05-10
+
+### Fixed — Per-worktree dev shell with content-hash cache invalidation
+
+3.2.0 shipped one shared env file at `<project-root>/.my-harness/.harness-devenv.sh` that all 4 lanes sourced. Two correctness gaps surfaced under realistic use:
+
+1. **Per-lane `flake.nix` edits were silently ignored.** Lane-3 may be working on an issue that itself modifies `flake.nix` (e.g. `flake-nix-direnv` setup, adding a tool to the dev shell). With one shared file, lane-3 sourced lane-1's evaluation of the project master flake — its own edits never took effect inside its own work.
+2. **mtime-based cache invalidation was unsound on macOS bash.** macOS bash's `[ A -nt B ]` operator compares whole-second mtimes only. A `vim flake.nix; :wq` followed immediately by re-running the build script in the same wall-clock second would silently reuse the stale cache. Real reproduction in tests showed `touch flake.nix && rerun` returning a cache hit when it should have rebuilt.
+
+Fix:
+
+- `skills/harness-team-lead/scripts/build-dev-env.sh` rewritten to be **per-worktree + content-hash-cached**. The script now:
+  - Walks up from the supplied path to the nearest `flake.nix` (worktree first, then project master).
+  - Writes the env file at `<flake-dir>/.my-harness/.harness-devenv.sh` — per worktree, not project-shared.
+  - Caches by `sha256(flake.nix + flake.lock)` written as a marker line at the top of the env file. Cache check reads the first line and compares against the current hash. Cache hit ≈ 7 ms.
+  - Hash-based invalidation: real content edits **always** trigger rebuild even within the same wall-clock second; pure `touch` (mtime-only change) does **not** force a needless rebuild.
+- All 4 agent definitions updated to the per-worktree pattern. Each teammate now runs:
+  ```bash
+  DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+  source "$DEV_ENV"
+  ```
+  at the start of every turn, where `$WORKTREE` is supplied by analyst-N's ASSIGNMENT / REVIEW / TEST message.
+- `skills/harness-team-lead/SKILL.md` Step 0.5 reframed as a **warmup** for the project root flake. /nix/store is system-shared, so warming pre-populates derivations; per-lane builds afterwards are evaluator-cache hits and finish in seconds.
+- `skills/harness-nix-pure/SKILL.md` updated to document the per-worktree pattern as the canonical in-team default; the old "one shared env file" wording was removed.
+
+### Verified
+
+```
+Test 1 cold build       — OK    (96860 bytes, ~6 s nix print-dev-env)
+Test 2 cache hit (no edit)            — 7 ms instant (correct)
+Test 3 touch flake.nix only           — cache hit (correct: no content change)
+Test 4 real content edit (echo)       — rebuild fired (correct)
+Test 5 restore content (sed)          — rebuild fired (correct)
+Test 6 lane-3 separate worktree       — separate env file, hash-distinct
+After source: pnpm/git/gh/node all resolve from /nix/store
+```
+
+### Migration
+
+Existing 3.2.0 users: the project-shared env file at `<root>/.my-harness/.harness-devenv.sh` is no longer authoritative. It will be regenerated on first `/harness-team-lead` Step 0.5 with the new hash-marker format. Lane teammates each maintain their own env at `<lane-worktree>/.my-harness/.harness-devenv.sh` — no cleanup needed; old files are simply rebuilt with new markers on next use.
+
 ## [3.2.0] — 2026-05-10
 
 ### Added — Pre-built dev shell environment (eliminates `nix develop --command` fork-bomb at the source)

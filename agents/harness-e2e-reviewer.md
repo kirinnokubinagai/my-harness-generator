@@ -40,15 +40,12 @@ USE_MAESTRO=$(grep -E "^USE_MAESTRO=" "$ROOT/.my-harness/.config" | cut -d= -f2)
 
 ## Execution flow
 
-Source the pre-built dev shell once at the start of your turn (it provides pnpm, node, playwright, maestro from /nix/store — no `nix develop --command` wrapping). See `agents/harness-engineer.md` "Mandatory: source the pre-built dev shell" for the project-root walk-up pattern.
+Build & source the lane worktree's dev shell once at the start of your turn (it provides pnpm, node, playwright, maestro from /nix/store — no `nix develop --command` wrapping). The script is content-hash-cached, so per-issue re-tests are instant.
 
 ```bash
-PROJECT_ROOT="<worktree>"
-while [ "$PROJECT_ROOT" != "/" ]; do
-  PARENT="$(dirname "$PROJECT_ROOT")"
-  [ -f "$PARENT/.my-harness/.config" ] && PROJECT_ROOT="$PARENT" || break
-done
-source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"
+WORKTREE="<worktree>"   # from analyst-N's TEST message
+DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+source "$DEV_ENV"
 ```
 
 1. Run Web E2E (when `USE_PLAYWRIGHT=yes`):

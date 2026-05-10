@@ -61,34 +61,30 @@ These rules are owned by dedicated skills — load each skill via the Skill tool
 
 In Codex mode the same rules are enforced by Codex's `--role engineer` prefix.
 
-## Mandatory: source the pre-built dev shell ONCE at the start of your turn
+## Mandatory: build & source the per-worktree dev shell ONCE at the start of your turn
 
-`/harness-team-lead` Step 0.5 has already evaluated the flake once and dumped the dev-shell environment as a sourceable bash file at `$ROOT/.my-harness/.harness-devenv.sh`. **Source it at the start of your work, then run pnpm / vitest / biome / tsc / git / gh directly. Never use `nix develop --command`** — that re-runs the evaluator and forks 200+ helper nodes per call (the proven trigger for the kernel-watchdog panic).
+Each lane has its own git worktree at `<worktree>` (passed in by analyst-N's ASSIGNMENT message). That worktree has its own `flake.nix` — and lane-3 may be editing it as part of an in-flight issue (e.g. flake-nix-direnv changes), so engineer-3's env must reflect lane-3's `flake.nix`, not the project's master copy.
 
-The env file is self-contained: nix tools (pnpm, node, bun, git, gh, …) take precedence in PATH; the system PATH is appended at the end so coreutils still resolve. After source, both worlds work.
+The orchestrator script `build-dev-env.sh` evaluates that worktree's flake **once** and writes a sourceable bash env file to `<worktree>/.my-harness/.harness-devenv.sh`. The script caches by **content hash** of `flake.nix` + `flake.lock`: subsequent calls return instantly (cache hit ≈ 7 ms) when the flake content is unchanged, and rebuild automatically when you (or a peer engineer's commit synced into your worktree) change `flake.nix`. **`nix develop --command` is forbidden** — it re-runs the full evaluator per call and forks 200+ helper nodes (verified trigger for kernel-watchdog panic at compressor=100% across 4 lanes).
+
+The env file is self-contained: nix tools (pnpm, node, bun, git, gh, …) take precedence in PATH; the original system PATH is re-appended at the end so coreutils still resolve. After source, both worlds work.
 
 ```bash
-# Locate project root (parent that has .my-harness/.config above the lane worktree):
-PROJECT_ROOT="$PWD"
-while [ "$PROJECT_ROOT" != "/" ]; do
-  PARENT="$(dirname "$PROJECT_ROOT")"
-  if [ -f "$PARENT/.my-harness/.config" ]; then
-    PROJECT_ROOT="$PARENT"
-  else
-    break
-  fi
-done
+# At the start of your turn (and after any flake.nix edit):
+WORKTREE="<worktree>"   # supplied by analyst-N in the ASSIGNMENT message
+DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+source "$DEV_ENV"
 
-# Source once. Run everything directly afterwards.
-source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"
-
+cd "$WORKTREE"
 pnpm install                                     # no nix wrapping
 pnpm exec vitest related --run <test>
 pnpm exec tsc --noEmit
 pnpm exec biome check . --write
 ```
 
-If `$PROJECT_ROOT/.my-harness/.harness-devenv.sh` is missing, **stop** and report `[engineer-N status=blocked-no-devenv]` to analyst-N. Do **not** fall back to `nix develop --command` — the file's absence means Step 0.5 was skipped and running 4 concurrent evaluators is exactly the failure mode that triggered the panic.
+If `build-dev-env.sh` exits non-zero, **stop** and report `[engineer-N status=blocked-devenv-build exit=<code>]` to analyst-N (the script's stderr will name the cause: missing flake.nix, nix CLI absent, evaluator failure, etc.). Do **not** fall back to `nix develop --command`.
+
+If you edit `flake.nix` mid-issue (e.g. adding a tool to the dev shell), simply re-run the source command — `build-dev-env.sh` detects the content change via hash and rebuilds automatically.
 
 ## Mandatory: lane-lock the first `pnpm install` per worktree
 

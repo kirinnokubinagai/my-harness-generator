@@ -102,18 +102,15 @@ scripts/codex-ask.sh --role harness-reviewer --session "$SESSION_ID" \
 
 ### Detection (run at start of every review)
 
-Source the pre-built dev shell first (provides biome / tsc / pnpm / grep from /nix/store). Do not wrap in `nix develop --command`.
+Build & source the lane worktree's dev shell first (provides biome / tsc / pnpm / grep from /nix/store, reflecting any `flake.nix` edits engineer-N made for this issue). Do not wrap in `nix develop --command`.
 
 ```bash
-# Locate project root and source the env once at the start of your turn:
-PROJECT_ROOT="$ROOT"
-while [ "$PROJECT_ROOT" != "/" ]; do
-  PARENT="$(dirname "$PROJECT_ROOT")"
-  [ -f "$PARENT/.my-harness/.config" ] && PROJECT_ROOT="$PARENT" || break
-done
-source "$PROJECT_ROOT/.my-harness/.harness-devenv.sh"
+# `<worktree>` comes from analyst-N's REVIEW message:
+WORKTREE="<worktree>"
+DEV_ENV=$(bash "${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/build-dev-env.sh" "$WORKTREE")
+source "$DEV_ENV"
 
-cd "$ROOT"
+cd "$WORKTREE"
 pnpm exec biome check .
 pnpm exec tsc --noEmit
 grep -rn "\bany\b" --include="*.ts" src/ | grep -v "// reviewer-ok" || true
