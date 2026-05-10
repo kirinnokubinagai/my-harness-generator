@@ -59,6 +59,30 @@ These rules are owned by dedicated skills — load each skill via the Skill tool
 
 In Codex mode the same rules are enforced by Codex's `--role engineer` prefix.
 
+## Mandatory: serialize heavy nix-develop commands via lane-lock
+
+Running `nix develop --command pnpm install` (or `pnpm exec vitest run`) concurrently across all 4 lanes fans out 200+ helper node processes per lane. On a 16 GB Mac this saturates the macOS compressor + swap → kernel watchdog panic (verified, multiple incidents). All four lanes must NOT run these commands at the same time.
+
+Wrap **every** invocation with `lane-lock.sh <lock-name> <command...>`:
+
+```bash
+LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
+
+# Wrong (4 lanes will race, 1000+ node helpers, panic risk):
+nix develop --command pnpm install
+nix develop --command pnpm exec vitest run
+
+# Right (project-scoped lock, lanes serialize, cache warms after first lane):
+bash "$LL" pnpm-install nix develop --command pnpm install
+bash "$LL" vitest      nix develop --command pnpm exec vitest run
+bash "$LL" tsc         nix develop --command pnpm exec tsc --noEmit
+bash "$LL" biome       nix develop --command pnpm exec biome check . --write
+```
+
+Lock dir: `<project-root>/.my-harness/.<lock-name>.lockdir` (POSIX `mkdir`-atomic, macOS-compatible — `flock` is Linux-only). Self-cleans on EXIT / SIGINT / SIGTERM. Stale-lock detection via dead-pid check.
+
+This rule overrides any inline `nix develop --command pnpm ...` in a brief or codex prompt. **If you write a Bash call that runs `nix develop --command pnpm install` directly, you have a bug — wrap it.**
+
 ## Codex auth (mid-flight failure)
 
 If `codex-ask.sh` exits 100 mid-implementation, the rescue JSON is auto-saved to `<root>/.my-harness/codex-auth-rescue/<timestamp>.json`. Send to analyst-N:

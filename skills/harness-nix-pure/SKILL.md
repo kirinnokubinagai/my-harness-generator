@@ -46,6 +46,21 @@ nix develop --command bunx alchemy deploy --stage dev
 nix develop --command sops -d secrets/cloudflare.enc.json
 ```
 
+## Heavy commands MUST be lane-locked when running under /harness-team-lead
+
+`pnpm install`, `pnpm exec vitest`, `pnpm exec tsc`, `pnpm exec biome` each fork 200+ helper node processes per call (nix shell setup + pnpm worker pool + per-package install scripts). With 4 lanes running these concurrently, the macOS compressor + swap saturates and the kernel watchdog panics. Always wrap with `lane-lock.sh`:
+
+```bash
+LL="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/skills/harness-team-lead/scripts/lane-lock.sh"
+
+bash "$LL" pnpm-install nix develop --command pnpm install
+bash "$LL" vitest      nix develop --command pnpm exec vitest run
+bash "$LL" tsc         nix develop --command pnpm exec tsc --noEmit
+bash "$LL" biome       nix develop --command pnpm exec biome check . --write
+```
+
+The lock is project-scoped (lives at `<root>/.my-harness/.<lock-name>.lockdir`). First lane warms the nix store + pnpm store; subsequent lanes resolve from cache (~10x faster, ~10x fewer helpers). One-shot user invocations (outside the team) can skip the wrapper.
+
 ## Prohibited patterns
 
 - `brew install pnpm` / `brew install nodejs`

@@ -4,6 +4,37 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.1.0] — 2026-05-10
+
+### Added — `lane-lock.sh` to prevent fork-bomb panic from concurrent `nix develop --command pnpm install`
+
+Real-world incident timeline (16 GB MacBook Air, observed via `~/harness-monitor/snapshot.log`):
+
+- 04:38 baseline: 7 node processes
+- 04:39:33 (after analyst-2 dispatched engineer-2): 41 node
+- 04:39:38: 66 node (+25 in 5 s)
+- 04:39:54 (engineer-2 ran `nix develop --command pnpm install`): swap kicked in, compressor 1098 MB → 7211 MB in one snapshot
+- 04:40:20: 401 node
+- 04:41:33: 1006 node
+- 04:43:37: 1026 node, free 22 MB, compressor 5267 MB, swap 44.4 GB / 45 GB used
+- 04:48:26: kernel panic — `Compressor Info: 100% of segments limit (BAD)`, 44 swapfiles
+
+Root cause: `nix develop --command pnpm install` (and `pnpm exec vitest` / `pnpm exec tsc` / `pnpm exec biome`) each fork 200+ helper node processes per call. With 4 engineer lanes running concurrently, ~1000 node processes appear within 90 s, saturating the macOS memory compressor and triggering the kernel watchdog. The harness's previous `agents/harness-engineer.md` wording (load `harness-nix-pure` and run `nix develop --command pnpm install`) combined with `harness-team-lead`'s 4-lane parallel design made this collision the default outcome — a true contradiction between two skill rules.
+
+Fix:
+
+- New `skills/harness-team-lead/scripts/lane-lock.sh <lock-name> <command...>`. Uses `mkdir`-atomic locks (POSIX, macOS-compatible — `flock(1)` is Linux-only and silently no-ops on macOS). Lock dir lives at `<project-root>/.my-harness/.<lock-name>.lockdir`, project-scoped, survives across worktrees, self-cleans on EXIT / SIGINT / SIGTERM, reclaims stale locks via dead-pid check.
+- `agents/harness-engineer.md` gains a hard "Mandatory: serialize heavy nix-develop commands via lane-lock" section. Every `nix develop --command pnpm install` / `pnpm exec vitest` / `pnpm exec tsc` / `pnpm exec biome` MUST be wrapped: `bash $LL <lock-name> nix develop --command ...`.
+- `skills/harness-nix-pure/SKILL.md` documents the same rule as the canonical reference.
+
+After lock acquisition, the first lane warms the nix store and the pnpm store; subsequent lanes resolve from cache (~10x faster, ~10x fewer helpers). The serialized phase is bounded to install / typecheck / test / biome boundaries — actual implementation work in editor / file ops still proceeds in parallel across lanes.
+
+### Migration
+
+If you ran 2.x or 3.0.0 successfully on a beefy machine (≥ 32 GB RAM): nothing to do. The lock is best-effort serialization and does not change command semantics, only timing.
+
+If your machine OOM-ed with 3.0.0: confirm `agents/harness-engineer.md` has the new "Mandatory" section and that `bash skills/harness-team-lead/scripts/lane-lock.sh` is on disk. The next `/harness-team-lead` run will use the lock automatically (engineers read the new rule from their system prompt).
+
 ## [3.0.0] — 2026-05-10
 
 ### Added — kernel-panic prevention for /harness-team-lead (BREAKING)
