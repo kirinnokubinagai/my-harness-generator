@@ -4,6 +4,11 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.9.2] — 2026-05-11
+
+- engineer hard rules: `pnpm install` is run exactly as shown — no `--ignore-workspace`, no improvised `--frozen-lockfile`, no side-install into a sub-package to "avoid workspace conflicts" (lane-lock already serialises). `--frozen-lockfile` is install-only and must never be passed to `pnpm add`.
+- New status `blocked-workspace-not-ready`: when the monorepo skeleton is missing (no top-level `package.json`, `pnpm-workspace.yaml`, or referenced package directory), engineer stops and reports rather than improvising. analyst forwards to team-lead, team-lead pauses the lane and surfaces the blocking dependency to the user.
+
 ## [3.9.1] — 2026-05-11
 
 - `bootstrap.sh` no longer generates `<root>/start-dev.sh`. The launcher script was a thin wrapper around `cd <root>/dev && claude`, and several users preferred not having an extra file at the project root. All completion banners (`bootstrap.sh`, `/my-harness-init` Phase 8.6, `/my-harness-adopt` Step 4) and READMEs now print the manual command directly.

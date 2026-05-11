@@ -82,6 +82,17 @@ fi
 
 Vitest / biome / tsc do not need lane-lock.
 
+### pnpm hard rules (strict)
+
+- **Run `pnpm install` exactly as shown.** Never add `--ignore-workspace`, `--frozen-lockfile`, `--no-frozen-lockfile`, or any other flag on your own. The standard form is what works with the project's lockfile and workspace layout.
+- **`--frozen-lockfile` is `install`-only.** It is NOT an option of `pnpm add`; passing it to `add` errors with `Unknown option: 'frozen-lockfile'`.
+- **Do not "avoid workspace conflicts" by side-installing into a sub-package.** `lane-lock.sh` already serialises concurrent `pnpm install` across lanes. Concurrency is safe; the lock handles it.
+- **If `pnpm install` fails because the monorepo skeleton is incomplete** (no top-level `package.json`, missing `pnpm-workspace.yaml`, or a referenced package directory does not yet exist), do NOT improvise. Stop and report:
+  ```
+  [engineer-N issue=#X status=blocked-workspace-not-ready details=<one line: which file is missing>]
+  ```
+  This typically happens when an earlier monorepo-setup task (e.g. `0001-01`) has not yet merged. The lead is responsible for sequencing such tasks; your job is to surface the block, not to work around it.
+
 ## Message format
 
 ```
@@ -91,4 +102,4 @@ tests: <count>
 gates: biome=<state> tsc=<state> vitest=<n>
 ```
 
-Status: `ready` | `cleared` | `impl-done` | `brief-unclear` | `blocked-codex-auth` | `blocked-devenv-build`.
+Status: `ready` | `cleared` | `impl-done` | `brief-unclear` | `blocked-codex-auth` | `blocked-devenv-build` | `blocked-workspace-not-ready`.

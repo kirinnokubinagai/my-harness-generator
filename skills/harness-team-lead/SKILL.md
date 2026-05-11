@@ -181,11 +181,13 @@ When the burst exits with at least one lane busy, wait for inbound `SendMessage`
 [analyst-N issue=#X status=pr-created pr=https://...]
 [lane=N issue=#X status=blocked-codex-auth role=<engineer|e2e|reviewer> rescue=<path>]
 [lane=N issue=#X status=blocked-disk-full]
+[lane=N issue=#X status=blocked-workspace-not-ready details=<line>]
 ```
 
 On `pr-created`: proceed to 3c for that lane.
 On `blocked-codex-auth`: see "Codex auth handling".
 On `blocked-disk-full`: see top of file.
+On `blocked-workspace-not-ready`: mark this lane `paused-workspace`. Surface ONE message to the user: `Lane N (issue #X) needs an earlier monorepo-setup task to land first. Once that PR is merged into dev, say "resume lane N".` Do NOT auto-retry. Do NOT dispatch another task to this lane until resumed. Other lanes keep running.
 On any intermediate `step=<step> status=<state>`: just update bookkeeping; do not interrupt other lanes.
 
 ### 3c. Clear the finishing lane and refill it
