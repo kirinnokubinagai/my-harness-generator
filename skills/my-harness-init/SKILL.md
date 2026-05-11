@@ -329,8 +329,8 @@ Use `AskUserQuestion` with **named options** (do NOT phrase as y/n):
     "header": "AIヘルパー",
     "multiSelect": false,
     "options": [
-      { "label": "Claude のみ", "description": "デフォルト。追加セットアップ不要で Claude 単体で全機能が動作。ビジュアルフェーズはテキストのブランドブリーフに置換（ロゴ・モック画像は生成されません）。" },
-      { "label": "Claude + Codex", "description": "OpenAI の Codex CLI を併用してセカンドオピニオン（設計・コードレビュー）と `gpt-image-2` でのロゴ・UIモック生成を有効化。`npm install -g @openai/codex` と `codex login`（ChatGPT サブスクリプション）が必要。" }
+      { "label": "Claude のみ", "description": "デフォルト。追加セットアップ不要で Claude 単体で全機能が動作。ビジュアルフェーズは画像生成なしのテキスト記述に置換 (モック画像は生成されない)。" },
+      { "label": "Claude + Codex", "description": "OpenAI の Codex CLI を併用してセカンドオピニオン (設計・コードレビュー) と `gpt-image-2` での「ページ + パーツ一覧」モック生成を有効化。`npm install -g @openai/codex` と `codex login` (ChatGPT サブスクリプション) が必要。" }
     ]
   }]
 }

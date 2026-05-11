@@ -27,7 +27,7 @@
 
 ## ハイライト
 
-- **`/my-harness-init`** — インタビュー → 仕様書 → `bootstrap.sh` まで自動。任意で Codex CLI による session resume + `gpt-image-2` でロゴ / UI モック生成。
+- **`/my-harness-init`** — インタビュー → 仕様書 → `bootstrap.sh` まで自動。任意で Codex CLI による session resume + `gpt-image-2` で画面ごとの「ページ + パーツ一覧」モック生成 (1 枚の画像に上半分フルページ・下半分は使用 UI 部品の透過 PNG グリッド)。
 - **プラットフォームごとに独立してフレームワーク選択可能** — Web（`nextjs`/`tanstack`）、iOS（`swift`/`expo`/`flutter`）、Android（`kotlin`/`expo`/`flutter`）、Desktop（`tauri`/`electron` × macOS/Windows/Linux）、バックエンド（`hono`/`gin`/`rust`）、DB（`d1`/`postgres`/`mysql`/`sqlite`）。
 - **並列レーン (Agent Teams)** — `/harness-team-lead` が最大 `MAX_LANES` (1..4) × 4 役を起動。レーンは 1 つずつ、RAM/swap/compressor ゲート通過時のみ追加。OS 別 MAX_LANES 推奨は macOS の memory compression と live `memory_pressure` を考慮。PR 後は対象レーンの 4 teammate に `/clear`。`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 必須。
 - **自動機密マスキング** — `UserPromptSubmit` フックが `mask-secrets.sh`（9 パターン）を通して `dev/docs/talk/<日付>.md` に記録。
