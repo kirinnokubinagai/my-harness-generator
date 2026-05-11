@@ -4,6 +4,91 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.3.0] — 2026-05-11
+
+Phase 5 redesigned around (a) edit-mode chaining for the image-generation
+pipeline — the page and the parts grid now SHARE the same visual style
+because the grid is generated using the page as an `image_gen` edit-mode
+reference, not from scratch — and (b) moving HTML authorship from Codex
+to Claude, since Claude already has multimodal vision and writing the
+HTML round-trip through another agent saves nothing.
+
+### Changed
+
+- **`image_gen` calls are now chained via edit mode (the official
+  consistency primitive).** Previously, `gen-page-parts.sh` packaged
+  page-mock + parts-grid generation into one prompt and Codex called
+  `image_gen` independently per artifact. Because `image_gen` is
+  stateless across calls, the two artifacts drifted visually (different
+  palette saturation, different illustration style, different character
+  proportions) — even when the prompt said "match the page". The new
+  pipeline splits the work into two turn types:
+    - **Turn 1** — `image_gen generate` produces `page-<>.png` and
+      writes a JSON `style_guide` (palette hex codes, illustration
+      style phrase, line weight, character design, decorative motifs)
+      to its text response. The style_guide is Codex's own declared
+      design language, captured verbatim.
+    - **Turn 2..N** — `image_gen edit` against the page image (still
+      in the session's conversation context, per Codex's official
+      `$imagegen` skill docs). The prompt for each grid echoes the
+      style_guide as IMMUTABLE INVARIANTS and lists the cells to
+      render. Edit mode + invariant echo + same-session = page and
+      grids share style.
+  Reference: `codex-rs/skills/src/assets/samples/imagegen/SKILL.md`
+  ("Built-in edit mode is for images already visible in the
+  conversation context, such as attached images or images generated
+  earlier in the thread."). Also reference Issue #19136 — `image_gen`
+  takes only a `prompt` argument, but session-context image references
+  via edit mode work without explicit argument passing.
+- **`gen-page-parts.sh` rewritten** as a two-phase pipeline (Turn 1:
+  page + manifest; Turn 2..N: edit-mode grids) on the same
+  `design-image-<project-slug>` session. Each grid turn retries up to
+  3× if the PNG didn't land. Existing `crop-parts.sh` /
+  `scaffold-tsx-from-parts.sh` / `upscale-part.sh` are unchanged — they
+  already operate on the manifest format which now just carries the
+  extra `style_guide` field that they ignore.
+- **HTML generation moves from Codex to Claude.** `gen-page-html.sh`
+  is removed. The new Phase 5 procedure has Claude `Read` the page
+  mock PNG (multimodal vision), `Read` the manifest, then `Write` the
+  Tailwind HTML file directly. Saves a Codex session, ~30-60 seconds
+  per screen, and a few thousand tokens — and Claude's output is
+  easier to control because there is no extra agent boundary.
+- **`refine-design.sh` simplified to image-only.** The `<kind>`
+  argument is removed; the script always resumes the image session.
+  HTML refinements are done by Claude with the `Edit` tool directly,
+  no Codex session needed. If a refinement to the page mock affects
+  the parts grid, the prompt asks Codex to regenerate the grid in edit
+  mode against the new page (style invariants preserved).
+
+### Added
+
+- **`prompts/codex-page-mock.md`** — Turn 1 prompt template. Codex
+  generates the page mock and emits the style_guide manifest.
+- **`prompts/codex-parts-grid-edit.md`** — Turn 2+ prompt template
+  with `<STYLE_GUIDE_JSON>` and `<CELLS_JSON>` placeholders. Echoes
+  the style_guide back as immutable invariants on every grid call.
+
+### Removed
+
+- **`scripts/gen-page-html.sh`** — replaced by Claude's direct
+  `Read → Write` flow.
+- **`prompts/codex-page-and-parts.md`** — replaced by the two-turn
+  templates above.
+- **`prompts/codex-page-to-html.md`** — no longer needed (Claude
+  doesn't need a prompt for itself).
+
+### Migration
+
+For projects mid-Phase-5 with the old pipeline, the existing
+`page-<>.png` and `parts-grid-<>-0.png` files remain valid. Regenerate
+only if you want the new edit-mode style consistency between page and
+grid — running `gen-page-parts.sh` again on the same screen overwrites
+both artifacts using the new two-turn flow. The on-disk `manifest.json`
+gets the new `style_guide` field, which downstream scripts ignore if
+absent.
+
+---
+
 ## [7.2.2] — 2026-05-11
 
 ### Fixed

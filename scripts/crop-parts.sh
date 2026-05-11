@@ -8,7 +8,7 @@
 # fully deterministic from manifest indices — no Vision required.
 #
 # Background removal uses CHROMA KEY on pure magenta `#FF00FF` (the color
-# Codex paints the grid background per prompts/codex-page-and-parts.md).
+# Codex paints the grid background per prompts/codex-parts-grid-edit.md).
 # This means WHITE PIXELS INSIDE ASSETS ARE PRESERVED — clouds, paper,
 # white snow, white speech bubbles, white logos all stay opaque white in
 # the cropped PNG. Override the key color via env CHROMA_KEY (e.g.,

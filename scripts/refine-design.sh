@@ -1,52 +1,34 @@
 #!/usr/bin/env bash
-# refine-design.sh — apply a small user-requested edit to one already-generated
-# screen artifact, resuming the project-wide Codex session so brand decisions
-# (palette / typography / icon language) are preserved across every refinement.
+# refine-design.sh — apply a small user-requested edit to a screen's
+# page-mock PNG (and its parts-grid PNGs, if Codex regenerates them too)
+# by resuming the project-wide image-generation Codex session so brand
+# decisions (palette / typography / illustration style / character design)
+# are preserved across every refinement.
 #
-# Two modes:
-#   image  — resume design-image-<project-slug>; Codex overwrites the screen's
-#            page PNG (and grid PNGs if relevant).
-#   html   — resume design-html-<project-slug>;  Codex overwrites the screen's
-#            Tailwind HTML file.
+# Image-only: HTML refinements are done by Claude directly with the Edit
+# tool — no Codex session involved.
 #
-# Because each project-wide session contains every screen on every platform,
-# the prompt explicitly names the target screen + platform so Codex does not
-# accidentally edit the wrong one.
+# The session contains every screen on every platform for this project,
+# so the prompt explicitly names the target screen + platform to avoid
+# editing the wrong one.
 #
 # Usage:
-#   bash scripts/refine-design.sh <kind> <root> <platform> <screen-name> "<change-request>"
+#   bash scripts/refine-design.sh <root> <platform> <screen-name> "<change-request>"
 #
 # Example:
-#   bash scripts/refine-design.sh image /Users/me/myproj web Login \
+#   bash scripts/refine-design.sh /Users/me/myproj web Login \
 #     "Make the primary button corners more rounded"
 
 set -u
 
-KIND="${1:?kind required (image|html)}"
-ROOT="${2:?root required}"
-PLATFORM="${3:?platform required}"
-SCREEN_NAME="${4:?screen name required}"
-CHANGE="${5:?change request text required}"
+ROOT="${1:?root required}"
+PLATFORM="${2:?platform required}"
+SCREEN_NAME="${3:?screen name required}"
+CHANGE="${4:?change request text required}"
 
-case "$KIND" in
-  image)
-    SESSION_FILE="$ROOT/.my-harness/codex-session-design-image.txt"
-    PREFIX="codex-page"
-    TAIL="Regenerate and overwrite the same PNG path."
-    ;;
-  html)
-    SESSION_FILE="$ROOT/.my-harness/codex-session-design-html.txt"
-    PREFIX="codex-html"
-    TAIL="Overwrite the same HTML file."
-    ;;
-  *)
-    echo "::error:: unknown kind '$KIND' — expected 'image' or 'html'" >&2
-    exit 1
-    ;;
-esac
-
+SESSION_FILE="$ROOT/.my-harness/codex-session-design-image.txt"
 [ -f "$SESSION_FILE" ] || {
-  echo "::error:: $SESSION_FILE missing — run gen-page-${KIND/image/parts}.sh or gen-page-html.sh first" >&2
+  echo "::error:: $SESSION_FILE missing — run gen-page-parts.sh first" >&2
   exit 1
 }
 SESSION_KEY=$(cat "$SESSION_FILE")
@@ -60,10 +42,10 @@ SCREEN_SLUG=${SCREEN_SLUG:-screen}
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$ROOT/.my-harness"
-OUT="$ROOT/.my-harness/${PREFIX}-${PLATFORM}-${SCREEN_SLUG}-r$(date +%s).md"
+OUT="$ROOT/.my-harness/codex-page-${PLATFORM}-${SCREEN_SLUG}-r$(date +%s).md"
 
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --role designer \
   --session "$SESSION_KEY" \
   --out "$OUT" \
-  "Apply this change to the '$SCREEN_NAME' screen on '$PLATFORM': $CHANGE. $TAIL"
+  "Apply this change to the '$SCREEN_NAME' screen on '$PLATFORM': $CHANGE. Regenerate and overwrite the same PNG path. If the parts grid for this screen is affected, regenerate it too in EDIT mode against the new page mock, preserving every immutable style invariant from earlier turns."

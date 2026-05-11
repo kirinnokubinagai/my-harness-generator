@@ -871,7 +871,7 @@ Read `USE_CODEX` from `<root>/.my-harness/.config`:
 - `yes` → **image path**: `gen-page-parts.sh` produces one PNG per screen (full page top + transparent-cropped parts grid bottom, 2048×2880 PNG, output ends up in `dev/public/design/parts/` + matching TSX components in `dev/src/components/design/`).
 - `no` → **text-spec path**: no image generation. Structured markdown per screen + TSX stubs derived from the markdown. See "USE_CODEX=no path" below.
 
-Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex) are encoded inside `prompts/codex-page-and-parts.md` and `scripts/gen-page-parts.sh`; do **not** restate them here. **Auto-opening happens inside the scripts** — `gen-page-parts.sh` opens the page mock + every grid PNG, `crop-parts.sh` opens every cropped part PNG. No manual `open` call from Claude.
+Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex, edit-mode chaining for style consistency) are encoded inside `prompts/codex-page-mock.md` (Turn 1) + `prompts/codex-parts-grid-edit.md` (Turn 2+) + `scripts/gen-page-parts.sh`; do **not** restate them here. **Auto-opening happens inside the scripts** — `gen-page-parts.sh` opens the page mock + every grid PNG, `crop-parts.sh` opens every cropped part PNG. No manual `open` call from Claude.
 
 ### Fixed questions (one per turn — match `LANG`)
 
@@ -916,18 +916,18 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-cross-platform.sh" \
 
 This runs `gen-page-parts.sh` once per platform (each with its own Codex session — refinements on one don't leak into the other), suppresses per-platform auto-open, then opens **all** resulting PNGs simultaneously at the very end so the user sees the web mock, the iOS mock, their grids, etc. together. Use this whenever the same screen lives on 2+ platforms.
 
-The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, not in this SKILL.
+The prompt bodies live at `prompts/codex-page-mock.md` (Turn 1) and `prompts/codex-parts-grid-edit.md` (Turn 2+ edit-mode grids) — edit them there, not in this SKILL.
 
 ### Iterative refinement
 
-When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same project-wide Codex session** that `gen-page-parts.sh` wrote at `$ROOT/.my-harness/codex-session-design-image.txt` (format: `design-image-<project-slug>`). This single session is shared across every screen and every platform in the project — that is how design decisions (palette, typography, icon language, brand voice, button rounding) propagate from the first screen to every later one. Because the session contains multiple screens, **name the target screen explicitly** in your prompt. Do not re-attach `--context`, do not pass `--reset-session`:
+When the user says "the buttons should be more rounded" or "this card needs a shadow", `refine-design.sh` resumes the same project-wide Codex image session (`design-image-<project-slug>`) and names the target screen explicitly. The single session is shared across every screen and every platform — palette / typography / illustration style propagate automatically; you only need to describe what to change:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" image \
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" \
   "$ROOT" "<PLATFORM>" "<SCREEN_NAME>" "<user's edit request>"
 ```
 
-Resumes `design-image-<project-slug>`, names the target screen explicitly in the prompt, writes the response log to `$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r<unix-ts>.md`. Source: `scripts/refine-design.sh`.
+If the parts grid for that screen is affected, the refinement prompt asks Codex to regenerate it in edit mode against the new page, preserving every immutable style invariant.
 
 Iterate until the user approves. Once approved, proceed to the cropping step below.
 
@@ -978,35 +978,66 @@ The original 256×256 PNG is left in place. Components import whichever size mat
 
 Decide when to upscale based on the page mock: if a part is rendered larger than 256px on either axis in the page, upscale it. Otherwise, the source is enough.
 
-### Page HTML generation (final Phase 5 deliverable)
+### Page HTML generation (final Phase 5 deliverable — written by Claude, NOT Codex)
 
-After `crop-parts.sh` finishes, run `gen-page-html.sh` to convert the approved page-mock PNG into a self-contained Tailwind HTML file. **This is the Phase 5 deliverable** — pixel-perfect design fidelity, no JavaScript, no state, no React, just markup and Tailwind utility classes. The implementation phase converts this HTML to TSX later.
+After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailwind HTML file directly. This is the Phase 5 deliverable. Codex is not involved in this step — the page mock PNG already exists, Claude has multimodal vision, Claude can `Write` the file. Round-tripping to Codex adds latency, cost, and a session for no quality benefit.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-html.sh" \
-  "$ROOT" "<platform>" "<screen-slug>" "$PROJECT_NAME"
+**Procedure** (per screen, after `crop-parts.sh` finished):
+
+1. `Read` the page mock PNG at `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.png` — this loads the image into Claude's vision context so you can see the actual design.
+2. `Read` the manifest at `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
+3. `Write` the HTML file to `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html` using the rules below.
+
+**HTML file structure (use this exact scaffold):**
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><screen> — <project></title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif; }
+  </style>
+</head>
+<body class="bg-neutral-50 text-neutral-900 antialiased">
+  <!-- page markup matching the PNG exactly -->
+</body>
+</html>
 ```
 
-Output:
+**Markup rules:**
 
-- `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html` — self-contained HTML. Tailwind Play CDN + Google Fonts (Inter + Noto Sans JP). Cropped transparent PNG assets are referenced relatively via `<img src="../../public/design/parts/<platform>/<screen-slug>/<name>.png">`. Opens directly in any browser via `file://` — no dev server, no build step.
+- Tailwind utility classes only. No custom CSS beyond the `<style>` block above.
+- No JavaScript (no `<script>` besides Tailwind CDN). No event handlers.
+- State variants (hover / focus / disabled / active / selected) → Tailwind pseudo-class utilities (`hover:bg-primary-600`, `disabled:opacity-50`, etc.) plus `aria-*` attributes. One canonical element per UI piece.
+- Realistic content (no Lorem Ipsum). Japanese stays Japanese; English stays English.
+- Semantic HTML (`<header>`, `<main>`, `<nav>`, `<section>`, `<article>`, `<button>`, `<label>`, `<input>` …). `aria-label` on icon-only buttons.
+- Inline `<svg>` for small Lucide-style icons; no JS-loaded icon library.
+- Cropped parts: from `dev/docs/design/`, the parts directory is `../../public/design/parts/<platform>/<screen-slug>/`. So `<img src="../../public/design/parts/<platform>/<screen-slug>/<name>.png" alt="..." class="...">`. Decorative-only assets: `alt=""` + `aria-hidden="true"`.
+- Page container max-width by platform: `web/desktop` → `max-w-7xl`, `ios/android` → `max-w-[430px]`. Always mobile-responsive.
+- HTML must render correctly from `file://` (no dev server, no build step). Verify the relative parts paths resolve.
 
-The script uses **one project-wide Codex session** (`design-html-<project-slug>`), separate from the image-generation session (`design-image-<project-slug>`). Sharing one HTML session across every screen and platform means Tailwind palette, spacing scale, component class conventions, and accessibility patterns established for the first screen propagate to every subsequent screen automatically. Auto-opens the HTML in the default browser on completion.
+After writing, run:
 
-**Why HTML, not TSX, at this stage:** Phase 5 is design-fidelity. TSX requires state design (props, event handlers, state machines) which is implementation work — making those decisions during the design phase mixes concerns and wastes effort if the design changes. HTML is purely visual, opens instantly in a browser for review, and is trivial for the implementation phase to convert to TSX with Codex's help.
+```bash
+open "$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html"  # macOS — auto-open in default browser
+```
 
-The prompt body lives at `prompts/codex-page-to-html.md` — edit it there, not in this SKILL.
+(use `xdg-open` on Linux, `start ""` on Windows).
+
+**Why Claude writes this, not Codex:** Codex would round-trip the same PNG through another agent and another session for no quality benefit. Claude already has the multimodal vision and the Tailwind knowledge. Skipping Codex saves a session, ~30-60 seconds, and a few thousand tokens per screen.
 
 ### Iteration
 
-Refinements on the HTML use the same project-wide `design-html-<project-slug>` session. Name the target screen explicitly (the session contains multiple screens):
+Refinements to the HTML: edit the file directly with the `Edit` tool. No Codex session needed. If the change is large enough that re-reading the PNG would help, `Read` the page-mock PNG first and rewrite the relevant section.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" html \
-  "$ROOT" "<PLATFORM>" "<SCREEN_NAME>" "<user's edit request>"
-```
-
-Resumes `design-html-<project-slug>`. Source: `scripts/refine-design.sh`.
+For refinements to the **page mock** (the PNG): use `scripts/refine-design.sh image ...` (still on the Codex image session).
 
 ### Implementation-phase TSX conversion (NOT part of Phase 5)
 
