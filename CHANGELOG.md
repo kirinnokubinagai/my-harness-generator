@@ -4,6 +4,96 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.4.0] — 2026-05-12
+
+Phase 5 reorganized around **form factor** (`pc` / `mobile`) instead of
+individual platforms, with automatic fan-out based on `.config` and full
+session-keep across screens AND form factors so the entire project's
+visual identity stays locked from the first artifact onward.
+
+### Changed (BREAKING for in-progress projects only)
+
+- **Mocks are now per form factor, not per platform.** A project that
+  selected `web + ios` previously produced `page-web-login.png` AND
+  `page-ios-login.png` (two separately-styled artifacts). It now
+  produces `page-pc-login.png` AND `page-mobile-login.png` — two
+  form-factor variants sharing one locked-in `style_guide`. Form
+  factor is derived from platform flags:
+    - `pc`     ← `USE_WEB || USE_DESKTOP`
+    - `mobile` ← `USE_WEB || USE_IOS || USE_ANDROID`
+  This halves the screen-list collection (one list for the whole
+  project, not one per platform) and ensures iOS/web-mobile/Android
+  share the same mobile mock instead of drifting into 3 visually
+  divergent designs.
+
+- **Screen list is collected ONCE per project**, not per platform.
+  Phase 5 Q2 now asks "List the 3-5 most-traveled screens for this
+  app" instead of "List the 3-5 screens for the <web> build" repeated
+  per chosen platform.
+
+### Added
+
+- **`scripts/gen-page-auto.sh`** — single entry point per screen:
+  reads `.config`, derives `NEED_PC` / `NEED_MOBILE`, calls
+  `gen-page-parts.sh` once per needed form factor in order PC →
+  Mobile, then opens every produced PNG together at the end.
+  Users no longer have to ask for "make a PC mock" or "make a
+  mobile mock" — the harness reads platform flags and produces the
+  right set automatically.
+
+- **Project-wide `style_guide` inheritance across invocations.**
+  `gen-page-parts.sh` now scans every existing `manifest.json` under
+  the project for a `style_guide` field on entry. If found, it's
+  injected into the Turn-1 prompt as IMMUTABLE INVARIANTS that
+  Codex must honor verbatim (palette hex / illustration style /
+  line weight / character design / decorative motifs all locked).
+  Combined with the project-wide Codex session (which keeps prior
+  generated images visible as edit-mode context), this guarantees
+  every later screen and every later form factor inherits the
+  first artifact's visual identity. Layout / spacing / type scale /
+  CTA placement are the ONLY things Codex is allowed to reinvent
+  per form factor.
+
+### Removed
+
+- **`scripts/gen-page-cross-platform.sh`** — its role is fully
+  subsumed by `gen-page-auto.sh`. Cross-form-factor side-by-side
+  comparison is the new default behavior, not a separate command.
+
+### Prompts
+
+- **`prompts/codex-page-mock.md`** — `<PLATFORM>` placeholder
+  renamed to `<FORM_FACTOR>` throughout. New `<PRIOR_STYLE_GUIDE_BLOCK>`
+  placeholder that `gen-page-parts.sh` fills with either:
+    - (a) the prior-run `style_guide` as IMMUTABLE INVARIANTS, with
+          explicit "inherit palette/style/character — reinvent layout
+          for the new form factor" guidance, OR
+    - (b) a "this is the first artifact, decide every value, choose
+          ones that work for BOTH form factors" prompt.
+- **`prompts/codex-parts-grid-edit.md`** — `<PLATFORM>` placeholder
+  renamed to `<FORM_FACTOR>` throughout.
+
+### File layout
+
+- `dev/docs/design/page-<form-factor>-<screen>.png`
+- `dev/docs/design/page-<form-factor>-<screen>.html`
+- `dev/docs/design/parts-grid-<form-factor>-<screen>-N.png`
+- `dev/public/design/parts/<form-factor>/<screen>/<name>.png`
+- `dev/public/design/parts/<form-factor>/<screen>/manifest.json`
+- `dev/src/components/design/<form-factor>/<screen>/parts.ts`
+
+### Migration
+
+For projects mid-Phase-5: existing `page-web-login.png` etc. stay
+valid (file paths just diverge from the new convention). To migrate
+to form-factor naming, delete the in-progress screen's artifacts and
+rerun `gen-page-auto.sh "$ROOT" "<screen>" "$PROJECT_NAME"` — it
+will produce the new pc/mobile pair and inherit any
+already-established style_guide via prior-manifest discovery, so the
+new artifacts visually match the old ones.
+
+---
+
 ## [7.3.1] — 2026-05-12
 
 ### Fixed

@@ -3,34 +3,32 @@
 # PNG and its style-matched parts-grid PNG(s) in a SINGLE shared Codex
 # session by chaining `image_gen` calls via EDIT mode.
 #
-# Why edit mode chaining?
-#   `image_gen` is stateless across calls. Two `image_gen` invocations with
-#   "same style" in their prompts will still produce visually divergent
-#   images because the diffusion model has no memory of the prior render.
-#   Edit mode flips this: the prior generated image is in the session's
-#   conversation context, and the model uses it as the visual reference for
-#   the next render. Combined with an explicit style_guide JSON that we
-#   echo back as immutable invariants on every parts-grid turn, this is
-#   the strongest consistency mechanism Codex supports today.
+# Form factor (positional arg #2) is one of:
+#   pc      — desktop / laptop viewport (~1280-1440 wide), multi-column
+#   mobile  — smartphone viewport (~390 wide), single-column
+# Any other string is accepted too (it's just substituted into the prompt
+# placeholder), so legacy `web` / `ios` / etc. still work.
 #
-# Per Codex's official $imagegen skill:
-#   "Built-in edit mode is for images already visible in the conversation
-#    context, such as attached images or images generated earlier in the
-#    thread."
+# Cross-screen and cross-form-factor consistency comes from two mechanisms:
+#   (a) The Codex session `design-image-<project-slug>` keeps every prior
+#       image in conversation context, so edit mode can reference it.
+#   (b) The first generated artifact's `style_guide` JSON is persisted to
+#       its manifest.json. Every subsequent gen-page-parts.sh invocation
+#       (same project, different screen OR form factor) finds that prior
+#       style_guide and injects it into the Turn-1 prompt as IMMUTABLE
+#       INVARIANTS. Codex echoes the invariants back into its own manifest
+#       so the chain stays consistent even across separate invocations.
 #
-# Pipeline:
-#   Turn 1  → image_gen generate → page-<platform>-<screen>.png
+# Pipeline (per gen-page-parts.sh run):
+#   Turn 1  → image_gen generate → page-<form-factor>-<screen>.png
 #            + JSON manifest in text response (style_guide + cells)
 #   Turn 2  → image_gen EDIT mode against the page → parts-grid-<...>-0.png
 #   Turn 3+ → (if image_count > 1) more edit-mode grids: -1.png, -2.png, ...
-#
-# All turns run on the same session key (design-image-<project-slug>) so
-# every screen + platform of this project shares decisions made in turn 1.
 
 set -u
 
 ROOT="${1:?root required}"
-PLATFORM="${2:?platform required}"
+FORM_FACTOR="${2:?form-factor required (pc|mobile|...)}"
 SCREEN_NAME="${3:?screen name required}"
 PROJECT_NAME="${4:?project name required}"
 
@@ -54,16 +52,18 @@ PROJECT_SLUG=$(printf '%s' "$PROJECT_NAME" \
 PROJECT_SLUG=${PROJECT_SLUG:-project}
 
 mkdir -p "$ROOT/dev/docs/design" \
-         "$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}" \
+         "$ROOT/dev/public/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}" \
          "$ROOT/.my-harness"
 
-OUT_PAGE="$ROOT/dev/docs/design/page-${PLATFORM}-${SCREEN_SLUG}.png"
-OUT_MANIFEST="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}/manifest.json"
-GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
+OUT_PAGE="$ROOT/dev/docs/design/page-${FORM_FACTOR}-${SCREEN_SLUG}.png"
+OUT_MANIFEST="$ROOT/dev/public/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}/manifest.json"
+GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${FORM_FACTOR}-${SCREEN_SLUG}"
 
-# Project-wide image session — every screen / platform / refinement of this
-# project shares one Codex thread, so palette / typography / character /
-# motif decisions made in turn 1 propagate to every later screen too.
+# Project-wide image session — every screen / form-factor / refinement of
+# this project shares one Codex thread, so palette / typography / character /
+# motif decisions made on the FIRST artifact propagate to every later screen
+# AND every later form factor automatically (both via session context and
+# via the prior_style_guide echo mechanism below).
 SESSION_KEY="design-image-${PROJECT_SLUG}"
 echo "$SESSION_KEY" > "$ROOT/.my-harness/codex-session-design-image.txt"
 
@@ -89,17 +89,44 @@ PY
 
 is_png() { [ -f "$1" ] && file "$1" 2>/dev/null | grep -q "PNG image"; }
 
+# ===== Discover prior style_guide (project-wide invariants) =====
+# Search every manifest.json under this project for a style_guide field.
+# First one wins (oldest by find's default order is fine — they should all
+# be echoes of the same invariants anyway). Exclude the current target so
+# a stale prior run doesn't shadow itself if user is regenerating.
+#
+# When found  → inject as IMMUTABLE INVARIANTS into the Turn-1 prompt.
+# When absent → Codex decides style_guide freely (this is the first artifact).
+PRIOR_STYLE_GUIDE=""
+# Clear the current manifest if it exists so it doesn't shadow itself.
+rm -f "$OUT_MANIFEST"
+while IFS= read -r m; do
+  sg=$(jq -c '.style_guide // empty' "$m" 2>/dev/null || true)
+  if [ -n "$sg" ] && [ "$sg" != "null" ] && [ "$sg" != "" ]; then
+    PRIOR_STYLE_GUIDE="$sg"
+    echo "[gen-page-parts] inheriting style_guide from $m" >&2
+    break
+  fi
+done < <(find "$ROOT/dev/public/design/parts" -name 'manifest.json' -type f 2>/dev/null | sort)
+
+if [ -n "$PRIOR_STYLE_GUIDE" ]; then
+  PRIOR_BLOCK=$(printf '## LOCKED-IN PROJECT INVARIANTS (no creative deviation)\n\nThe project'\''s visual identity was established in an earlier turn. **You MUST honor these EXACTLY here — no new colors, no shift in illustration style, no new character design, no new motifs.** Drift = failure.\n\n```json\n%s\n```\n\nWhen Codex inherits these invariants while moving to a NEW form factor (e.g. pc → mobile or mobile → pc): keep palette / illustration_style / line_weight / character_design / decorative_motifs IDENTICAL, but reinvent layout, spacing, type scale, and CTA placement to suit the new form factor. A PC mock shrunk into a mobile viewport is wrong; a mobile mock blown up into a PC viewport is wrong. Layout is the ONE thing you'\''re allowed to change.\n' "$PRIOR_STYLE_GUIDE")
+else
+  PRIOR_BLOCK=$'## STYLE DECISIONS (this is the FIRST artifact for the project — you set the tone)\n\nThere are no prior invariants. Every visual choice you make here — palette (every hex), illustration_style, line_weight, character_design, decorative_motifs — becomes the project\'s locked-in style_guide that every later screen AND every later form factor must honor.\n\nBe deliberate: pick choices that will work for BOTH form factors (pc AND mobile) since both will share these invariants. Avoid pc-only or mobile-only tropes unless the brand genuinely demands them.\n'
+fi
+
 # ===== Turn 1: page mock + style_guide manifest =====
 PROMPT_PAGE=$(render_template "$TMPL_PAGE" \
   "<PROJECT_NAME>" "$PROJECT_NAME" \
-  "<PLATFORM>" "$PLATFORM" \
+  "<FORM_FACTOR>" "$FORM_FACTOR" \
   "<SCREEN_NAME>" "$SCREEN_NAME" \
   "<SCREEN_SLUG>" "$SCREEN_SLUG" \
-  "<root>" "$ROOT")
+  "<root>" "$ROOT" \
+  "<PRIOR_STYLE_GUIDE_BLOCK>" "$PRIOR_BLOCK")
 
-TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${PLATFORM}-${SCREEN_SLUG}.md"
+TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}.md"
 
-echo "=== Turn 1: page mock + manifest ==="
+echo "=== Turn 1: page mock + manifest ($FORM_FACTOR / $SCREEN_NAME) ==="
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --role designer \
   --session "$SESSION_KEY" \
@@ -107,7 +134,6 @@ bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --out "$TURN1_RESPONSE" \
   "$PROMPT_PAGE"
 
-# Extract manifest JSON from turn 1 response.
 extract_manifest() {
   local file="$1"
   python3 - "$file" <<'PY'
@@ -125,7 +151,7 @@ sys.exit(1)
 PY
 }
 
-# Turn 1 retry loop: nudge for missing PNG or unparseable manifest.
+# Turn 1 retry loop.
 TURN1_MAX_RETRY=${HARNESS_GEN_RETRY:-3}
 TURN1_RETRY=0
 MANIFEST_JSON=""
@@ -144,12 +170,12 @@ while : ; do
     exit 2
   fi
 
-  NUDGE="For the '$SCREEN_NAME' screen on '$PLATFORM' of project '$PROJECT_NAME':  "
+  NUDGE="For the '$SCREEN_NAME' screen on '$FORM_FACTOR' form factor of project '$PROJECT_NAME':  "
   [ "$PAGE_OK" -eq 0 ] && NUDGE="$NUDGE Page PNG missing at $OUT_PAGE — call image_gen and save it.  "
   [ -z "$MANIFEST_JSON" ] && NUDGE="$NUDGE Manifest JSON missing or unparseable — output exactly one \`\`\`json block with the full schema (style_guide, image_count, rows_per_image, cells).  "
 
   echo "::warning:: Turn 1 attempt $TURN1_RETRY/$TURN1_MAX_RETRY failed; nudging" >&2
-  TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${PLATFORM}-${SCREEN_SLUG}-r${TURN1_RETRY}.md"
+  TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}-r${TURN1_RETRY}.md"
   bash "$HARNESS_DIR/scripts/codex-ask.sh" \
     --role designer \
     --session "$SESSION_KEY" \
@@ -160,11 +186,7 @@ done
 IMG_COUNT=$(printf '%s' "$MANIFEST_JSON" | jq -r '.image_count')
 case "$IMG_COUNT" in ''|*[!0-9]*) echo "::error:: manifest.image_count invalid: '$IMG_COUNT'" >&2; exit 2 ;; esac
 
-# Persist manifest for crop-parts.sh / scaffold scripts.
 printf '%s\n' "$MANIFEST_JSON" > "$OUT_MANIFEST"
-
-# Extract the style_guide once — re-injected verbatim into every grid turn
-# as the immutable invariants that fight diffusion drift.
 STYLE_GUIDE_JSON=$(printf '%s' "$MANIFEST_JSON" | jq -c '.style_guide')
 
 echo "  page:        $OUT_PAGE"
@@ -180,7 +202,7 @@ for (( i=0; i<IMG_COUNT; i++ )); do
 
   PROMPT_GRID=$(render_template "$TMPL_GRID" \
     "<PROJECT_NAME>" "$PROJECT_NAME" \
-    "<PLATFORM>" "$PLATFORM" \
+    "<FORM_FACTOR>" "$FORM_FACTOR" \
     "<SCREEN_NAME>" "$SCREEN_NAME" \
     "<SCREEN_SLUG>" "$SCREEN_SLUG" \
     "<root>" "$ROOT" \
@@ -192,7 +214,7 @@ for (( i=0; i<IMG_COUNT; i++ )); do
     "<CELLS_JSON>" "$CELLS_JSON")
 
   echo "=== Turn $((i + 2)): parts-grid $i (edit-mode against page) ==="
-  GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${PLATFORM}-${SCREEN_SLUG}-${i}.md"
+  GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${FORM_FACTOR}-${SCREEN_SLUG}-${i}.md"
   bash "$HARNESS_DIR/scripts/codex-ask.sh" \
     --role designer \
     --session "$SESSION_KEY" \
@@ -207,8 +229,8 @@ for (( i=0; i<IMG_COUNT; i++ )); do
       exit 2
     fi
     echo "::warning:: parts-grid $i attempt $GRID_RETRY/$GRID_MAX_RETRY failed; nudging" >&2
-    GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${PLATFORM}-${SCREEN_SLUG}-${i}-r${GRID_RETRY}.md"
-    NUDGE="Grid PNG missing at $GRID_PATH. Call image_gen in EDIT mode against the page-${PLATFORM}-${SCREEN_SLUG}.png already in this session's context and save the 1024×$((ROWS * 256)) grid to that path. Keep every immutable style invariant from the prior message."
+    GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${FORM_FACTOR}-${SCREEN_SLUG}-${i}-r${GRID_RETRY}.md"
+    NUDGE="Grid PNG missing at $GRID_PATH. Call image_gen in EDIT mode against the page-${FORM_FACTOR}-${SCREEN_SLUG}.png already in this session's context and save the 1024×$((ROWS * 256)) grid to that path. Keep every immutable style invariant from the prior message."
     bash "$HARNESS_DIR/scripts/codex-ask.sh" \
       --role designer \
       --session "$SESSION_KEY" \
@@ -220,12 +242,11 @@ for (( i=0; i<IMG_COUNT; i++ )); do
 done
 
 echo
-echo "=== Phase 5 image generation complete ==="
+echo "=== gen-page-parts complete ($FORM_FACTOR / $SCREEN_NAME) ==="
 echo "session:  $SESSION_KEY"
 
-# Auto-open every generated PNG so the user can review. Suppress with
-# HARNESS_SKIP_OPEN=1 (cross-platform orchestrator sets this to defer
-# opening until all platforms finish).
+# Auto-open every generated PNG. Suppress with HARNESS_SKIP_OPEN=1 (used by
+# gen-page-auto.sh to defer opening until ALL form factors finish).
 # shellcheck disable=SC1091
 . "$HARNESS_DIR/scripts/lib/open-file.sh"
 OPEN_LIST=("$OUT_PAGE")

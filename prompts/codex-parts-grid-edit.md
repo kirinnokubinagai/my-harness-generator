@@ -1,8 +1,8 @@
-$imagegen Use **edit mode** on the page mock you generated earlier in this same session for the "<SCREEN_NAME>" screen of <PROJECT_NAME> on <PLATFORM> (file: `<root>/dev/docs/design/page-<PLATFORM>-<SCREEN_SLUG>.png`). The page is already visible to you in conversation context — reference it as the edit input.
+$imagegen Use **edit mode** on the page mock you generated earlier in this same session for the "<SCREEN_NAME>" screen of <PROJECT_NAME> on <FORM_FACTOR> (file: `<root>/dev/docs/design/page-<FORM_FACTOR>-<SCREEN_SLUG>.png`). The page is already visible to you in conversation context — reference it as the edit input.
 
 Produce ONE NEW image (do NOT modify the page itself): a parts-grid PNG that lays out the non-HTML assets from that page into a 4-column grid of 256×256 cells. Save it to:
 
-`<root>/dev/docs/design/parts-grid-<PLATFORM>-<SCREEN_SLUG>-<IMAGE_INDEX>.png`
+`<root>/dev/docs/design/parts-grid-<FORM_FACTOR>-<SCREEN_SLUG>-<IMAGE_INDEX>.png`
 
 This is grid number `<IMAGE_INDEX>` out of `<IMAGE_COUNT>` total grids for this screen.
 

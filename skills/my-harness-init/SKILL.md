@@ -126,7 +126,7 @@ Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitl
 | 2 | Discovery | Open conversation + deep drill (failure / resistance / scale / trust / differentiation / day-2) |
 | 3 | Structure | Architecture + platform multi-select only |
 | 4 | Features | Complete feature list + deep per-feature drill |
-| 5 | Visual | 3–5 page+parts mocks per platform; auto-crop transparent parts → assets + TSX; mocks become source of truth |
+| 5 | Visual | 3–5 page+parts mocks per form factor (pc / mobile, auto-derived from platform flags); auto-crop transparent parts → assets; mocks + HTML by Claude become source of truth |
 | 6 | Tools | Framework / backend / DB / package manager / email / e2e / Claude Code Action — informed by mocks |
 | 7 | Data model | Per-entity drill (lifecycle / GDPR / permissions / cardinality / migration) |
 | 8 | Bootstrap | Spec finalize + bootstrap.sh + issues / tasks |
@@ -870,18 +870,35 @@ Update `init-state.json` to `current_phase: "visual"`.
 
 ---
 
-## Phase 5 — Visual (per-platform page+parts mocks; mocks are source of truth)
+## Phase 5 — Visual (per-form-factor page+parts mocks; mocks are source of truth)
 
 The mocks generated here become the **source of truth** for Phase 6 (tool selection) and Phase 7 (data model). Their visible elements (lists, forms, toggles, tabs, charts, real-time indicators, offline banners) are the inputs for tool decisions.
 
+### Form factors, not platforms
+
+Mocks are organized by **form factor** (`pc` / `mobile`), not by individual platform (web/ios/android/desktop). One form factor covers every platform that shares that viewport class:
+
+- **`pc`** — covers `USE_WEB` (desktop view) and `USE_DESKTOP` (Electron/Tauri). Viewport ~1280-1440 px wide. Multi-column where appropriate.
+- **`mobile`** — covers `USE_WEB` (mobile view), `USE_IOS`, and `USE_ANDROID`. Viewport ~390 px wide. Single-column. Bottom or top nav, not sidebar.
+
+What gets generated is computed automatically from `.config`:
+
+| `.config` flag | Triggers |
+|---|---|
+| `USE_WEB=yes` | both `pc` AND `mobile` (web is responsive) |
+| `USE_DESKTOP=yes` | `pc` |
+| `USE_IOS=yes` OR `USE_ANDROID=yes` | `mobile` |
+
+The user never has to say "make me a PC mock" — `gen-page-auto.sh` reads `.config` and produces whatever form factors are implied. The user only lists the screens.
+
 ### Two paths
 
-Read `USE_CODEX` from `<root>/.my-harness/.config`:
+Read `USE_CODEX` from `.config`:
 
-- `yes` → **image path**: `gen-page-parts.sh` produces one PNG per screen (full page top + transparent-cropped parts grid bottom, 2048×2880 PNG, output ends up in `dev/public/design/parts/` + matching TSX components in `dev/src/components/design/`).
+- `yes` → **image path**: `gen-page-auto.sh` calls `gen-page-parts.sh` once per needed form factor per screen.
 - `no` → **text-spec path**: no image generation. Structured markdown per screen + TSX stubs derived from the markdown. See "USE_CODEX=no path" below.
 
-Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex, edit-mode chaining for style consistency) are encoded inside `prompts/codex-page-mock.md` (Turn 1) + `prompts/codex-parts-grid-edit.md` (Turn 2+) + `scripts/gen-page-parts.sh`; do **not** restate them here. **Auto-opening happens inside the scripts** — `gen-page-parts.sh` opens the page mock + every grid PNG, `crop-parts.sh` opens every cropped part PNG. No manual `open` call from Claude.
+Both paths run the same 3-question post-mock drill. Technical specifics live in `prompts/codex-page-mock.md` (Turn 1) + `prompts/codex-parts-grid-edit.md` (Turn 2+) + `scripts/gen-page-parts.sh` — do **not** restate them here. Auto-opening happens inside the scripts.
 
 ### Fixed questions (one per turn — match `LANG`)
 
@@ -889,59 +906,53 @@ Both paths run the same 3-question post-mock drill. The technical specifics (res
    - en: "Any color hint? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
    - ja: "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
 
-2. Screen list — repeat per chosen platform (so `web + ios` yields two passes):
-   - en: "List the 3–5 most-traveled screens for the `<platform>` build."
-   - ja: "`<プラットフォーム>` 版で最も使われる画面を 3〜5 個リストアップしてください。"
+2. Screen list — **one pass for the whole project** (form factor is automatic). Do NOT repeat per platform.
+   - en: "List the 3–5 most-traveled screens for this app."
+   - ja: "このアプリで最も使われる画面を 3〜5 個リストアップしてください。"
 
 ### Design philosophy (image path)
 
-Trust Codex. No prescriptive palette / icon / layout instructions in the prompt — Codex chooses, the user picks, the implementation phase reconciles to `rules/design.md`. The harness scaffolds the page directly; no logo generation step exists.
+Trust Codex. No prescriptive palette / icon / layout instructions in the prompt — Codex chooses on the first artifact, the user picks, every subsequent artifact (next screen, other form factor) inherits via the locked-in style_guide.
 
-### Page + parts grid generation (per screen, per platform)
+### Page + parts grid generation (per screen, automatic form-factor fan-out)
 
-For each screen in each platform's list, the harness generates a single high-quality PNG that contains **two stacked sections** in one image:
-
-- **Top 65 %:** the full page mock at native aspect ratio.
-- **Bottom 35 %:** a 4-column grid of every distinct UI component used in the page above, each component isolated, labeled, in its own cell, with no overlap. Every state variant (hover / active / disabled / selected) is its own cell.
-
-This is one Codex call per screen. Generated at the highest resolution available (target 2048 × 2880).
-
-**Ask first** (Cardinal rule: Codex opt-in per occurrence). If the user says yes:
-
-**Single platform** — when only one platform is selected, or the user wants to iterate on one platform:
+For each screen the user listed, run **one command** — `gen-page-auto.sh` handles which form factor(s) to produce based on `.config`:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-parts.sh" \
-  "$ROOT" "<platform>" "<screen-name>" "$PROJECT_NAME"
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-auto.sh" \
+  "$ROOT" "<screen-name>" "$PROJECT_NAME"
 ```
 
-The script auto-opens the page mock + every grid image on completion.
+What this does internally:
 
-**Multiple platforms for the same screen** — when the user selected e.g. `web + ios` and the same conceptual screen exists on both (Login, Home, …), generate both versions and open them **side by side** for direct comparison:
+1. Reads `USE_WEB`, `USE_IOS`, `USE_ANDROID`, `USE_DESKTOP` from `$ROOT/.my-harness/.config`.
+2. Derives `NEED_PC` and `NEED_MOBILE` (see the table above).
+3. For each needed form factor in order **PC then Mobile**, calls `gen-page-parts.sh "$ROOT" <ff> "<screen-name>" "$PROJECT_NAME"`. PC is always first when both are needed, so Mobile inherits PC's locked-in `style_guide` via the project-wide Codex session AND via prior-manifest discovery.
+4. Suppresses per-form-factor auto-open via `HARNESS_SKIP_OPEN=1`, then opens **all** produced PNGs together at the end so the user sees PC + Mobile side by side.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-cross-platform.sh" \
-  "$ROOT" "<screen-name>" "$PROJECT_NAME" <platform1> <platform2> [<platform3> ...]
-```
+**Style consistency across the project** is enforced two ways:
 
-This runs `gen-page-parts.sh` once per platform (each with its own Codex session — refinements on one don't leak into the other), suppresses per-platform auto-open, then opens **all** resulting PNGs simultaneously at the very end so the user sees the web mock, the iOS mock, their grids, etc. together. Use this whenever the same screen lives on 2+ platforms.
+- **Session-context inheritance** — every `gen-page-parts.sh` invocation uses the same Codex session `design-image-<project-slug>`. The session keeps every prior generated image visible in conversation context, so later turns can edit-mode-reference them.
+- **Style-guide invariant echoing** — `gen-page-parts.sh` scans all prior `manifest.json` files under the project, lifts the first found `style_guide`, and injects it into the next Turn-1 prompt as IMMUTABLE INVARIANTS. The first artifact's design language (palette / illustration / character / line weight / motifs) becomes locked-in for every later screen and every later form factor.
+
+**Ask first** (Cardinal rule: Codex opt-in per occurrence). If the user says yes, run `gen-page-auto.sh` once per screen.
 
 The prompt bodies live at `prompts/codex-page-mock.md` (Turn 1) and `prompts/codex-parts-grid-edit.md` (Turn 2+ edit-mode grids) — edit them there, not in this SKILL.
 
 ### Iterative refinement
 
-When the user says "the buttons should be more rounded" or "this card needs a shadow", `refine-design.sh` resumes the same project-wide Codex image session (`design-image-<project-slug>`) and names the target screen explicitly. The single session is shared across every screen and every platform — palette / typography / illustration style propagate automatically; you only need to describe what to change:
+When the user says "the buttons should be more rounded" or "this card needs a shadow", `refine-design.sh` resumes the same project-wide Codex image session (`design-image-<project-slug>`) and names the target screen explicitly:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" \
-  "$ROOT" "<PLATFORM>" "<SCREEN_NAME>" "<user's edit request>"
+  "$ROOT" "<form-factor>" "<SCREEN_NAME>" "<user's edit request>"
 ```
 
 If the parts grid for that screen is affected, the refinement prompt asks Codex to regenerate it in edit mode against the new page, preserving every immutable style invariant.
 
 Iterate until the user approves. Once approved, proceed to the cropping step below.
 
-**Reliability:** `gen-page-parts.sh` already retries up to 3 times in the same session if Codex returns text without calling `image_gen` (a known intermittent failure). If those retries exhaust, the script exits non-zero. Surface this to the user plainly: "Codex did not produce the PNG after 3 attempts. The Codex session is preserved at `<key>` — want to retry manually, or skip this screen for now?"
+**Reliability:** `gen-page-parts.sh` retries each turn up to 3× in the same session. If retries exhaust, the script exits non-zero. Surface plainly to the user: "Codex did not produce the PNG after 3 attempts. Session preserved — want to retry, or skip this screen for now?"
 
 ### What's in the parts grid (and what is NOT)
 
@@ -958,13 +969,13 @@ Cropping is deterministic — cells are a fixed 256×256 (override via `CELL_SIZ
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
-  "$ROOT" "<platform>" "<screen-slug>"
+  "$ROOT" "<form-factor>" "<screen-slug>"
 ```
 
-Outputs:
+Run once per form factor that `gen-page-auto.sh` produced (typically `pc` and/or `mobile`). Outputs:
 
-- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. **Chroma key on pure magenta `#FF00FF`** removes the grid background — which means **white pixels inside assets are preserved** (clouds, paper, white logos, snow, white speech bubbles all stay opaque white). The prompt instructs Codex to paint the grid background magenta exactly for this reason. Override the key color via `CHROMA_KEY` env var or tolerance via `CHROMA_FUZZ` (default 10%). Reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
-- `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
+- `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/<name>.png` — transparent-background PNG per cell. **Chroma key on pure magenta `#FF00FF`** removes the grid background — which means **white pixels inside assets are preserved** (clouds, paper, white logos, snow, white speech bubbles all stay opaque white). Override the key color via `HARNESS_CHROMA_KEY` env var (or per-call `CHROMA_KEY`) and tolerance via `CHROMA_FUZZ` (default 30%). Reachable at `/design/parts/<form-factor>/<screen-slug>/<name>.png` from the running app.
+- `$ROOT/dev/src/components/design/<form-factor>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
 
 `crop-parts.sh` auto-opens every cropped part PNG on completion (suppress with `HARNESS_SKIP_OPEN=1` if scripting a batch). On macOS they all open in Preview as a single window list; on Linux each is opened via `xdg-open`.
 
@@ -976,12 +987,12 @@ The 256×256 source is the default size. When the page calls for an asset at a l
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/upscale-part.sh" \
-  "$ROOT" "<platform>" "<screen-slug>" "<part-name>" <width> <height>
+  "$ROOT" "<form-factor>" "<screen-slug>" "<part-name>" <width> <height>
 ```
 
 Output:
 
-- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<part>-<W>x<H>.png` — the upscaled PNG.
+- `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/<part>-<W>x<H>.png` — the upscaled PNG.
 - `parts.ts` gets a new entry, e.g., `heroIllustration1600x800: '/design/parts/.../hero-illustration-1600x800.png'`.
 
 The original 256×256 PNG is left in place. Components import whichever size matches their display context.
@@ -992,11 +1003,11 @@ Decide when to upscale based on the page mock: if a part is rendered larger than
 
 After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailwind HTML file directly. This is the Phase 5 deliverable. Codex is not involved in this step — the page mock PNG already exists, Claude has multimodal vision, Claude can `Write` the file. Round-tripping to Codex adds latency, cost, and a session for no quality benefit.
 
-**Procedure** (per screen, after `crop-parts.sh` finished):
+**Procedure** (per screen × per form factor that was generated — so a screen with NEED_PC=yes + NEED_MOBILE=yes yields TWO HTML files):
 
-1. `Read` the page mock PNG at `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.png` — this loads the image into Claude's vision context so you can see the actual design.
-2. `Read` the manifest at `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
-3. `Write` the HTML file to `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html` using the rules below.
+1. `Read` the page mock PNG at `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.png` — this loads the image into Claude's vision context so you can see the actual design.
+2. `Read` the manifest at `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
+3. `Write` the HTML file to `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html` using the rules below.
 
 **HTML file structure (use this exact scaffold):**
 
@@ -1029,14 +1040,14 @@ After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailw
 - Realistic content (no Lorem Ipsum). Japanese stays Japanese; English stays English.
 - Semantic HTML (`<header>`, `<main>`, `<nav>`, `<section>`, `<article>`, `<button>`, `<label>`, `<input>` …). `aria-label` on icon-only buttons.
 - Inline `<svg>` for small Lucide-style icons; no JS-loaded icon library.
-- Cropped parts: from `dev/docs/design/`, the parts directory is `../../public/design/parts/<platform>/<screen-slug>/`. So `<img src="../../public/design/parts/<platform>/<screen-slug>/<name>.png" alt="..." class="...">`. Decorative-only assets: `alt=""` + `aria-hidden="true"`.
-- Page container max-width by platform: `web/desktop` → `max-w-7xl`, `ios/android` → `max-w-[430px]`. Always mobile-responsive.
+- Cropped parts: from `dev/docs/design/`, the parts directory is `../../public/design/parts/<form-factor>/<screen-slug>/`. So `<img src="../../public/design/parts/<form-factor>/<screen-slug>/<name>.png" alt="..." class="...">`. Decorative-only assets: `alt=""` + `aria-hidden="true"`.
+- Page container max-width by form factor: `pc` → `max-w-7xl`, `mobile` → `max-w-[430px]`. Always mobile-responsive even on PC.
 - HTML must render correctly from `file://` (no dev server, no build step). Verify the relative parts paths resolve.
 
 After writing, run:
 
 ```bash
-open "$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html"  # macOS — auto-open in default browser
+open "$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html"  # macOS — auto-open in default browser
 ```
 
 (use `xdg-open` on Linux, `start ""` on Windows).
@@ -1137,7 +1148,7 @@ The 3-question post-mock drill runs on the text-spec markdown (treat the markdow
 - [ ] OG image / favicon generated
 - [ ] `visualMocks[]` in `init-state.json` populated, `decisionsRevealed` non-empty for every entry
 
-Save to: `dev/docs/spec/05-visual.md` and `dev/docs/design/page-<platform>-<screen-slug>.png` (one full page+parts image per screen). Cropped transparent parts auto-land at `dev/public/design/parts/<platform>/<screen-slug>/<name>.png`; TSX import manifest at `dev/src/components/design/<platform>/<screen-slug>/parts.ts`. Update `init-state.json` to `current_phase: "tools"`.
+Save to: `dev/docs/spec/05-visual.md` and `dev/docs/design/page-<form-factor>-<screen-slug>.png` (one page mock per screen × form factor). Cropped transparent parts auto-land at `dev/public/design/parts/<form-factor>/<screen-slug>/<name>.png`; TSX import manifest at `dev/src/components/design/<form-factor>/<screen-slug>/parts.ts`. Update `init-state.json` to `current_phase: "tools"`.
 
 ---
 
@@ -1795,8 +1806,9 @@ settings.json（claudeMdExcludes の設定、プロジェクト規約など）�
 │   │   ├── spec/05-visual.md            Mock catalog with decisionsRevealed
 │   │   ├── spec/06-tools.md             Tool choices linked back to mocks
 │   │   ├── spec/07-data-model.md        Per-entity drills
-│   │   ├── design/page-<platform>-<screen>.png  Page+parts mock per screen (full mock top, parts grid bottom)
-│   │   ├── design/mock-<platform>-<screen>-*.png ...  Per-platform mocks
+│   │   ├── design/page-<form-factor>-<screen>.png  Page mock per screen × form factor (pc / mobile)
+│   │   ├── design/parts-grid-<form-factor>-<screen>-N.png  Codex parts-grid for chroma-key cropping
+│   │   ├── design/page-<form-factor>-<screen>.html  Tailwind HTML (Claude-written from page PNG)
 │   │   ├── talk/02-discovery.md ...     Masked Q&A
 │   │   └── task/                        When USE_GITHUB_ISSUES=no
 │   │       ├── parent/0001-*.md
