@@ -946,49 +946,28 @@ Update `init-state.json` to `current_phase: "visual"`.
 
 The mocks generated here become the **source of truth** for Phase 6 (tool selection) and Phase 7 (data model). Their visible elements (lists, forms, toggles, tabs, charts, real-time indicators, offline banners) are the inputs for tool decisions.
 
-### Two paths: USE_CODEX=yes vs USE_CODEX=no
+### Two paths
 
-Phase 5 branches at the top based on `USE_CODEX` in `<root>/.my-harness/.config`:
+Read `USE_CODEX` from `<root>/.my-harness/.config`:
 
-- **`USE_CODEX=yes`** → run the **image path** (gen-page-parts + auto-crop + TSX). One high-resolution PNG per screen contains the full page (top) and a transparent-cropped grid of every UI component (bottom). PNGs land in `dev/public/design/parts/` as runtime assets; matching TSX components land in `dev/src/components/design/`.
-- **`USE_CODEX=no`** → run the **text-spec path**. No image generation. For each screen, write a structured markdown spec listing the visible elements and a parts list, then generate TSX component stubs from that spec. Implementation phase fills the visual details.
+- `yes` → **image path**: `gen-page-parts.sh` produces one PNG per screen (full page top + transparent-cropped parts grid bottom, 2048×2880 PNG, output ends up in `dev/public/design/parts/` + matching TSX components in `dev/src/components/design/`).
+- `no` → **text-spec path**: no image generation. Structured markdown per screen + TSX stubs derived from the markdown. See "USE_CODEX=no path" below.
 
-Both paths still run the same 3-question post-mock drill (missing element / confusing element / hidden constraint) on whatever was produced.
+Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex) are encoded inside `prompts/codex-page-and-parts.md` and `scripts/gen-page-parts.sh`; do **not** restate them here. After generation, **auto-open the PNG** (`open` / `xdg-open` / `start ""`, detect OS via `uname`).
 
-**Absolute image format rules (USE_CODEX=yes only):**
-- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is the output of the crop step.
-- Resolution: target 2048 × 2880 per page+parts image.
-- After generation, **always auto-open** so the user can review:
-  - macOS: `open <path>`
-  - Linux: `xdg-open <path>`
-  - Windows: `start "" <path>`
-  - Detect OS with `uname`.
+### Fixed questions (one per turn — match `LANG`)
 
-**Prompting strategy:** trust Codex's designer capability — give a high-level request and let it decide. Pass spec files via `--context dev/docs/spec/*.md` and keep the request brief.
+1. Color hint (optional)
+   - en: "Any color hint? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
+   - ja: "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
 
-**Never write:**
-- Code-style instructions (coordinates, pixel values, CSS, Tailwind classes, SVG paths, HTML tags)
-- Over-specification of visual details
+2. Screen list — repeat per chosen platform (so `web + ios` yields two passes):
+   - en: "List the 3–5 most-traveled screens for the `<platform>` build."
+   - ja: "`<プラットフォーム>` 版で最も使われる画面を 3〜5 個リストアップしてください。"
 
-**Do write:**
-- What to create and how many concepts
-- Format (PNG), save path, resolution
-- Assume Codex will read the context
+### Design philosophy (image path)
 
-**Fixed questions** (one per turn — use the variant matching `LANG`):
-
-1. **LANG=en:** "Any color hint for the design? (optional — e.g. `#14b8a6` / 'blue tones' / 'no preference')"
-   **LANG=ja:** "デザインの色のヒントはありますか？（任意 — 例: `#14b8a6` / 「青系」/ 「特になし」）"
-
-2. **For each chosen platform**, ask separately:
-   **LANG=en:** "List the 3–5 most-traveled screens for the `<platform>` build." (e.g. for web: Login / Home / Detail / Settings / Search)
-   **LANG=ja:** "`<プラットフォーム>` 版で最も使われる画面を 3〜5 個リストアップしてください。"
-
-   Repeat per chosen platform — so a project that picked `web + ios` will yield 3–5 web mocks AND 3–5 iOS mocks.
-
-### Design philosophy
-
-**Trust Codex's imagination.** The harness gives Codex the spec and lets it design freely — palette, type, icon language, layout are all Codex's call. Only technical constraints (format, save path, "use image_gen, not HTML/SVG") are dictated. The implementation phase reconciles to `rules/design.md` later. No logo generation step exists; the harness scaffolds the page directly.
+Trust Codex. No prescriptive palette / icon / layout instructions in the prompt — Codex chooses, the user picks, the implementation phase reconciles to `rules/design.md`. The harness scaffolds the page directly; no logo generation step exists.
 
 ### Page + parts grid generation (per screen, per platform)
 
