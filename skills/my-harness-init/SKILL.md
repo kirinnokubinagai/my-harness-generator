@@ -571,6 +571,13 @@ Phase 2 starts with one open question and continues as a free-form, multi-turn c
 
 **8. Binary when binary, multi-choice only when it matters.** If the realistic answer space is yes/no (e.g., "include local-LLM auto-post in v1?"), ask yes/no. Do not synthesize 3-option questions where (C) is just "both of A and B with conditions" — that's a `yes` with caveats; ask "yes/no" and apply the caveats as defaults.
 
+**9. Never ask for unknowable future predictions.** The user cannot know "how many readers in year 1", "how many users at year 3", "monthly PV after launch", "revenue forecast". These are guesses, not constraints. **Forbidden** patterns:
+   - "1 年後の読者規模は？" / "PV はどれくらい？" / "ユーザー数の年 1/年 3 目安は？"
+   - "How big does it get in year one? Year three?"
+   - "What's the year-1 vs year-3 expected peak?"
+
+   The harness builds for **autoscale by default** (Cloudflare Workers / D1 / KV / R2 scale to billions of requests transparently). Architecture decisions never ride on speculative growth numbers. The user volunteers concrete commitments (e.g., "we've signed a contract for 10k concurrent connections", "we've got 50k existing newsletter subscribers"); otherwise assume max and move on. If the user does volunteer a number, capture it in `discoverySheet.scaleExpectation` and proceed.
+
 ### Internal `discoverySheet` (the state Claude maintains)
 
 Persist as `discoverySheet` inside `<root>/.my-harness/init-state.json`. Update after **every** user reply.
@@ -675,8 +682,8 @@ The point is not to accept first answers as final. Examples:
   - Good (en): "Two-sided marketplace? Who pays — buyers, sellers, both? Goods, services, or digital? How do listings get discovered?"
   - Good (ja): "二者間マーケットプレイスですか？支払うのは買い手・売り手・両方？商品・サービス・デジタル？出品はどう見つけてもらいますか？"
 - User: "Just for me, maybe a few friends."
-  - Good (en): "If I assume 1–100 users for the first year, does that match? And is the data only useful to you (private), or do friends see each other's stuff (shared)?"
-  - Good (ja): "初年度は 1〜100 ユーザー想定でいいですか？データは自分専用（プライベート）ですか、友人同士で見える（共有）ですか？"
+  - Good (en): "Is the data only useful to you (private), or do friends see each other's stuff (shared)?" (Do NOT ask for a year-1 user count — that's a guess, not a constraint.)
+  - Good (ja): "データは自分専用（プライベート）ですか、友人同士で見える（共有）ですか？（年 1 のユーザー数は推測でしかないので聞かない）"
 - User: "Should work on the subway."
   - Good (en): "So full offline write/read, then sync when online? Or read-only cache while offline?"
   - Good (ja): "オフラインでも書き込み・読み込みOK、繋がった時に同期？それともオフライン時は閲覧のみキャッシュ？"
@@ -690,7 +697,7 @@ The point is not to accept first answers as final. Examples:
 - **Does the data have to stay on-device or in a region?** (privacy, residency)
 - **What happens when two users edit the same thing at once?** (sync model)
 - **What's the worst-case latency the user will tolerate?** (drives architecture)
-- **How big does it get in year one? Year three?** (scale)
+- (REMOVED — banned by Rule 9. Do not ask for year-1 / year-3 size projections.)
 - **Is there anything regulated about the data?** (HIPAA, GDPR, PCI, SOC2)
 - **Is there a reason this can't run on a normal client + server?** (this surfaces P2P intuitions naturally)
 
@@ -709,7 +716,7 @@ The point is not to accept first answers as final. Examples:
 #### Scale breakpoints (`scaleBreakpoints`)
 - **LANG=en:** "What's the **peak load** this system needs to handle without degrading? Concrete numbers, not 'a lot'. (e.g. 'peak 50 simultaneous editors', '10k rows in the dashboard with sub-2-second render', '100k articles searchable in <300ms p95'). These are **capacity targets** — not 'when do we cut features'. We will scale to meet them."
 - **LANG=ja:** "このシステムが**ピーク時に**性能劣化なく処理する必要があるのは具体的にどの規模ですか？「沢山」じゃなく数字で。（例: 「同時編集ピーク 50」「ダッシュボード 1 万行 2 秒以内で描画」「10 万記事を p95 300ms 以内で検索」）これは**容量目標**です — 「ここを越えたら機能を諦める」ではなく、ここまで持つように作ります。"
-- Follow-ups: "What's the year-1 vs year-3 expected peak?" "Which target is hardest to meet — write throughput, query latency, or storage?"
+- Follow-up (only if the user has volunteered concrete numbers): "Which target is hardest to meet — write throughput, query latency, or storage?" Do **not** ask the user to predict year-1 or year-3 peaks; the harness defaults to autoscale.
 
 #### Trust (`trustModel`)
 - **LANG=en:** "Why would a user trust this with their data? What's the concrete chain — encryption, audit, hosting choice, social proof, an org behind it, the user's own machine?"
