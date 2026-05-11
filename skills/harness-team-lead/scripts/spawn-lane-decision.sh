@@ -2,39 +2,27 @@
 # spawn-lane-decision.sh — decide whether the lead may spawn lane-N right now.
 #
 # A lane is the four-teammate group (analyst-N, engineer-N, e2e-reviewer-N,
-# reviewer-N). The lead consults this script before adding a new lane to the
-# team and acts mechanically on the printed DECISION:
+# reviewer-N). The lead consults this script before adding a new lane and acts
+# mechanically on the printed DECISION:
 #
 #   DECISION=SPAWN  → call Agent({}) for each name in NAMES
 #   DECISION=SKIP   → all four teammates are already in the team config; reuse
 #   DECISION=REFUSE → surface REASON to the user and do NOT call Agent({})
 #
 # Checks performed in order:
+#   0. N is a positive integer
 #   1. <root>/.my-harness/.config exists           → else REFUSE init-required
-#   2. team config has no suffixed names like
-#      analyst-N-2 / engineer-N-3                 → else REFUSE corrupt
+#   1a. N ≤ MAX_LANES                              → else REFUSE exceeds-max-lanes
+#   2. team config has no suffixed names           → else REFUSE corrupt-team
 #   3. lane-N's four canonical names are
-#      either all present (→ SKIP) or all absent  → else REFUSE partial
-#   4. Reclaimable RAM, swap, compressor are
-#      within thresholds                          → else REFUSE pressure
+#      either all present (→ SKIP) or all absent   → else REFUSE partial
+#   4. reclaimable RAM / swap / compressor within
+#      thresholds                                  → else REFUSE pressure
 #
 # Thresholds (override in <root>/.my-harness/.config):
-#   HARNESS_LANE_RAM_MB        default 4096   (one lane ≈ 4 teammates ≈ 4 GB)
+#   HARNESS_LANE_RAM_MB        default 4096
 #   HARNESS_LANE_SWAP_MAX_MB   default 1024
 #   HARNESS_LANE_COMP_MAX_MB   default 6144
-#
-# Output (stdout, key=value lines):
-#   DECISION=<SPAWN|SKIP|REFUSE>
-#   LANE=<N>
-#   NAMES=analyst-N engineer-N e2e-reviewer-N reviewer-N
-#   REASON=<short>
-#
-# Usage:
-#   bash spawn-lane-decision.sh <N> [<root>]
-#     N      — lane number (1..4)
-#     root   — project root (defaults to $PWD); must contain .my-harness/.config
-#
-# Exit code is always 0; the lead reads DECISION, not the exit code.
 
 set -u
 
@@ -52,6 +40,14 @@ __resolve_project_root() {
 ROOT="$(__resolve_project_root "${2:-$PWD}")"
 NAMES="analyst-$N engineer-$N e2e-reviewer-$N reviewer-$N"
 
+# Resolve plugin root from this script's location: skills/harness-team-lead/scripts/
+PLUGIN_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+PROBE="$PLUGIN_ROOT/scripts/lib/memory-probe.sh"
+if [ ! -f "$PROBE" ]; then
+  PROBE="$ROOT/.my-harness/scripts/lib/memory-probe.sh"
+fi
+# shellcheck disable=SC1090
+[ -f "$PROBE" ] && . "$PROBE"
 
 emit() {
   echo "DECISION=$1"
@@ -71,8 +67,7 @@ if [ ! -f "$ROOT/.my-harness/.config" ]; then
   emit REFUSE "init-required: $ROOT/.my-harness/.config not found — run /my-harness-init"
 fi
 
-# 1a) MAX_LANES gate. Hard-cap at 4 (Agent Teams beyond that hits diminishing
-# returns and Codex daemon back-pressure). Default 4 if absent or invalid.
+# 1a) MAX_LANES gate. Hard cap at 4.
 MAX_LANES=$(awk -F= '$1=="MAX_LANES"{gsub(/"/,"",$2); print $2; exit}' "$ROOT/.my-harness/.config" 2>/dev/null)
 MAX_LANES=${MAX_LANES:-4}
 case "$MAX_LANES" in
@@ -83,7 +78,7 @@ if [ "$N" -gt "$MAX_LANES" ]; then
   emit REFUSE "exceeds-max-lanes: lane-$N > MAX_LANES=$MAX_LANES (set in .my-harness/.config). Either run scripts/prune-lanes.sh to reclaim slots or raise MAX_LANES (cap 4)."
 fi
 
-# 2 + 3) inspect team config for corruption and existing membership
+# 2 + 3) inspect team config
 TEAM_CFG="$HOME/.claude/teams/harness-team/config.json"
 if [ -f "$TEAM_CFG" ]; then
   if command -v jq >/dev/null 2>&1; then
@@ -95,10 +90,6 @@ if [ -f "$TEAM_CFG" ]; then
       | sort -u)
   fi
 
-  # Suffix detection: names like analyst-N-M / engineer-N-M (Claude Code's
-  # auto-disambiguation when an Agent({name:...}) call collides with a live
-  # teammate). The team is no longer trustworthy and must be removed by the
-  # user before any further spawns.
   CORRUPT=$(printf '%s\n' "$MEMBERS" \
     | grep -E '^(analyst|engineer|e2e-reviewer|reviewer)-[0-9]+-[0-9]+$' \
     | tr '\n' ' ' | sed 's/ $//')
@@ -118,7 +109,7 @@ if [ -f "$TEAM_CFG" ]; then
   fi
 fi
 
-# 4) live resource check
+# 4) live resource check via memory-probe.sh
 CFG="$ROOT/.my-harness/.config"
 RAM_THRESH_MB=$(awk -F= '$1=="HARNESS_LANE_RAM_MB"{gsub(/"/,"",$2); print $2; exit}' "$CFG" 2>/dev/null)
 SWAP_THRESH_MB=$(awk -F= '$1=="HARNESS_LANE_SWAP_MAX_MB"{gsub(/"/,"",$2); print $2; exit}' "$CFG" 2>/dev/null)
@@ -127,29 +118,13 @@ RAM_THRESH_MB=${RAM_THRESH_MB:-4096}
 SWAP_THRESH_MB=${SWAP_THRESH_MB:-1024}
 COMP_THRESH_MB=${COMP_THRESH_MB:-6144}
 
-if [ -r /proc/meminfo ]; then
-  AVAIL_KB=$(awk '/^MemAvailable:/{print $2; exit}' /proc/meminfo)
-  AVAIL_MB=$(( ${AVAIL_KB:-0} / 1024 ))
-  SWAP_USED_KB=$(awk '/^SwapTotal:/{t=$2}/^SwapFree:/{f=$2} END{print (t-f)>0?(t-f):0}' /proc/meminfo)
-  SWAP_USED_MB=$(( ${SWAP_USED_KB:-0} / 1024 ))
-  COMP_MB=0
-elif command -v vm_stat >/dev/null 2>&1; then
-  PAGE_BYTES=$(vm_stat | awk '/page size of/{print $8}')
-  PAGE_BYTES=${PAGE_BYTES:-16384}
-  PFREE=$(vm_stat | awk '/Pages free:/{gsub(/\./,"",$3); print $3; exit}')
-  PINACT=$(vm_stat | awk '/Pages inactive:/{gsub(/\./,"",$3); print $3; exit}')
-  PSPEC=$(vm_stat | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3; exit}')
-  AVAIL_MB=$(( ( ${PFREE:-0} + ${PINACT:-0} + ${PSPEC:-0} ) * PAGE_BYTES / 1024 / 1024 ))
-  COMP_MB=$(( $(sysctl -n vm.compressor_bytes_used 2>/dev/null || echo 0) / 1024 / 1024 ))
-  SWAP_RAW=$(sysctl -n vm.swapusage 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="used")print $(i+2)}' | sed 's/M$//')
-  SWAP_USED_MB=${SWAP_RAW%.*}
-  SWAP_USED_MB=${SWAP_USED_MB:-0}
-else
-  emit REFUSE "memory-probe-failed: neither /proc/meminfo nor vm_stat available"
+if ! type detect_avail_ram_mb >/dev/null 2>&1; then
+  emit REFUSE "memory-probe-failed: scripts/lib/memory-probe.sh not loadable"
 fi
-
+AVAIL_MB=$(detect_avail_ram_mb)
+SWAP_USED_MB=$(detect_swap_used_mb)
+COMP_MB=$(detect_compressor_mb)
 SNAP="reclaimable=${AVAIL_MB}MB swap=${SWAP_USED_MB}MB compressor=${COMP_MB}MB"
-
 
 [ "$AVAIL_MB" -ge "$RAM_THRESH_MB" ] || emit REFUSE "low-ram: $SNAP (need ≥ ${RAM_THRESH_MB}MB) — wait for an existing lane to finish, then retry"
 [ "$SWAP_USED_MB" -le "$SWAP_THRESH_MB" ] || emit REFUSE "swap-pressure: $SNAP (need swap ≤ ${SWAP_THRESH_MB}MB) — wait for an existing lane to finish"

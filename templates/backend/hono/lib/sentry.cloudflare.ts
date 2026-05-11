@@ -1,12 +1,13 @@
 /**
- * Sentry (Cloudflare Workers) 初期化ヘルパー
+ * Sentry 初期化ヘルパー — Cloudflare Workers 用 (`@sentry/cloudflare`)
  *
- * `@sentry/cloudflare` を使って未捕捉例外と意図的 capture を Sentry に送る。
  * source-map は CI のデプロイステップでアップロード (`docs/runbooks/deploy.md`)。
  *
  * 使い方:
- *   import { withSentry } from "./lib/sentry";
+ *   import { withSentry } from "./lib/sentry.cloudflare";
  *   export default withSentry(app, env);
+ *
+ * Node / Bun デプロイの場合は `sentry.node.ts` を使うこと。
  */
 
 import * as Sentry from "@sentry/cloudflare";
@@ -18,20 +19,11 @@ type SentryEnv = {
   RELEASE?: string;
 };
 
-/**
- * Hono app を Sentry でラップする
- *
- * @param app - Hono インスタンス
- * @param env - SENTRY_DSN / ENVIRONMENT / RELEASE
- */
 export function withSentry<TEnv extends SentryEnv>(
   app: Hono<{ Bindings: TEnv }>,
   env: TEnv,
 ) {
-  if (!env.SENTRY_DSN) {
-    return app;
-  }
-
+  if (!env.SENTRY_DSN) return app;
   return Sentry.withSentry(
     () => ({
       dsn: env.SENTRY_DSN,
@@ -44,7 +36,6 @@ export function withSentry<TEnv extends SentryEnv>(
   );
 }
 
-/** 任意イベント送信 (handler 内から使う) */
 export function captureMessage(message: string, tags?: Record<string, string>) {
   Sentry.withScope((scope) => {
     if (tags) for (const [k, v] of Object.entries(tags)) scope.setTag(k, v);

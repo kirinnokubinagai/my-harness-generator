@@ -4,7 +4,7 @@
 #
 # Usage:
 #   bash scripts/doctor.sh             # human-readable
-#   bash scripts/doctor.sh --json      # machine-readable summary
+#   bash scripts/doctor.sh --json      # machine-readable summary (requires jq)
 #
 # Exit codes:
 #   0   all checks pass
@@ -26,18 +26,23 @@ __resolve_root() {
 }
 ROOT="$(__resolve_root "$PWD")"
 
+# Each check appends one record. Three parallel arrays keep things simple while
+# avoiding bash 4-only associative arrays (macOS ships bash 3.2 by default).
+KINDS=()
+NAMES=()
+MSGS=()
 PASS=0; FAIL=0; WARN=0
-RESULTS=""
 
 record() {
   local kind="$1" name="$2" msg="$3"
+  KINDS+=("$kind")
+  NAMES+=("$name")
+  MSGS+=("$msg")
   case "$kind" in
     PASS) PASS=$((PASS+1)) ;;
     FAIL) FAIL=$((FAIL+1)) ;;
     WARN) WARN=$((WARN+1)) ;;
   esac
-  RESULTS="${RESULTS}${kind}|${name}|${msg}
-"
 }
 
 # --- harness layout ---
@@ -46,7 +51,7 @@ record() {
 [ -f "$ROOT/.my-harness/.config" ]  && record PASS "config"       "$ROOT/.my-harness/.config present" \
                                     || record FAIL "config"       ".my-harness/.config missing"
 
-# --- MAX_LANES vs recommendation ---
+# --- recommend-lanes vs configured MAX_LANES ---
 MAX_LANES=$(awk -F= '$1=="MAX_LANES"{gsub(/"/,"",$2); print $2; exit}' "$ROOT/.my-harness/.config" 2>/dev/null)
 MAX_LANES=${MAX_LANES:-4}
 LIB="$(dirname "$0")/lib/recommend-lanes.sh"
@@ -66,9 +71,11 @@ fi
 
 # --- tools on PATH ---
 for tool in git bash jq rsync; do
-  command -v "$tool" >/dev/null 2>&1 \
-    && record PASS "tool-$tool"  "$(command -v "$tool")" \
-    || record FAIL "tool-$tool"  "$tool not on PATH"
+  if command -v "$tool" >/dev/null 2>&1; then
+    record PASS "tool-$tool" "$(command -v "$tool")"
+  else
+    record FAIL "tool-$tool" "$tool not on PATH"
+  fi
 done
 
 # --- Codex auth (only if any USE_CODEX_* is yes) ---
@@ -80,7 +87,6 @@ if [ "$ANY_CODEX" = "y" ]; then
     else
       record FAIL "codex-cli" "codex binary present but --version failed"
     fi
-    # Cheapest auth probe: ~/.codex/auth.json must exist and be non-empty.
     if [ -s "$HOME/.codex/auth.json" ]; then
       record PASS "codex-auth" "~/.codex/auth.json present"
     else
@@ -91,7 +97,7 @@ if [ "$ANY_CODEX" = "y" ]; then
   fi
 fi
 
-# --- Codex daemon ---
+# --- Codex daemon liveness ---
 if [ -f "$ROOT/.my-harness/codex-app-server.pid" ]; then
   PID=$(cat "$ROOT/.my-harness/codex-app-server.pid" 2>/dev/null)
   if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
@@ -102,8 +108,8 @@ if [ -f "$ROOT/.my-harness/codex-app-server.pid" ]; then
 fi
 
 # --- spawn-lane-decision dry run for lane 1 ---
-SPAWN="$ROOT/.my-harness/scripts/../../skills/harness-team-lead/scripts/spawn-lane-decision.sh"
-[ -f "$SPAWN" ] || SPAWN="$(dirname "$0")/../skills/harness-team-lead/scripts/spawn-lane-decision.sh"
+SPAWN="$(dirname "$0")/../skills/harness-team-lead/scripts/spawn-lane-decision.sh"
+[ -f "$SPAWN" ] || SPAWN="$ROOT/.my-harness/skills/harness-team-lead/scripts/spawn-lane-decision.sh"
 if [ -f "$SPAWN" ]; then
   D=$(bash "$SPAWN" 1 "$ROOT" 2>/dev/null | awk -F= '$1=="DECISION"{print $2; exit}')
   case "$D" in
@@ -114,30 +120,38 @@ if [ -f "$SPAWN" ]; then
 fi
 
 # --- environment env-vars ---
-[ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" = "1" ] \
-  && record PASS "agent-teams-env" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1" \
-  || record WARN "agent-teams-env" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS not set — /harness-team-lead will fail"
+if [ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-}" = "1" ]; then
+  record PASS "agent-teams-env" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1"
+else
+  record WARN "agent-teams-env" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS not set — /harness-team-lead will fail"
+fi
 
 # --- output ---
+n=${#KINDS[@]}
 if [ "$JSON" -eq 1 ]; then
-  printf '{"pass":%d,"fail":%d,"warn":%d,"checks":[' "$PASS" "$FAIL" "$WARN"
-  first=1
-  echo "$RESULTS" | while IFS='|' read -r kind name msg; do
-    [ -z "$kind" ] && continue
-    [ "$first" -eq 0 ] && printf ','
-    printf '{"kind":"%s","name":"%s","msg":"%s"}' "$kind" "$name" "$(printf '%s' "$msg" | sed 's/"/\\"/g')"
-    first=0
+  if ! command -v jq >/dev/null 2>&1; then
+    echo '{"error":"jq required for --json output"}' >&2
+    exit 64
+  fi
+  jq_args=()
+  for ((i=0; i<n; i++)); do
+    jq_args+=(--arg "k$i" "${KINDS[$i]}" --arg "n$i" "${NAMES[$i]}" --arg "m$i" "${MSGS[$i]}")
   done
-  echo ']}'
+  jq_filter='{pass:'"$PASS"',fail:'"$FAIL"',warn:'"$WARN"',checks:['
+  for ((i=0; i<n; i++)); do
+    [ $i -gt 0 ] && jq_filter+=','
+    jq_filter+='{kind:$k'"$i"',name:$n'"$i"',msg:$m'"$i"'}'
+  done
+  jq_filter+=']}'
+  jq -n "${jq_args[@]}" "$jq_filter"
 else
-  echo "$RESULTS" | while IFS='|' read -r kind name msg; do
-    [ -z "$kind" ] && continue
-    case "$kind" in
+  for ((i=0; i<n; i++)); do
+    case "${KINDS[$i]}" in
       PASS) sym="✓" ;;
       FAIL) sym="✗" ;;
       WARN) sym="!" ;;
     esac
-    printf '%s %-20s %s\n' "$sym" "$name" "$msg"
+    printf '%s %-20s %s\n' "$sym" "${NAMES[$i]}" "${MSGS[$i]}"
   done
   echo
   echo "summary: $PASS pass, $FAIL fail, $WARN warn"

@@ -1,14 +1,12 @@
 /**
  * 監査ログヘルパー
  *
- * 認証 / 権限変更 / データ削除 / 管理操作 / 課金イベントは必ずここに記録する。
- * `rules/production.md` で必須定義。テーブル: `audit_log`。retention ≥ 1 年。
+ * 認証 / 権限変更 / データ削除 / 管理操作 / 課金イベントを必ず記録する。
+ * `rules/production.md` で必須定義。append-only テーブル `audit_log`。retention ≥ 1 年。
  *
- * append-only。UPDATE / DELETE は禁止 (DB 側のロールで強制すること)。
+ * DB 抽象化: アダプタインターフェース `AuditWriter` を介して操作するので、
+ * D1 / Postgres / MySQL / SQLite いずれの Drizzle 実装にも差し替え可能。
  */
-
-import { sql } from "drizzle-orm";
-import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 export type AuditAction =
   | "auth.login"
@@ -36,28 +34,63 @@ export type AuditEntry = {
   ip?: string;
 };
 
+/** DB に 1 レコード書き込む最小契約。実装は DB 種別ごとに差し替え可能 */
+export type AuditWriter = (row: {
+  id: string;
+  actorId: string;
+  action: string;
+  resource: string;
+  metadata: string | null;
+  ip: string | null;
+  occurredAt: string;
+}) => Promise<void>;
+
 /**
  * 監査ログを記録する
  *
- * @param db - Drizzle D1 インスタンス
+ * @param write - DB アダプタ (`drizzleD1AuditWriter` などで生成)
  * @param entry - 記録するエントリ
  */
-export async function recordAudit(
-  db: DrizzleD1Database<Record<string, unknown>>,
-  entry: AuditEntry,
-): Promise<void> {
-  const id = crypto.randomUUID();
-  const occurredAt = new Date().toISOString();
-  await db.run(sql`
-    INSERT INTO audit_log (id, actor_id, action, resource, metadata, ip, occurred_at)
-    VALUES (
-      ${id},
-      ${entry.actorId},
-      ${entry.action},
-      ${entry.resource},
-      ${entry.metadata ? JSON.stringify(entry.metadata) : null},
-      ${entry.ip ?? null},
-      ${occurredAt}
-    )
-  `);
+export async function recordAudit(write: AuditWriter, entry: AuditEntry): Promise<void> {
+  await write({
+    id: crypto.randomUUID(),
+    actorId: entry.actorId,
+    action: entry.action,
+    resource: entry.resource,
+    metadata: entry.metadata ? JSON.stringify(entry.metadata) : null,
+    ip: entry.ip ?? null,
+    occurredAt: new Date().toISOString(),
+  });
+}
+
+// ───────── 既製アダプタ ─────────
+// Drizzle のジェネリック型 `AnyDatabase` に依存するのを避けるため、
+// 各アダプタは「db.run(sql\`...\`)` を持つ最小インターフェース」を要求する。
+
+type SqlRunner = {
+  run: (query: unknown) => Promise<unknown>;
+};
+
+/**
+ * Drizzle D1 / SQLite / Postgres / MySQL いずれにも対応するアダプタを生成する。
+ * `sql` テンプレートタグはユーザー側から渡してもらう (drizzle-orm から import)。
+ */
+export function drizzleAuditWriter(
+  db: SqlRunner,
+  sqlTag: (strings: TemplateStringsArray, ...values: unknown[]) => unknown,
+): AuditWriter {
+  return async (row) => {
+    await db.run(sqlTag`
+      INSERT INTO audit_log (id, actor_id, action, resource, metadata, ip, occurred_at)
+      VALUES (
+        ${row.id},
+        ${row.actorId},
+        ${row.action},
+        ${row.resource},
+        ${row.metadata},
+        ${row.ip},
+        ${row.occurredAt}
+      )
+    `);
+  };
 }

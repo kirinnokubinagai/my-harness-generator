@@ -29,6 +29,23 @@ set -euo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Library helpers
+# shellcheck disable=SC1091
+. "$HARNESS_DIR/scripts/lib/rsync-excludes.sh"
+
+# copy_if_absent <src-glob> <dst-dir>
+# Copy each file matching the glob into dst-dir, skipping files that already
+# exist there. Non-destructive: user-edited dest files are preserved.
+copy_if_absent() {
+  local glob="$1" dst="$2" f name
+  mkdir -p "$dst"
+  for f in $glob; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    [ -f "$dst/$name" ] || cp "$f" "$dst/$name"
+  done
+}
+
 # ===== Argument parsing =====
 ROOT=""
 CONFIG_FILE=""
@@ -386,67 +403,17 @@ bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 
 # ===== 4a. Production templates (runbooks + CI workflows + Hono middleware) =====
 echo "[bootstrap] Distributing production templates"
-
-# Runbooks → dev/docs/runbooks/
-mkdir -p dev/docs/runbooks
-if [ -d "$HARNESS_DIR/templates/docs/runbooks" ]; then
-  for f in "$HARNESS_DIR"/templates/docs/runbooks/*.md; do
-    [ -f "$f" ] || continue
-    name=$(basename "$f")
-    [ -f "dev/docs/runbooks/$name" ] || cp "$f" "dev/docs/runbooks/$name"
-  done
-fi
-
-# Production-grade CI workflows → dev/.github/workflows/
-mkdir -p dev/.github/workflows
-for wf in codeql.yml sbom.yml license-check.yml k6-smoke.yml lighthouse.yml; do
-  src="$HARNESS_DIR/templates/github/workflows/$wf"
-  dst="dev/.github/workflows/$wf"
-  [ -f "$src" ] && [ ! -f "$dst" ] && cp "$src" "$dst"
-done
-
-# Renovate + Dependabot → dev/
-for f in renovate.json dependabot.yml; do
-  src="$HARNESS_DIR/templates/github/$f"
-  if [ -f "$src" ]; then
-    case "$f" in
-      renovate.json) dst="dev/renovate.json" ;;
-      dependabot.yml) mkdir -p dev/.github; dst="dev/.github/dependabot.yml" ;;
-    esac
-    [ -f "$dst" ] || cp "$src" "$dst"
-  fi
-done
-
-# Hono production middleware/lib/routes when the backend is Hono.
-if [ "${USE_BACKEND:-no}" = "yes" ] && [ "${BACKEND_KIND:-hono}" = "hono" ]; then
-  mkdir -p dev/src/middleware dev/src/routes dev/src/lib
-  HONO_SRC="$HARNESS_DIR/templates/backend/hono"
-  for sub in middleware routes lib; do
-    if [ -d "$HONO_SRC/$sub" ]; then
-      for f in "$HONO_SRC/$sub"/*.ts; do
-        [ -f "$f" ] || continue
-        name=$(basename "$f")
-        [ -f "dev/src/$sub/$name" ] || cp "$f" "dev/src/$sub/$name"
-      done
-    fi
-  done
-fi
+# shellcheck disable=SC1091
+. "$HARNESS_DIR/scripts/lib/distribute-production.sh"
+distribute_production_templates
 
 
 # ===== 5. Copy harness itself to dev/.my-harness =====
 mkdir -p dev/.my-harness
-# Only copy what runtime needs in the project tree:
-#   rules/   — read by every agent at the start of each ASSIGNMENT
-#   scripts/ — invoked by pre-commit / pre-push git hooks and by agent runtime
-#   docs/    — referenced by README / SKILL.md
-# agents/ / skills/ / hooks/ / templates/ / nix/ / .claude-plugin/ are NOT
-# copied — Claude Code reads them directly from $CLAUDE_PLUGIN_ROOT.
-rsync -a --delete \
-  --include='/rules/' --include='/rules/**' \
-  --include='/scripts/' --include='/scripts/**' \
-  --include='/docs/' --include='/docs/**' \
-  --exclude='*' \
-  "$HARNESS_DIR/" dev/.my-harness/
+# Patterns live in scripts/lib/rsync-excludes.sh. Only runtime-needed files
+# (rules/, scripts/, docs/) ship to the project tree; agents/, skills/, hooks/,
+# templates/, nix/, .claude-plugin/ stay in $CLAUDE_PLUGIN_ROOT.
+harness_rsync "$HARNESS_DIR/" dev/.my-harness/
 cp .my-harness/.config dev/.my-harness/.config
 
 # ===== 5a. Generate dev/CLAUDE.md and dev/AGENTS.md (shared rule entry point) =====

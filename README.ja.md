@@ -27,13 +27,13 @@ MVP スキャフォールドではなく**そのまま本番に出せる**スキ
 
 ## ハイライト
 
-- **`/my-harness-init`** — インタビュー → 仕様書 → `bootstrap.sh` まで自動。
-- **Codex CLI 連携（任意）** — session resume による真のマルチターン対話。ロゴ・UI モックを `gpt-image-2` で生成。`engineer` / `e2e-reviewer` / `reviewer` を役割ごとに独立して Codex に委譲可能（`USE_CODEX_<ROLE>`）。
-- **ワンコマンド bootstrap** — bare git + `dev`/`stage`/`main` worktree + Husky + Biome + Nix flake + GitHub Actions 9 本 + Drizzle + Resend + Playwright + Maestro。
+- **`/my-harness-init`** — インタビュー → 仕様書 → `bootstrap.sh` まで自動。任意で Codex CLI による session resume + `gpt-image-2` でロゴ / UI モック生成。
 - **プラットフォームごとに独立してフレームワーク選択可能** — Web（`nextjs`/`tanstack`）、iOS（`swift`/`expo`/`flutter`）、Android（`kotlin`/`expo`/`flutter`）、Desktop（`tauri`/`electron` × macOS/Windows/Linux）、バックエンド（`hono`/`gin`/`rust`）、DB（`d1`/`postgres`/`mysql`/`sqlite`）。
-- **並列レーン (Agent Teams)** — `/harness-team-lead` が最大 `MAX_LANES` (1..4、既定 4) × 4 役を起動。レーンは 1 つずつ、RAM/swap/compressor を満たした場合のみ追加 (`spawn-lane-decision.sh`)。PR 後は対象レーンの 4 teammate に `/clear`。`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 必須。
-- **自動機密マスキング** — `UserPromptSubmit` フックがユーザー入力を `mask-secrets.sh`（9 パターン）に通して `dev/docs/talk/<日付>.md` に記録。
-- **5 個の lazy-load skill、規約は共通** — TDD / Hono Clean Arch / Drizzle migrate-only / Nix pure / デザイン / JSDoc / no-hardcoded-secrets。すべて `rules/*.md` に集約され、Claude / Codex / Cursor / Aider が同じ内容を読み込む。
+- **並列レーン (Agent Teams)** — `/harness-team-lead` が最大 `MAX_LANES` (1..4) × 4 役を起動。レーンは 1 つずつ、RAM/swap/compressor ゲート通過時のみ追加。OS 別 MAX_LANES 推奨は macOS の memory compression と live `memory_pressure` を考慮。PR 後は対象レーンの 4 teammate に `/clear`。`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 必須。
+- **自動機密マスキング** — `UserPromptSubmit` フックが `mask-secrets.sh`（9 パターン）を通して `dev/docs/talk/<日付>.md` に記録。
+- **規約はツール横断で 1 セット** — `rules/*.md` を `dev/CLAUDE.md` + `dev/AGENTS.md` + `codex-ask.sh --context` で Claude / Codex / Cursor / Aider が同じ内容を読み込む。
+
+プロダクションスタック (Hono middleware / runbook / CI / observability) の詳細は上記セクションと [`docs/PRODUCTION.md`](./docs/PRODUCTION.md) を参照。
 
 ## インストール
 

@@ -27,13 +27,13 @@ See [`docs/PRODUCTION.md`](./docs/PRODUCTION.md) for the file-by-file map.
 
 ## Highlights
 
-- **`/my-harness-init`** — guided interview → spec markdowns → `bootstrap.sh` automatically.
-- **Codex CLI (optional)** — multi-turn dialogue, `gpt-image-2` logo / UI mocks. `engineer` / `e2e-reviewer` / `reviewer` independently delegable to Codex (`USE_CODEX_<ROLE>`).
-- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions + Drizzle + Resend + Playwright + Maestro.
+- **`/my-harness-init`** — guided interview → spec markdowns → `bootstrap.sh`. Optional Codex CLI for multi-turn dialogue + `gpt-image-2` logo / UI mocks.
 - **Per-platform framework choice** — Web (`nextjs`/`tanstack`), iOS (`swift`/`expo`/`flutter`), Android (`kotlin`/`expo`/`flutter`), Desktop (`tauri`/`electron` × macOS/Windows/Linux), Backend (`hono`/`gin`/`rust`), DB (`d1`/`postgres`/`mysql`/`sqlite`). Independent choices.
-- **Parallel lanes via Agent Teams** — `/harness-team-lead` runs up to `MAX_LANES` (1..4, default 4) lanes × 4 roles. Lanes added one at a time after a per-lane RAM/swap/compressor check (`spawn-lane-decision.sh`). After each PR the lane's four teammates `/clear`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
+- **Parallel lanes via Agent Teams** — `/harness-team-lead` runs up to `MAX_LANES` (1..4) lanes × 4 roles. Lanes added one at a time after the per-lane RAM/swap/compressor gate; OS-aware MAX_LANES recommendation accounts for macOS memory compression + live `memory_pressure`. After each PR the lane's four teammates `/clear`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
-- **5 lazy-loaded skills, one rule set** — TDD / Hono Clean Arch / Drizzle migrate-only / Nix-pure / design / JSDoc / no-hardcoded-secrets, all in `rules/*.md` and shared verbatim across Claude / Codex / Cursor / Aider.
+- **Single rule set across tools** — `rules/*.md` is shared verbatim by Claude / Codex / Cursor / Aider via `dev/CLAUDE.md` + `dev/AGENTS.md` + `codex-ask.sh --context`.
+
+For the full production stack (Hono middleware, runbooks, CI, observability) see the section above and [`docs/PRODUCTION.md`](./docs/PRODUCTION.md).
 
 ## Installation
 
