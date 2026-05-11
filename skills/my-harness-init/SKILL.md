@@ -817,13 +817,11 @@ When exit criteria met, **show the discoverySheet to the user as a formatted sum
 
 If the user corrects, update sheet and repeat ritual. Once confirmed, persist final discoverySheet, write `dev/docs/spec/02-discovery.md` (the formatted summary), update `init-state.json` to `current_phase: "structure"`, and proceed to Phase 3.
 
-If USE_CODEX=yes, **ask the user first** (Cardinal rule: Codex second-opinion is opt-in per occurrence). Use the standard yes/no ask template. If "yes", run:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule: Codex second-opinion is opt-in). If "yes", paste the discoverySheet JSON into `prompts/codex-consult-phase-2.md` placeholder, then run:
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role analyst \
-  --out <root>/.my-harness/codex-phase2.md \
-  "DiscoverySheet: <paste JSON>. Point out logical contradictions, ambiguities, missing items, and which of the failure/resistance/scale/trust/differentiation/day-2 entries look hand-wavey."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 2 "$ROOT"
 ```
-Then summarize the findings for the user in plain language (no internal file path in the user message). If "no", skip and proceed.
+Then summarize the findings in plain language. If "no", skip.
 
 ---
 
@@ -890,9 +888,7 @@ Update `init-state.json` to `current_phase: "features"`, `phases_completed: ["la
 
 If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role architect \
-  --out <root>/.my-harness/codex-phase3.md \
-  "DiscoverySheet + structural decisions (architecture, platforms). Point out structural validity, tradeoffs, and any contradictions with the discoverySheet's failure/scale/trust block."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 3 "$ROOT"
 ```
 Then summarize the findings in plain language. If "no", skip.
 
@@ -938,9 +934,7 @@ Each feature listed becomes one or more issues / task files at /harness-team-lea
 
 If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role analyst \
-  --out <root>/.my-harness/codex-phase4.md \
-  "Complete feature list with access paths, failure modes, observability, onboarding, power-user, empty state, failure recovery, latency budgets: <paste>. Point out gaps, especially any feature whose latency budget contradicts the architecture choice."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 4 "$ROOT"
 ```
 Then summarize findings in plain language. If "no", skip.
 
@@ -983,85 +977,89 @@ The mocks generated here become the **source of truth** for Phase 6 (tool select
 
    Repeat per chosen platform — so a project that picked `web + ios` will yield 3–5 web mocks AND 3–5 iOS mocks.
 
-### Logo generation (when USE_CODEX=yes)
+### Design philosophy
 
-**Design philosophy: trust Codex's imagination.** The harness gives Codex the spec and lets it propose. Do NOT prescribe visual style, color palette, icon library, or layout patterns in the prompt. Codex chooses; the user picks; the implementation phase reconciles to `rules/design.md` later. Only technical constraints (format, resolution, save path, "use the image_gen tool, not HTML/SVG") are kept in the prompt.
+**Trust Codex's imagination.** The harness gives Codex the spec and lets it design freely — palette, type, icon language, layout are all Codex's call. Only technical constraints (format, save path, "use image_gen, not HTML/SVG") are dictated. The implementation phase reconciles to `rules/design.md` later. No logo generation step exists; the harness scaffolds the page directly.
+
+### Page + parts grid generation (per screen, per platform)
+
+For each screen in each platform's list, the harness generates a single high-quality PNG that contains **two stacked sections** in one image:
+
+- **Top 65 %:** the full page mock at native aspect ratio.
+- **Bottom 35 %:** a 4-column grid of every distinct UI component used in the page above, each component isolated, labeled, in its own cell, with no overlap. Every state variant (hover / active / disabled / selected) is its own cell.
+
+This is one Codex call per screen. Generated at the highest resolution available (target 2048 × 2880).
+
+**Ask first** (Cardinal rule: Codex opt-in per occurrence). If the user says yes:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-parts.sh" \
+  "$ROOT" "<platform>" "<screen-name>" "$PROJECT_NAME"
+```
+
+Auto-open the resulting PNG (`open` / `xdg-open` / `start`) so the user can review.
+
+The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, not in this SKILL.
+
+### Iterative refinement
+
+When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same Codex session** (don't re-attach `--context`, don't pass `--reset-session`):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
   --role designer \
-  --context <root>/dev/docs/spec/*.md \
-  --out <root>/.my-harness/codex-logo.md \
-  "\$imagegen You're designing a logo for $PROJECT_NAME. Read the attached spec and create 3 genuinely different logo concepts — different shape language, color palette, and mood across the three, not three variants of one idea. Take creative liberties; your call on what fits this project.
-
-Technical constraints (these are not aesthetic constraints — go wild within them):
-- Output via the image_gen tool (gpt-image-2). HTML/CSS + screenshot, SVG, canvas rasterization, code-generated images — all prohibited.
-- PNG with transparent background.
-- 1024x1024 or larger.
-- One image_gen call per concept; 3 calls total.
-
-Save to:
-- <root>/dev/docs/design/logo-1.png
-- <root>/dev/docs/design/logo-2.png
-- <root>/dev/docs/design/logo-3.png
-
-If the user gave a primary color hint, use it; otherwise pick whatever fits."
+  --out "$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r1.md" \
+  "Apply this change: <user's edit request>. Regenerate and overwrite the same PNG path."
 ```
 
-After generation, immediately open all 3 (macOS):
-```bash
-open <root>/dev/docs/design/logo-1.png \
-     <root>/dev/docs/design/logo-2.png \
-     <root>/dev/docs/design/logo-3.png
+Iterate until the user approves. Once approved, proceed to the cropping step below.
+
+### Slicing the parts grid into individual PNGs
+
+Once the user approves the page+parts image, read the bottom 35 % via Vision and produce a manifest at `$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/manifest.json`:
+
+```json
+{
+  "rows": 3,
+  "cells": [
+    { "row": 0, "col": 0, "name": "primary-button" },
+    { "row": 0, "col": 1, "name": "primary-button-hover" },
+    { "row": 0, "col": 2, "name": "primary-button-disabled" }
+  ]
+}
 ```
 
-**File format verification:**
-```bash
-file <root>/dev/docs/design/logo-{1,2,3}.png | grep -v "PNG image"
-```
-If anything other than PNG appears, ask Codex to regenerate.
+`name` is a `kebab-case` slug derived from the visible label under each cell.
 
-User selects one → copy to `<root>/dev/docs/design/logo-final.png` (real copy, not symlink).
-
-### Interactive refinement (logo)
-
-When user says "**make concept 1 bluer**", **resume the same session and call codex-ask.sh again**:
+Then crop deterministically:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --out <root>/.my-harness/codex-logo-r1.md \
-  "Make concept 1 a bit more blue and simpler. Regenerate and overwrite the same path."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
+  "$ROOT" "<platform>" "<screen-slug>" \
+  "$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/manifest.json"
 ```
 
-Key points:
-- **Never add `--reset-session`** (destroys context)
-- **Never re-attach `--context`** with the spec (it's already in session)
-- Repeat N times to iteratively refine. Once approved, copy to `logo-final.png`.
+Output: `$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/<name>.png` for every cell.
 
-### UI mock generation (per screen, per platform — one screen per turn)
+Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface plainly: "ImageMagick is required for slicing the parts grid. Install with `brew install imagemagick` (macOS) or `apt install imagemagick` (Linux), then retry."
 
-For each screen in each platform's list, call once. **Generate ONE screen per turn** so the user can iterate before the next is rendered.
+### TSX component extraction
 
-```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
-  --role designer \
-  --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
-  --out <root>/.my-harness/codex-mock-<platform>-<screen>.md \
-  "\$imagegen You're designing the '<screen name>' screen of $PROJECT_NAME on <platform>. The chosen logo is in the attached context. Read the spec to learn what this screen does, then propose 2 genuinely different concepts — different layout, hierarchy, interaction patterns; not just color variants. Your call on the visual style (icons, type, palette, density). Implementation will reconcile to design rules later; right now, explore freely.
+For every cropped part PNG, read the image (Vision) and write a real React + Tailwind component at:
 
-Technical constraints:
-- Output via the image_gen tool (gpt-image-2). HTML/CSS, Playwright/Puppeteer screenshots, SVG, canvas rasterization — all prohibited.
-- PNG format.
-- Resolution suggestion: ~1280x800 for web/desktop, ~375x812 for mobile (approximate — pick what suits the layout).
-- One image_gen call per concept; 2 calls total.
-
-Save to:
-- <root>/dev/docs/design/mock-<platform>-<screen>-1.png
-- <root>/dev/docs/design/mock-<platform>-<screen>-2.png"
+```
+$ROOT/dev/src/components/design/<platform>/<screen-slug>/<PartName>.tsx
 ```
 
-Open both, run the same `file` PNG verification, and ask the user to pick one.
+Each component:
+
+- Implements the visual using Tailwind classes (or `rules/design.md`-compliant CSS).
+- Uses Lucide icons where icons appear.
+- Accepts props matching the visible variants (`disabled`, `variant`, `size`, etc.) — one prop per state variant seen in the grid.
+- Includes a `/** 概要: ... */` JSDoc comment naming the part.
+- Imports nothing AI-style (no gradients, no purple-blue gradients per `rules/design.md`).
+
+The cropped PNG remains as a reference (path noted in JSDoc); the TSX component is the canonical implementation used by `harness-team-lead` during the build phase.
 
 ### Crucial post-mock drill (NEW — runs after EVERY mock)
 
@@ -1405,9 +1403,7 @@ Save phase 1+3+6 results to `dev/docs/spec/06-tools.md` and `dev/docs/talk/06-to
 
 If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role architect \
-  --out <root>/.my-harness/codex-phase6.md \
-  "DiscoverySheet + structure + features + visualMocks + tool decisions: <paste config + visualMocks JSON>. Point out tool choices that contradict any mock's decisionsRevealed entry."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 6 "$ROOT"
 ```
 Then summarize findings in plain language. If "no", skip.
 
@@ -1467,9 +1463,7 @@ Save the final mermaid + answers + the 7 drill answers per entity to `dev/docs/s
 
 If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
-~/my-harness-generator/scripts/codex-ask.sh --role architect \
-  --out <root>/.my-harness/codex-phase7.md \
-  "Data model with per-entity lifecycle / GDPR / permissions / cardinality / migration drills: <paste>. Point out normalization issues, GDPR gaps, permission contradictions, and any cardinality that the BACKEND_KIND can't sustain."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 7 "$ROOT"
 ```
 Then summarize findings in plain language. If "no", skip.
 
@@ -1485,9 +1479,7 @@ Read all of `dev/docs/spec/0[1-7]-*.md` and `init-state.json` (`visualMocks[]`) 
 
 If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
-${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh --role code-reviewer \
-  --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/*.png -- \
-  "Point out inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality. Pay special attention to whether tool choices in spec/06-tools.md match every visualMocks[].decisionsRevealed entry, and whether spec/07-data-model.md addresses all GDPR / permissions / cardinality / migration drills."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/consult-phase.sh" 8 "$ROOT"
 ```
 Then summarize findings in plain language. If "no", skip.
 
