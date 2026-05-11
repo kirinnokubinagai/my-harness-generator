@@ -1031,17 +1031,23 @@ Once the user approves the page+parts image, read the bottom 35 % via Vision and
 
 `name` is a `kebab-case` slug derived from the visible label under each cell.
 
-Then crop deterministically:
+Then crop deterministically. The script outputs **transparent-background PNGs** (4-corner flood-fill removes the white grid background while preserving any white pixels inside the component) directly to a runtime-accessible path and emits a TypeScript manifest:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
   "$ROOT" "<platform>" "<screen-slug>" \
-  "$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/manifest.json"
+  "$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json"
 ```
 
-Output: `$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/<name>.png` for every cell.
+Outputs:
+
+- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. Lives under `public/` so it's reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
+- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json` — copy of the cell manifest (for reference).
+- `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; exported `parts` object maps each cell name (camelCase key) to its public URL. Used by the TSX components below.
 
 Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface plainly: "ImageMagick is required for slicing the parts grid. Install with `brew install imagemagick` (macOS) or `apt install imagemagick` (Linux), then retry."
+
+The manifest.json the user produces before this step should be written to the same output directory (`$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json`).
 
 ### TSX component extraction
 
@@ -1051,15 +1057,24 @@ For every cropped part PNG, read the image (Vision) and write a real React + Tai
 $ROOT/dev/src/components/design/<platform>/<screen-slug>/<PartName>.tsx
 ```
 
+The same directory already has a `parts.ts` (emitted by `crop-parts.sh`) mapping each part to its public URL — components import from there:
+
+```tsx
+import { parts } from './parts';
+// parts.primaryButton          -> '/design/parts/web/login/primary-button.png'
+// parts.primaryButtonHover     -> '/design/parts/web/login/primary-button-hover.png'
+```
+
 Each component:
 
-- Implements the visual using Tailwind classes (or `rules/design.md`-compliant CSS).
-- Uses Lucide icons where icons appear.
+- Implements the visual using Tailwind classes (or `rules/design.md`-compliant CSS) for any element that can be recreated in code.
+- For decorative graphics / illustrations / icons that cannot be cleanly recreated in code, renders the transparent PNG via `<img src={parts.<key>} />` or Next.js `<Image>` directly.
+- Uses Lucide icons where icons appear (per `rules/design.md`).
 - Accepts props matching the visible variants (`disabled`, `variant`, `size`, etc.) — one prop per state variant seen in the grid.
 - Includes a `/** 概要: ... */` JSDoc comment naming the part.
-- Imports nothing AI-style (no gradients, no purple-blue gradients per `rules/design.md`).
+- Imports nothing AI-style (no purple-blue gradients per `rules/design.md`).
 
-The cropped PNG remains as a reference (path noted in JSDoc); the TSX component is the canonical implementation used by `harness-team-lead` during the build phase.
+The cropped PNG remains accessible as a runtime asset (via `parts.ts`); the TSX component is the canonical implementation used by `harness-team-lead` during the build phase. The two coexist: code is the source of truth for behavior + accessibility; the PNG is the source of truth for pixel reference and as a fallback for hard-to-recreate visuals.
 
 ### Crucial post-mock drill (NEW — runs after EVERY mock)
 
