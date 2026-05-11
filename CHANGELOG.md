@@ -6,248 +6,273 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
 ## [7.0.4] — 2026-05-11
 
-実プロジェクト (ブログアプリ) でインタビュー継続中のユーザーから:
+User feedback during a real-project interview (blog app):
 
-> セキュリティだけどこれは普遍なものでしょ？なんで私にいちいち聞くわけ？
-> 聞かずに完璧なセキュリティにしてください。そういうのが多すぎます。
-> 質問が長すぎる。改善余地があるなら直してください。
+> Security is universal. Why are you asking me about it every time? Apply
+> complete security automatically without asking. There's too much of this.
+> The questions are too long. Fix what can be improved.
 
-ご指摘の通り、harness は universal best-practice を user に選ばせては
-いけない。Phase 2 NON-NEGOTIABLE rules を 3 件追加し、構造的に防止:
+Three Phase 2 NON-NEGOTIABLE rules added to structurally prevent the failure.
 
 ### Rule 6: Universal-default policy
 
-`rules/production.md` で決まる engineering practices は **聞かずに自動適用**。
-インタビューが訊くのは **product 判断** (機能・エンティティ・UX) のみ。
-具体的な禁止質問パターン表 (9 ケース) を SKILL.md に明示:
+Engineering practices governed by `rules/production.md` are **applied
+automatically without asking**. The interview asks only about **product**
+decisions (features / entities / UX). Specific forbidden question patterns
+documented in `SKILL.md` (9 cases):
 
-- "シークレット混入の主犯はどっち？" → 禁止 (全層常時 on)
-- "ログ送信先は？" → 禁止 (pino default、env で override)
-- "暗号化は？" → 禁止 (TLS 1.3 + bcrypt ≥ 12 + AES-256)
-- "レート制限は？" → 禁止 (常時 yes)
-- "バックアップ保持期間は？" → 禁止 (30d hot + 1y cold default)
-- "CSP report-only vs enforce?" → 禁止 (7d report → enforce 自動)
-- "LLM 自動投稿に承認は要る？" → 禁止 (draft + human gate 一択)
-- "TS strict は？" → 禁止 (常時 strict + noUncheckedIndexedAccess)
-- "コミット前 hook は？" → 禁止 (常時 husky + biome + gitleaks)
+- "Which security layer should we invest in first?" → forbidden (all layers always on)
+- "Where should logs go?" → forbidden (pino default; env override only)
+- "What encryption strength?" → forbidden (TLS 1.3 + bcrypt ≥ 12 + AES-256)
+- "Should we have rate limiting?" → forbidden (always yes)
+- "Backup retention?" → forbidden (30 d hot + 1 y cold)
+- "CSP report-only vs enforce?" → forbidden (7 d report → enforce automatic)
+- "Should LLM auto-post require approval?" → forbidden (draft + human gate is the only sane default)
+- "How strict should TypeScript be?" → forbidden (always strict + `noUncheckedIndexedAccess`)
+- "Pre-commit hooks?" → forbidden (always husky + biome + gitleaks)
 
-迷ったら「最も厳しい production default を適用 + rules/production.md /
-runbook に記述」。質問にはしない。
+When in doubt: apply the strictest production default and document it in
+`rules/production.md` or a runbook. Never ask.
 
 ### Rule 7: Question length cap
 
-ユーザー向け質問 + 前置きは **5 行以内**。4 層脅威モデルのような
-framework explanation は rules/ / docs/ に置いて agent が黙読する。
-> 5 行の preamble が要るなら質問が構造的に間違ってる → 分解するか
-default 適用してスキップ。
+Every user-facing question (preamble included) must fit in ≤ 5 lines. Long
+threat-model / 4-layer-framework explanations belong in `rules/` or `docs/`
+files for agents to read silently — never in the user-facing prompt. If
+> 5 lines of preamble are needed, the question is structurally wrong; break
+it into atomic questions or apply a default and skip.
 
 ### Rule 8: Binary when binary
 
-(A) (B) (C) の (C) が「A と B 両方やる」なら、それは Yes + caveat なので
-yes/no に整理する。3 択は本当に独立な選択肢のときだけ。
+When the realistic answer space is yes/no (e.g., "include local-LLM auto-post
+in v1?"), ask yes/no. 3-option questions where (C) is just "A and B with
+conditions" are forbidden — that's a `yes` with caveats, ask yes/no and apply
+caveats as defaults.
 
-### Privacy housekeeping (同 commit に含む)
+### Privacy housekeeping (same commit)
 
-- LICENSE copyright holder を `kirinnokubinagaiyo` から `my-harness-generator
-  contributors` に変更 (個人 macOS username が露出していた)
-- 全 git history blob から長形 username `kirinnokubinagaiyo` を `anonymous`
-  に置換 (filter-repo + force-push)
-- 全 commit author/committer を `anonymous <anonymous@noreply.local>` に
-  rewrite
-- 現リポの local `.git/config` も anonymous に設定 (今後のコミットも匿名)
+- `LICENSE` copyright holder changed from the personal macOS username to
+  `my-harness-generator contributors`.
+- All git history blobs scrubbed of the long-form personal username via
+  `git filter-repo --replace-text` (`anonymous` substitution).
+- All commits' author/committer rewritten to `anonymous <anonymous@noreply.local>`.
+- Local `.git/config` set to anonymous so future commits stay anonymous.
 
-これで marketplace.json / plugin.json / LICENSE / blob 履歴 / commit author
-すべてから personal markers が消えた。残るは GitHub URL 構造上の短形 GH
-ハンドルだけ。
+After this commit, `marketplace.json` / `plugin.json` / `LICENSE` / git history
+blobs / commit authorship contain zero personal markers. The only remaining
+exposure is the GitHub URL's short-form handle, which is structural.
 
 ## [7.0.2] — 2026-05-11
 
-Phase 2 (Discovery) の **scope-reduction バグ** を完全削除。実プロジェクト
-(ブログアプリ) でインタビューを試したユーザーから、次の指摘が出た:
+Removed the **scope-reduction bug** in Phase 2 (Discovery). User feedback
+from a real-project interview:
 
-> 質問が芯を食っていません。最高のものを作る事以外は考える必要がありません。
-> それ以外はありえないです。質問も私が答えた内容に重複しています。浅慮だと思います。
+> The questions are not on point. The only thing to consider is making the
+> best possible product; nothing else is acceptable. The questions also
+> duplicate what I just answered. This feels shallow.
 
-ご指摘通り、Phase 2 の設計に複数の構造的欠陥があった:
+Phase 2 had several structural flaws:
 
-### Fixed — opening prompt が「絞り込む」と宣言していた
+### Fixed — opening prompt declared "we'll narrow it down"
 
-- **修正前 (en):** "I'll ask follow-up questions and we'll narrow it down together."
-- **修正前 (ja):** "フォローアップの質問をしながら一緒に絞り込んでいきます。"
-- **修正後 (en):** "Your feature scope is yours to set; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream..."
-- **修正後 (ja):** "機能スコープを削る方向の質問はしません。私が深掘りするのは下流で必要になる制約 (失敗パターン・容量目標・反対しそうな人・半年後の運用) です。機能リストは尊重します。"
+- **Before (en):** "I'll ask follow-up questions and we'll narrow it down together."
+- **Before (ja):** "フォローアップの質問をしながら一緒に絞り込んでいきます。"
+- **After (en):** "Your feature scope is yours to set; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream..."
+- **After (ja):** "機能スコープを削る方向の質問はしません。私が深掘りするのは下流で必要になる制約 (失敗パターン・容量目標・反対しそうな人・半年後の運用) です。機能リストは尊重します。"
 
-### Fixed — 頻度質問が scope-reduction フレーミングだった
+### Fixed — frequency probe used a scope-reduction framing
 
-scaleBreakpoints の probe が「シンプル版が壊れる地点」を聞いていた。これは
-「シンプル版があり、壊れたら諦める」前提。production-grade では誤り。
-**修正:** 「**ピーク時に**性能劣化なく処理する必要がある規模 = 容量目標」を聞く。
-「ここまで持つように作る」と明示。
+The `scaleBreakpoints` probe asked "when does the simple version stop working?"
+That presupposes a simple version, and reducing features when it breaks. Wrong
+for production-grade. **Fix:** ask "what's the peak load this needs to handle
+without degrading" — a capacity target, not a feature-cut threshold. "We will
+scale to meet it" is now stated explicitly.
 
-### Added — 5 つの NON-NEGOTIABLE rules
+### Added — 5 NON-NEGOTIABLE rules at the top of Phase 2
 
-Phase 2 冒頭に追加:
+1. **Discovery NEVER reduces scope.** Production-grade means N features
+   listed by the user are all in scope. Frequency / volume questions are
+   for capacity targets only. Phrasings like "if only 5/month then DB is
+   overkill" are forbidden.
+2. **Max-scope fast-path.** Detect "全部 / max / フル装備 / all / everything /
+   maximum / fully equipped" answers — set `scaleExpectation = max` and skip
+   all volume probes. Re-asking with different wording is a bug.
+3. **First message ≥ 5 features → feature scope is locked.** Never ask
+   "do you need X?" for anything in the first message.
+4. **STRICT no-redundancy.** Rewording an already-asked question is a bug.
+   Three explicit ban examples added from the real transcript:
+   - "全部大事" → "月何本書く？" ← banned
+   - "max scale" → "but how many users specifically?" ← banned
+   - "ジャンル横断で" → restate then re-ask ← banned
+5. **Probes describe constraints, not choices.** Scope is fixed; only the
+   budget is being elicited.
 
-1. **Discovery NEVER reduces scope** — production-grade なので user が N
-   features 挙げたら N 全部 in-scope。Frequency / volume 質問は **capacity
-   targets** のみ。"if only 5/month then DB is overkill" の類は禁止。
-2. **Max-scope fast-path** — "全部 / max / フル装備 / all / everything /
-   maximum / 最高のもの / fully equipped" を検出したら `scaleExpectation = max`
-   を即セット、以降の volume 系 probe をスキップ。**同じ質問を別フレーズで
-   再質問するのは bug**。
-3. **最初のメッセージで ≥ 5 features が列挙されていたら**、feature scope は
-   確定。"do you need X" 系を絶対に聞かない。
-4. **同じ質問は二度しない (STRICT)** — 別フレーズの再質問も bug。具体的な
-   ban 例を 3 つ追加 (実トランスクリプトから):
-   - "全部大事" → "月何本書く？" ← ban
-   - "max scale" → "but how many users specifically?" ← ban
-   - "ジャンル横断で" → 同じ趣旨を別言で再質問 ← ban
-5. **Probes describe constraints, not choices** — scope は固定、budget だけ
-   引き出す。
+### Added — two new steps in the internal checklist
 
-### Added — internal checklist に 2 つの新ステップ
+- **Max-scope detector**: scan every reply for max-scope signals; once set,
+  volume / frequency probes are unreachable.
+- **Feature-list-from-first-message detector**: if the first message
+  enumerated ≥ 5 features, mark `topUserActions` derived and skip feature
+  probes entirely.
 
-- **Max-scope detector**: 全 reply を見て max-scope signal を検出、検出後は
-  volume / frequency probe を打てなくする。
-- **Feature-list-from-first-message detector**: 最初のメッセージで ≥ 5
-  feature が列挙されていれば `topUserActions` を確定済みにし、feature 系
-  probe をスキップする。
-
-これで「ブログアプリ + AI + リッチエディタ + 予約投稿 + 広告 + 検索 + Skills
-export + 動画埋め込み + X 連携 + SEO + GA + ローカル LLM + RSS + PWA…」と
-列挙したら、harness は機能を削ろうとせず、`scaleExpectation = max` で確定し
-**failure modes / trust / day-2 ops / latency budget** の deep drill にだけ
-集中する。
+With these rules, when the user lists "blog app + AI + rich editor +
+scheduled posts + ads + search + Skills export + video embeds + X
+integration + SEO + GA + local LLM + RSS + PWA…", the harness no longer
+tries to cut features. It locks `scaleExpectation = max` and focuses
+exclusively on failure modes / trust / day-2 ops / latency budget.
 
 ## [7.0.1] — 2026-05-11
 
-UX/copy 修正パッチ。インタビューの選択肢ラベルに付いていた **`(Recommended)`
-/ `（推奨）`** ラベル全削除 + `MVP` 文言の全削除。harness は本来「ユーザーの判
-断空間」であるべきで、根拠のない誘導をしてはいけない。
+UX/copy patch. Removed all **`(Recommended)` / `（推奨）`** labels from
+interview choices and all `MVP` wording from user-facing surfaces. The
+interview is the user's decision space; the harness must not steer it with
+unjustified opinions.
 
-### Fixed — interview の誘導語を全廃 (`skills/my-harness-init/SKILL.md`)
+### Fixed — all steering language removed from interview (`skills/my-harness-init/SKILL.md`)
 
 - Q2b Engineer runner: `Codex (Recommended)` → `Codex`
-- Q2c E2E reviewer: `Claude (Recommended)` → `Claude` (説明文も trade-off 形式に書き換え)
+- Q2c E2E reviewer: `Claude (Recommended)` → `Claude` (description reworked to trade-off form)
 - Q2d Reviewer runner: `Codex (Recommended)` → `Codex`
 - Q3 Global CLAUDE.md: `Inherit (Recommended)` → `Inherit`
-- Q4 Task management: `Local markdown (Recommended)` → `Local markdown` (説明文を trade-off に)
-- 各 Map 行から `(Recommended)` を削除、`No default applied.` を明示
+- Q4 Task management: `Local markdown (Recommended)` → `Local markdown` (description reworked to trade-off form)
+- Every Map line strips `(Recommended)` and adds `No default applied.`
 
-### Changed — Recommendation policy を strict 化
+### Changed — Recommendation policy hardened to strict
 
-`SKILL.md` 末尾の policy を「根拠があれば Recommended OK」から **「いかなる選択肢にも `(Recommended)` / `(推奨)` / `Default` / `デフォルト` を付与してはいけない」** に強化。根拠がある場合は質問の前に独立した文として提示し、選択肢ラベルには載せない。
+The SKILL.md trailing policy was upgraded from "Recommended is OK if
+justified" to **"Never add `(Recommended)` / `(推奨)` / `Default` /
+`デフォルト` to any choice label or description"**. If a real
+user-derived justification exists, surface it as a separate sentence before
+the question — never as a label on a choice.
 
-### Added — MVP wording forbidden 規約
+### Added — MVP wording forbidden policy
 
-`SKILL.md` policy セクションに「MVP という語は user-facing で禁止」を追記。代替: `first version` / `initial release` / `before launch`。
+`SKILL.md` policy section now bans "MVP" in user-facing copy. Replacements:
+`first version` / `initial release` / `before launch`.
 
-### Fixed — MVP 文言削除
+### Fixed — MVP wording removed
 
-- `rules/production.md` 冒頭の "what an MVP must add" → "what every generated project must have before its first launch"
+- `rules/production.md`: "what an MVP must add" → "what every generated project must have before its first launch"
 - `docs/PRODUCTION.md`: "not just MVPs" → "with full controls"
 - `README.md`: "no longer scaffolds an MVP" → "scaffolds projects with production controls wired in"
-- `README.ja.md`: "MVP スキャフォールドではなく" → "そのまま本番に出せる" (重複削除)
+- `README.ja.md`: same direction in Japanese
 - `docs/MULTI_TENANT.md`: "POC / MVP 段階" → "個人プロジェクト / 検証段階"
-- `CHANGELOG.md` 5.0.0 / 7.0.0 エントリの MVP 言及を中立表現に置換
+- `CHANGELOG.md` 5.0.0 / 7.0.0 entries' MVP mentions rewritten to neutral phrasing
 
-### Fixed — `USE_CODEX_E2E_REVIEWER` の非対称な default
+### Fixed — asymmetric `USE_CODEX_E2E_REVIEWER` default
 
-`bootstrap.sh` で USE_CODEX_E2E_REVIEWER だけ default `"n"` (Claude) だったのを `"y"` に揃えた。他の `USE_CODEX_*` (analyst / engineer / reviewer) はすべて default `"y"` (Codex) だったので、根拠不明な非対称が解消。質問文の "test execution stays local" という誤解を生む補足も削除し "Playwright/Maestro always run under Claude" に改めた (実際の挙動は何も変わらない — Codex に渡るのは synthesis のみで execution は常に Claude)。
+`bootstrap.sh` had `USE_CODEX_E2E_REVIEWER` default as `"n"` (Claude) while
+the other `USE_CODEX_*` (analyst / engineer / reviewer) defaulted to `"y"`
+(Codex). The unjustified asymmetry is removed (all four now default `"y"`).
+The misleading prompt suffix "test execution stays local" was replaced with
+"Playwright/Maestro always run under Claude" (behaviour unchanged — only
+synthesis goes to Codex; execution always runs in Claude).
 
 ## [7.0.0] — 2026-05-11
 
-**研究色の濃いアイデア (16-24) を 1 段ずつ最小実装に落とした「ops surface」リリース。**
-スキャフォルドそのものは 6.0.0 で完成しているので、7.0.0 は **運用フェーズ** で
-効くツール群を一気に揃える。
+**Ops surface release.** Research-flavored ideas (items 16–24) shipped as
+MVP implementations. The scaffold itself was complete at 6.0.0; 7.0.0
+covers the **operations phase** with tooling that pays off after the
+project is live.
 
-### Added — Pipeline 性能ベンチ (item 16)
+### Added — Pipeline performance benchmark (item 16)
 
-- `scripts/bench.sh` — 固定 `.config` で bootstrap を走らせ、所要 ms を
-  `bench-results.jsonl` に追記。プラグイン更新ごとに走らせれば performance
-  regression を早期検出できる。出力に git rev を含めるので diff が読める。
+- `scripts/bench.sh` — runs bootstrap against a fixed `.config` and appends
+  the timing (ms) to `bench-results.jsonl`. Run on every plugin update to
+  detect performance regressions early. Output includes git rev so diffs
+  are readable.
 
-### Added — Spec → Playwright E2E 自動生成 (item 17)
+### Added — Spec → Playwright E2E generation (item 17)
 
-- 新 skill: `harness-gen-e2e` (`skills/harness-gen-e2e/SKILL.md`)
-- `scripts/gen-e2e.sh` — `dev/docs/spec/features.md` の `## Feature: <name>` を
-  awk で分割し、各機能を `prompts/spec-to-e2e.md` テンプレートに埋めて
-  `codex-ask.sh --role harness-engineer` に渡す
-- `prompts/spec-to-e2e.md` — 「happy 1 + sad 2、`data-testid` 優先、API モック禁止、
-  ユーザー観点 assertion」の生成ルールをプロンプトに固定
-- 既存テストは skip、`--dry-run` でプロンプトのみ確認可
+- New skill `harness-gen-e2e` (`skills/harness-gen-e2e/SKILL.md`).
+- `scripts/gen-e2e.sh` — splits `dev/docs/spec/features.md` on
+  `## Feature: <name>` with awk, embeds each feature into
+  `prompts/spec-to-e2e.md`, and passes the result to `codex-ask.sh --role harness-engineer`.
+- `prompts/spec-to-e2e.md` — fixes the generation rules: 1 happy + 2 sad
+  paths, `data-testid` priority, no API mocking, user-perspective
+  assertions.
+- Existing tests skipped; `--dry-run` shows just the prompt.
 
 ### Added — Time-travel debugging (item 18)
 
-- `scripts/replay-agent.sh` — `.my-harness/logs/agents.log` から `--lane <N>` /
-  `--name <teammate>` / `--since <ISO>` / `--until <ISO>` で絞り込み、過去の
-  レーン動作を時系列で再生する。postmortem や教育素材として使える。
+- `scripts/replay-agent.sh` — filters `.my-harness/logs/agents.log` by
+  `--lane <N>` / `--name <teammate>` / `--since <ISO>` / `--until <ISO>`
+  and replays past lane activity in chronological order. Useful for
+  postmortems and as teaching material.
 
 ### Added — Living architecture diagram (item 19)
 
-- `scripts/architecture-diagram.sh` — `dev/src/` の相対 import を辿り、
-  Clean Architecture の層別 (interfaces / application / domain / infrastructure) に
-  クラスタリングした Mermaid 図を `dev/docs/architecture.mmd` に出力。
-  layer ルール (`domain ← application ← others`) 違反を `architecture-meta.json`
-  にリストアップし、違反があれば exit 2。
-- `templates/github/workflows/architecture-diagram.yml` — `src/**` への PR で
-  自動再生成 + 違反検出時に PR fail。違反なければ commit が自動 push される。
+- `scripts/architecture-diagram.sh` — traces relative imports under
+  `dev/src/`, clusters files by Clean Architecture layer (interfaces /
+  application / domain / infrastructure), emits a Mermaid diagram at
+  `dev/docs/architecture.mmd`. Layer-rule violations
+  (`domain ← application ← others`) listed in `architecture-meta.json`
+  with exit 2 on violation.
+- `templates/github/workflows/architecture-diagram.yml` — re-runs on PRs
+  that touch `src/**`; fails the PR on violations, otherwise commits the
+  refreshed diagram automatically.
 
 ### Added — AI-suggested rollback (item 20)
 
-- `templates/github/workflows/auto-revert.yml` — `pr-to-stage.yml` が
-  workflow_run failure を返した場合、自動で:
-  1. 直近の main → stage マージコミットを特定
-  2. `revert/auto-<run-id>` ブランチを切って `git revert -m 1`
-  3. `approved-for-stage` + `auto-revert` ラベル付きで PR を作成 (24h soak スキップ)
-  4. on-call 向けの postmortem 案内を body に埋める
+- `templates/github/workflows/auto-revert.yml` — fires when
+  `pr-to-stage.yml` returns workflow_run failure:
+  1. Identifies the most recent main → stage merge commit.
+  2. Branches `revert/auto-<run-id>` and runs `git revert -m 1`.
+  3. Opens a PR with labels `approved-for-stage` + `auto-revert`
+     (skipping the 24-h soak).
+  4. Embeds postmortem guidance for on-call in the body.
 
-### Added — Codex コスト透明性 (item 22)
+### Added — Codex cost transparency (item 22)
 
-- `scripts/cost.sh` — `.my-harness/logs/codex-cost.jsonl` を読み、role 別 /
-  model 別 / 期間別の集計を出力。`--json` で機械可読。デフォルト単価:
-  gpt-5 ($5/1M in, $15/1M out)、o4-pro ($10/$30)、codex-mini ($1/$4)。
-  ※ `codex-ask.sh` / `codex-exec.sh` 側で token 数を書き出す改修は別途必要
-  (本リリースは集計層のみ — instrumentation は 7.1.0 で予定)
+- `scripts/cost.sh` — reads `.my-harness/logs/codex-cost.jsonl` and
+  aggregates by role / model / time range. `--json` for machine output.
+  Default unit prices: gpt-5 ($5/1M in, $15/1M out), o4-pro ($10/$30),
+  codex-mini ($1/$4).
+- Note: token-counting in `codex-ask.sh` / `codex-exec.sh` (the producer
+  side) is deferred to 7.1.0. This release ships only the aggregation layer.
 
-### Added — Spec → Issue → Lane の閉ループ (item 24)
+### Added — Spec → Issue → Lane closed loop (item 24)
 
-- `scripts/spec-to-issues.sh` — `features.md` の各 `## Feature: <name>` を 1 issue
-  にし、YAML フロントマターの `owned_files` / `lane_hint` を抽出して
-  `gh issue create --label lane-hint:<N>` で登録。既存タイトル一致は skip
-  (冪等)。`--dry-run` でプレビュー可。
-- 仕様: `harness-team-lead` 側で `lane-hint:` ラベルと issue body の
-  `<!-- owned_files: [...] -->` コメントを読み取り、レーン割当の入力として
-  使う (lead SKILL.md の修正は 7.1.0 予定)
+- `scripts/spec-to-issues.sh` — turns each `## Feature: <name>` in
+  `features.md` into one GitHub issue. Extracts `owned_files` /
+  `lane_hint` from YAML frontmatter and labels the issue with
+  `lane-hint:<N>`. Idempotent (skips when title already exists).
+  `--dry-run` for preview.
+- The lead-side wiring (reading the `lane-hint:` label and
+  `<!-- owned_files: [...] -->` body comment for lane assignment) is
+  deferred to 7.1.0.
 
 ### Added — Cloudflare MCP server (item 23)
 
-- `templates/mcp/cloudflare-server.ts` — `@modelcontextprotocol/sdk` ベースの
-  stdio MCP server。Claude Code / Cursor / Aider 等から:
-  - `list_workers` — アカウント内 Worker 一覧
-  - `list_deployments` — 指定 Worker のデプロイ履歴
-  - `rollback_deployment` — 指定 deployment ID にロールバック
-  - `d1_query` — D1 に **SELECT のみ** 実行 (DML は server 側で拒否)
-  を呼び出せる。デプロイ後の運用を AI から直接実行できる。
+- `templates/mcp/cloudflare-server.ts` — stdio MCP server built on
+  `@modelcontextprotocol/sdk`. Tools exposed to Claude Code / Cursor /
+  Aider:
+  - `list_workers` — list Workers in the account
+  - `list_deployments` — deployment history for a Worker
+  - `rollback_deployment` — roll back to a specific deployment id
+  - `d1_query` — execute **SELECT only** queries (DML is rejected
+    server-side)
 
 ### Added — Multi-tenant migration guide (item 21)
 
-- `docs/MULTI_TENANT.md` — `tenant_id` カラム追加、`tenants` テーブル設計、
-  JWT に `tid` claim を埋める、tenant middleware、repository 全関数の第 2
-  引数を tenantId に強制、rate-limit を per-tenant に切替、UNIQUE 制約の
-  複合化、削除ポリシー (onDelete: restrict + 30 日論理削除 + GDPR 連携)、
-  CI チェック追加までの完全手順。
-- 戦略 3 種 (共有 DB / Schema 分離 / 完全分離 D1) の比較表付き。harness の
-  default は意図的に single-tenant のまま — multi-tenant は **早ければ早い
-  ほど安い** ので「production 前に検討せよ」と明示。
+- `docs/MULTI_TENANT.md` — full procedure for retrofitting `tenant_id`
+  columns, designing the `tenants` table, adding `tid` JWT claims,
+  writing a tenant middleware, forcing `tenantId` as the second
+  parameter of every repository function, converting rate-limit to
+  per-tenant, composite UNIQUE constraints, deletion policy (`onDelete:
+  restrict` + 30-day logical delete + GDPR), and CI enforcement.
+- Includes a comparison table of three strategies (shared DB / schema
+  isolation / per-tenant D1). The harness default is intentionally
+  single-tenant — multi-tenant is **cheaper the earlier you do it**, so
+  the doc explicitly says "consider before production".
 
-### 既知の積み残し (7.1.0 以降)
+### Known deferrals (planned for 7.1.0 and later)
 
-- Codex token instrumentation (`codex-ask.sh` / `codex-exec.sh` を改修して
-  `codex-cost.jsonl` を書き出す)
-- `harness-team-lead` SKILL.md に `lane-hint:` ラベル読み取りを配線
-- multi-tenant ESLint カスタムルール
-- spec-to-e2e の fixture (`tests/e2e/fixtures/auth.ts`) 自動生成
+- Codex token instrumentation (modify `codex-ask.sh` / `codex-exec.sh` to
+  write `codex-cost.jsonl`).
+- Wire the `lane-hint:` label into `harness-team-lead` SKILL.md.
+- Multi-tenant ESLint custom rule.
+- Auto-generate `tests/e2e/fixtures/auth.ts` for spec-to-e2e.
 
 ## [6.0.0] — 2026-05-11
 
