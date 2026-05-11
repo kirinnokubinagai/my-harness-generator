@@ -66,9 +66,9 @@ PARTS_TS="$TS_DIR/parts.ts"
   printf 'export const parts = {\n'
 } > "$PARTS_TS"
 
-# Tolerate "fuzz" not being supported in old IM; we'll fall back to plain crop without transparency.
+# -fuzz is a core ImageMagick option present in every version >= 6. 5 % tolerance
+# catches anti-aliased near-white edges; pure white grid bg stays the target.
 FUZZ_OPT="-fuzz 5%"
-if ! $IM -list option 2>/dev/null | grep -q fuzz; then FUZZ_OPT=""; fi
 
 camel_case() {
   printf '%s' "$1" | awk -F'-' '{

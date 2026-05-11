@@ -10,7 +10,7 @@
 
 ## What it does
 
-Runs a structured interview, optionally consults Codex for second opinions, generates logo + UI mocks, settles the stack, and produces a fully wired-up **production-grade** monorepo with branch protection, CI, git hooks, security middleware, runbooks, and parallel-lane conventions — from one slash command. First commit is green, `main`/`stage`/`dev` are protected, every conversation auto-logs to `dev/docs/talk/` with secrets masked.
+Runs a structured interview, optionally consults Codex for second opinions, generates per-screen page+parts mocks (full page on top, transparent-cropped grid of every UI component on the bottom — auto-extracted as runtime PNG assets + matching TSX components), settles the stack, and produces a fully wired-up **production-grade** monorepo with branch protection, CI, git hooks, security middleware, runbooks, and parallel-lane conventions — from one slash command. First commit is green, `main`/`stage`/`dev` are protected, every conversation auto-logs to `dev/docs/talk/` with secrets masked.
 
 ## Production-grade by default (5.0+)
 
@@ -27,7 +27,7 @@ See [`docs/PRODUCTION.md`](./docs/PRODUCTION.md) for the file-by-file map.
 
 ## Highlights
 
-- **`/my-harness-init`** — guided interview → spec markdowns → `bootstrap.sh`. Optional Codex CLI for multi-turn dialogue + `gpt-image-2` logo / UI mocks.
+- **`/my-harness-init`** — guided interview → spec markdowns → `bootstrap.sh`. Optional Codex CLI for multi-turn dialogue + `gpt-image-2` page+parts mock generation (per-screen image containing the full page on top and a transparent-cropped grid of every UI component on the bottom).
 - **Per-platform framework choice** — Web (`nextjs`/`tanstack`), iOS (`swift`/`expo`/`flutter`), Android (`kotlin`/`expo`/`flutter`), Desktop (`tauri`/`electron` × macOS/Windows/Linux), Backend (`hono`/`gin`/`rust`), DB (`d1`/`postgres`/`mysql`/`sqlite`). Independent choices.
 - **Parallel lanes via Agent Teams** — `/harness-team-lead` runs up to `MAX_LANES` (1..4) lanes × 4 roles. Lanes added one at a time after the per-lane RAM/swap/compressor gate; OS-aware MAX_LANES recommendation accounts for macOS memory compression + live `memory_pressure`. After each PR the lane's four teammates `/clear`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
@@ -71,7 +71,7 @@ Restart Claude Code (or `/clear`) so the new skills and hooks load. Verify with 
 | 2 | Discovery | Open conversation — failure modes, pushback, scale, trust, differentiation, day-2 ops |
 | 3 | Structure | Architecture (client-server / serverless / pure P2P / hybrid P2P) + platforms |
 | 4 | Features | Whole-project feature list drilled per feature (access / failure / observability / latency budget / etc) |
-| 5 | Visual | Logo (3) + 3–5 UI mocks per platform via Codex `gpt-image-2`; drill after each |
+| 5 | Visual | 3–5 page+parts mocks per platform via Codex `gpt-image-2` (full page + transparent-cropped components grid in one image); auto-extracted to `dev/public/design/parts/` + matching TSX components; drill after each |
 | 6 | Tools | Framework / backend / DB / package manager / email / E2E / Claude Code Action — referencing the approved mocks |
 | 7 | Data model | Entities + relationships + PII (mermaid ER); drilled per entity |
 | 8 | Bootstrap | Cross-check, run `bootstrap.sh`, generate initial issues / task files |

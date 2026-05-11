@@ -9,7 +9,7 @@
 #
 #          Codex CLI uses ChatGPT subscription auth via `codex login`. Run it once before using
 #          this script. Image generation, model selection, etc. are Codex features — Claude simply
-#          asks "Please save the logo to <path>" in normal conversation. This bridge does nothing extra.
+#          asks "Please save the image to <path>" in normal conversation. This bridge does nothing extra.
 #
 # Usage:
 #   codex-ask.sh "prompt"                                      # one-shot (no session)

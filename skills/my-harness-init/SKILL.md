@@ -1,6 +1,6 @@
 ---
 name: my-harness-init
-description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates the complete feature list with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates the logo + per-platform UI mocks (3–5 screens each) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
+description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates the complete feature list with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates per-platform page+parts mocks (one high-resolution image per screen, top is full page mock, bottom is a transparent-cropped grid of every UI component used; auto-extracted to dev/public/design/parts/ + dev/src/components/design/) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
 ---
 
 # /my-harness-init
@@ -55,7 +55,7 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 
 1. **An open discovery conversation** (Phase 2) where Claude asks free-form, drilling questions and maintains a structured `discoverySheet` internally — including failure modes, resistance, scale breakpoints, trust, differentiation, and day-2 operations. Discovery is where requirements actually crystallize.
 2. **Structural choices first** (Phase 3) — only architecture and platforms. Specific tools are deferred.
-3. **Visual mocks become the source of truth** (Phase 5) — the logo plus 3–5 mocks per chosen platform are generated and iterated on, then the visible elements (lists, forms, charts, real-time indicators, offline banners) drive every downstream decision.
+3. **Visual mocks become the source of truth** (Phase 5) — 3–5 page+parts mocks per chosen platform are generated and iterated on (one image per screen contains the full page on top and a transparent-cropped grid of every UI component on the bottom). Visible elements (lists, forms, charts, real-time indicators, offline banners) drive every downstream decision.
 4. **Tool selection is informed by mocks** (Phase 6). Frameworks, DB, package manager, email, e2e, Claude Code Action are chosen with the mocks open so we can say "this dashboard needs real-time → choose framework with realtime story" rather than asking blind.
 5. **Data model is reverse-engineered from mocks + discovery** (Phase 7) and drilled deeply — GDPR scope, access permissions, cardinality reality, migration scenarios.
 
@@ -65,7 +65,7 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 
 - **Plain language the user already understands. No harness-invented compounds.** Use the most common product name or everyday Japanese / English word for a concept. Examples: say "Web アプリ" / "Web app" rather than `client-server`; say "Codex の二次チェック" / "second look from Codex" rather than `Codex consult`; say "前の会話で決めた範囲" rather than `discoverySheet`. **If you are about to write a hyphenated compound, stop and check: is this a word the user has seen elsewhere?** If not, replace with a normal phrase. Made-up compounds are a bug.
 
-- **Codex second-opinion is opt-in per occurrence.** The harness must NEVER run `codex-ask.sh --role analyst|architect|harness-reviewer|code-reviewer` (or any Codex second-opinion call) without asking the user first. Even when `USE_CODEX=yes`, treat each occurrence as a separate ask. Image generation (logo / UI mocks) and session management (`--set-active` / `--clear-active`) are NOT second-opinions — those run normally per phase. Only the **review / verification** calls require asking. The ask template:
+- **Codex second-opinion is opt-in per occurrence.** The harness must NEVER run `codex-ask.sh --role analyst|architect|harness-reviewer|code-reviewer` (or any Codex second-opinion call) without asking the user first. Even when `USE_CODEX=yes`, treat each occurrence as a separate ask. Image generation (page+parts mocks via `gen-page-parts.sh`) and session management (`--set-active` / `--clear-active`) are NOT second-opinions — those run normally per phase. Only the **review / verification** calls require asking. The ask template:
   - **LANG=en:** "Want me to ask Codex for a second look at this? (yes / no)"
   - **LANG=ja:** "ここまでの内容について、Codex に二次チェックしてもらいますか? (はい / いいえ)"
 
@@ -142,7 +142,7 @@ Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitl
 | 2 | Discovery | Open conversation + deep drill (failure / resistance / scale / trust / differentiation / day-2) |
 | 3 | Structure | Architecture + platform multi-select only |
 | 4 | Features | Complete feature list + deep per-feature drill |
-| 5 | Visual | Logo + 3–5 mocks per platform; mocks become source of truth |
+| 5 | Visual | 3–5 page+parts mocks per platform; auto-crop transparent parts → assets + TSX; mocks become source of truth |
 | 6 | Tools | Framework / backend / DB / package manager / email / e2e / Claude Code Action — informed by mocks |
 | 7 | Data model | Per-entity drill (lifecycle / GDPR / permissions / cardinality / migration) |
 | 8 | Bootstrap | Spec finalize + bootstrap.sh + issues / tasks |
@@ -314,8 +314,8 @@ Use `AskUserQuestion` with **named options** (do NOT phrase as y/n):
     "header": "AI helpers",
     "multiSelect": false,
     "options": [
-      { "label": "Claude only", "description": "Default. Everything runs end-to-end with Claude alone — no extra setup. Visual phase falls back to text-only brand briefs (no generated logo/mocks)." },
-      { "label": "Claude + Codex", "description": "Adds OpenAI's Codex CLI for second-opinion design/code review and `gpt-image-2` logo + UI mock generation. Requires `npm install -g @openai/codex` and `codex login` (ChatGPT subscription)." }
+      { "label": "Claude only", "description": "Default. Everything runs end-to-end with Claude alone — no extra setup. Visual phase falls back to text-only mock descriptions (no generated images)." },
+      { "label": "Claude + Codex", "description": "Adds OpenAI's Codex CLI for second-opinion design/code review and `gpt-image-2` page+parts mock generation. Requires `npm install -g @openai/codex` and `codex login` (ChatGPT subscription)." }
     ]
   }]
 }
@@ -942,7 +942,7 @@ Update `init-state.json` to `current_phase: "visual"`.
 
 ---
 
-## Phase 5 — Visual (logo + per-platform UI mocks; mocks are source of truth)
+## Phase 5 — Visual (per-platform page+parts mocks; mocks are source of truth)
 
 The mocks generated here become the **source of truth** for Phase 6 (tool selection) and Phase 7 (data model). Their visible elements (lists, forms, toggles, tabs, charts, real-time indicators, offline banners) are the inputs for tool decisions.
 
@@ -1122,13 +1122,13 @@ When USE_CODEX=no, skip image generation and instead, for each screen, **draft a
 
 ### Completion criteria
 
-- [ ] One logo concept finalized
+- [ ] One page+parts concept per screen finalized
 - [ ] 3–5 mocks selected per chosen platform (USE_CODEX=yes only; text mocks otherwise)
 - [ ] Every mock has the 3-question post-mock drill answered
 - [ ] OG image / favicon generated
 - [ ] `visualMocks[]` in `init-state.json` populated, `decisionsRevealed` non-empty for every entry
 
-Save to: `dev/docs/spec/05-visual.md` / `dev/docs/design/{logo-*,mock-*,og,favicon}.png`. Update `init-state.json` to `current_phase: "tools"`.
+Save to: `dev/docs/spec/05-visual.md` and `dev/docs/design/page-<platform>-<screen-slug>.png` (one full page+parts image per screen). Cropped transparent parts auto-land at `dev/public/design/parts/<platform>/<screen-slug>/<name>.png`; TSX import manifest at `dev/src/components/design/<platform>/<screen-slug>/parts.ts`. Update `init-state.json` to `current_phase: "tools"`.
 
 ---
 
@@ -1792,7 +1792,7 @@ settings.json（claudeMdExcludes の設定、プロジェクト規約など）�
 │   │   ├── spec/05-visual.md            Mock catalog with decisionsRevealed
 │   │   ├── spec/06-tools.md             Tool choices linked back to mocks
 │   │   ├── spec/07-data-model.md        Per-entity drills
-│   │   ├── design/logo-*.png ...        Generated images
+│   │   ├── design/page-<platform>-<screen>.png  Page+parts mock per screen (full mock top, parts grid bottom)
 │   │   ├── design/mock-<platform>-<screen>-*.png ...  Per-platform mocks
 │   │   ├── talk/02-discovery.md ...     Masked Q&A
 │   │   └── task/                        When USE_GITHUB_ISSUES=no
