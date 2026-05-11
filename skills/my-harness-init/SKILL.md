@@ -608,16 +608,27 @@ When the user has already said "実装すればいい / build everything / all o
 
 **11. Proactively suggest ideas the user didn't mention** (additive only — never subtractive). When the user describes the product in Phase 2, after acknowledging what they said, name 2-4 features, behaviors, or concerns that adjacent products in the same category typically have **and that the user did not mention**. Frame each as an addition to consider, not a gap. Easy to ignore.
 
-   Examples:
+   Examples (compose in `$LANG` — both shown):
 
+   **LANG=ja:**
    - User: "ブログを作りたい。AI で文章書ける、リッチエディタ、予約投稿、広告、検索、Skills エクスポート、動画埋め込み、X 投稿、サムネ、GSC/GA、ローカル LLM、Atom/RSS、PWA"
-   - Acknowledge: "全部 in-scope で進めます。"
+   - Acknowledge: "全部含めて進めます。"
    - Then suggest (one sentence each, max 4):
      - "下書き共有 URL (公開前に他人にプレビューさせる) もブログだとよく使われます。要りますか?"
      - "コメント欄を入れる場合、スパム対策 (Akismet 系 or hCaptcha) のチェックを後で挟みますか?"
      - "Webmention / トラックバック対応 (個人ブログ界で復活してる流れ) を入れますか?"
      - "シリーズ機能 (連載記事を順番にナビゲートできる) もよく出ます。"
    - Then: "要らないものは飛ばしてください。次は ◯◯ について聞きます。"
+
+   **LANG=en:**
+   - User: "I want to build a blog. AI-assisted writing, rich text editor, scheduled posts, ads, search, Skills export, video embeds, X posting, thumbnails, GSC/GA, local LLM, Atom/RSS, PWA"
+   - Acknowledge: "Got it — all of those are in scope."
+   - Then suggest (one sentence each, max 4):
+     - "Preview-share URLs (let others read a draft before publishing) are common in blogs — want that?"
+     - "If you're enabling comments, want a spam-filter step (Akismet / hCaptcha) added in?"
+     - "Webmention / trackback support (making a comeback in indie blogs) — interested?"
+     - "Series navigation (linking sequential posts in order) is also common."
+   - Then: "Skip whatever doesn't fit. Next I'll ask about ◯◯."
 
    **Forbidden** when suggesting:
    - The words "MVP", "core", "essential", "must-have", "the one" — these imply ranking (Rule 10 violation).
@@ -974,26 +985,27 @@ The mocks generated here become the **source of truth** for Phase 6 (tool select
 
 ### Logo generation (when USE_CODEX=yes)
 
+**Design philosophy: trust Codex's imagination.** The harness gives Codex the spec and lets it propose. Do NOT prescribe visual style, color palette, icon library, or layout patterns in the prompt. Codex chooses; the user picks; the implementation phase reconciles to `rules/design.md` later. Only technical constraints (format, resolution, save path, "use the image_gen tool, not HTML/SVG") are kept in the prompt.
+
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md \
   --out <root>/.my-harness/codex-logo.md \
-  "\$imagegen Please generate 3 logo concepts for $PROJECT_NAME.
+  "\$imagegen You're designing a logo for $PROJECT_NAME. Read the attached spec and create 3 genuinely different logo concepts — different shape language, color palette, and mood across the three, not three variants of one idea. Take creative liberties; your call on what fits this project.
 
-**You must use the image_gen tool (gpt-image-2) to generate PNG files directly**. Writing HTML/CSS and taking a screenshot, writing SVG, or going through code are all prohibited.
-
-Read the spec files and design something that fits the project — your judgment. <If a color hint was given: Primary color: <hint>>
-
-Specs:
-- Format: PNG (transparent background)
-- Resolution: 1024x1024 or larger
-- Call image_gen separately for each concept (3 calls total)
+Technical constraints (these are not aesthetic constraints — go wild within them):
+- Output via the image_gen tool (gpt-image-2). HTML/CSS + screenshot, SVG, canvas rasterization, code-generated images — all prohibited.
+- PNG with transparent background.
+- 1024x1024 or larger.
+- One image_gen call per concept; 3 calls total.
 
 Save to:
 - <root>/dev/docs/design/logo-1.png
 - <root>/dev/docs/design/logo-2.png
-- <root>/dev/docs/design/logo-3.png"
+- <root>/dev/docs/design/logo-3.png
+
+If the user gave a primary color hint, use it; otherwise pick whatever fits."
 ```
 
 After generation, immediately open all 3 (macOS):
@@ -1036,18 +1048,13 @@ ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh \
   --role designer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/logo-final.png \
   --out <root>/.my-harness/codex-mock-<platform>-<screen>.md \
-  "\$imagegen Please generate 2 mock concepts for the <screen name> screen of $PROJECT_NAME on <platform>.
+  "\$imagegen You're designing the '<screen name>' screen of $PROJECT_NAME on <platform>. The chosen logo is in the attached context. Read the spec to learn what this screen does, then propose 2 genuinely different concepts — different layout, hierarchy, interaction patterns; not just color variants. Your call on the visual style (icons, type, palette, density). Implementation will reconcile to design rules later; right now, explore freely.
 
-**You must use the image_gen tool (gpt-image-2) to generate PNG files directly.**
-- Writing HTML/CSS and using Playwright/Puppeteer to screenshot is **absolutely prohibited**
-- Writing SVG or rasterizing via \`<canvas>\` is also **prohibited**
-
-Read the spec and the chosen logo, then design using your own judgment. Use Lucide Icons-style icons; no AI-style gradients.
-
-Specs:
-- Format: PNG
-- Resolution: <1280x800 for Web/Desktop; 375x812 for mobile>
-- Call image_gen separately for each concept (2 calls total)
+Technical constraints:
+- Output via the image_gen tool (gpt-image-2). HTML/CSS, Playwright/Puppeteer screenshots, SVG, canvas rasterization — all prohibited.
+- PNG format.
+- Resolution suggestion: ~1280x800 for web/desktop, ~375x812 for mobile (approximate — pick what suits the layout).
+- One image_gen call per concept; 2 calls total.
 
 Save to:
 - <root>/dev/docs/design/mock-<platform>-<screen>-1.png
