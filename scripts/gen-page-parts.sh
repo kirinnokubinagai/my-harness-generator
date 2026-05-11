@@ -156,3 +156,14 @@ else
 fi
 echo "manifest: $OUT_MANIFEST"
 echo "session:  $SESSION_KEY"
+
+# Auto-open the page mock + every grid image for the user to review.
+# Suppress with HARNESS_SKIP_OPEN=1 (used by gen-page-cross-platform.sh
+# so it can open all platforms' outputs together at the end).
+# shellcheck disable=SC1091
+. "$HARNESS_DIR/scripts/lib/open-file.sh"
+OPEN_LIST=("$OUT_PAGE")
+for ((i=0; i<IMG_COUNT; i++)); do
+  OPEN_LIST+=("${GRID_PREFIX}-${i}.png")
+done
+open_file "${OPEN_LIST[@]}"

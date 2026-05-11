@@ -862,7 +862,7 @@ Read `USE_CODEX` from `<root>/.my-harness/.config`:
 - `yes` → **image path**: `gen-page-parts.sh` produces one PNG per screen (full page top + transparent-cropped parts grid bottom, 2048×2880 PNG, output ends up in `dev/public/design/parts/` + matching TSX components in `dev/src/components/design/`).
 - `no` → **text-spec path**: no image generation. Structured markdown per screen + TSX stubs derived from the markdown. See "USE_CODEX=no path" below.
 
-Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex) are encoded inside `prompts/codex-page-and-parts.md` and `scripts/gen-page-parts.sh`; do **not** restate them here. After generation, **auto-open the PNG** (`open` / `xdg-open` / `start ""`, detect OS via `uname`).
+Both paths run the same 3-question post-mock drill. The technical specifics (resolution, PNG-only, prompt freedom for Codex) are encoded inside `prompts/codex-page-and-parts.md` and `scripts/gen-page-parts.sh`; do **not** restate them here. **Auto-opening happens inside the scripts** — `gen-page-parts.sh` opens the page mock + every grid PNG, `crop-parts.sh` opens every cropped part PNG. No manual `open` call from Claude.
 
 ### Fixed questions (one per turn — match `LANG`)
 
@@ -889,12 +889,23 @@ This is one Codex call per screen. Generated at the highest resolution available
 
 **Ask first** (Cardinal rule: Codex opt-in per occurrence). If the user says yes:
 
+**Single platform** — when only one platform is selected, or the user wants to iterate on one platform:
+
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-parts.sh" \
   "$ROOT" "<platform>" "<screen-name>" "$PROJECT_NAME"
 ```
 
-Auto-open the resulting PNG (`open` / `xdg-open` / `start`) so the user can review.
+The script auto-opens the page mock + every grid image on completion.
+
+**Multiple platforms for the same screen** — when the user selected e.g. `web + ios` and the same conceptual screen exists on both (Login, Home, …), generate both versions and open them **side by side** for direct comparison:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-cross-platform.sh" \
+  "$ROOT" "<screen-name>" "$PROJECT_NAME" <platform1> <platform2> [<platform3> ...]
+```
+
+This runs `gen-page-parts.sh` once per platform (each with its own Codex session — refinements on one don't leak into the other), suppresses per-platform auto-open, then opens **all** resulting PNGs simultaneously at the very end so the user sees the web mock, the iOS mock, their grids, etc. together. Use this whenever the same screen lives on 2+ platforms.
 
 The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, not in this SKILL.
 
@@ -937,6 +948,8 @@ Outputs:
 
 - `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. 4-corner flood-fill removes the white grid background. Reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
 - `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
+
+`crop-parts.sh` auto-opens every cropped part PNG on completion (suppress with `HARNESS_SKIP_OPEN=1` if scripting a batch). On macOS they all open in Preview as a single window list; on Linux each is opened via `xdg-open`.
 
 Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface plainly: "ImageMagick is required to slice the parts grid. Install with `brew install imagemagick` (macOS) or `apt install imagemagick` (Linux), then retry."
 

@@ -117,3 +117,16 @@ echo
 echo "assets:   $ASSET_DIR"
 echo "parts.ts: $PARTS_TS"
 echo "images:   $IMG_COUNT"
+
+# Auto-open every cropped part PNG so the user can inspect them.
+# Suppress with HARNESS_SKIP_OPEN=1 (used by gen-page-cross-platform.sh).
+# shellcheck disable=SC1091
+HARNESS_DIR_CROP="$(cd "$(dirname "$0")/.." && pwd)"
+. "$HARNESS_DIR_CROP/scripts/lib/open-file.sh"
+# Collect cropped PNGs from manifest names (preserves Codex's natural ordering).
+CROPPED=()
+while IFS= read -r NAME; do
+  [ -z "$NAME" ] && continue
+  CROPPED+=("$ASSET_DIR/${NAME}.png")
+done < <(jq -r '.cells[].name' "$MANIFEST")
+[ "${#CROPPED[@]}" -gt 0 ] && open_file "${CROPPED[@]}"
