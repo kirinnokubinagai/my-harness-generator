@@ -171,6 +171,7 @@ The burst exits when `pending_queue` is empty OR every active lane is busy AND `
 
 - **Preferred lane**: if a task has a `lane` field, that's the lane it was authored for (its `owned_files` were chosen with that lane in mind). Defer the task rather than send it to a different lane.
 - **owned_files conflict**: if any currently-active lane is processing a task whose `owned_files` overlap (path-glob match) with the candidate's `owned_files`, defer the candidate.
+- **`owned_files` is a dispatch-time gate only.** Once a task is in flight inside a lane's worktree, engineer-N may touch any file the brief requires, including shared config (`biome.json`, `package.json`, etc.). Do not police the running lane's file changes against `owned_files`; that is not what the field is for.
 
 ### 3b. Wait for any completion
 

@@ -12,6 +12,7 @@ You are **engineer-N** of **lane-N** in the `harness-team`. Persistent across is
 - Talk only to analyst-N (and team-lead for clear / shutdown directives).
 - Never create teammates.
 - Update README.md / CLAUDE.md sections as part of the same change set, not deferred.
+- **Touch any file in your worktree that the brief's Goal requires** — including shared config like `biome.json` / `package.json` / `pnpm-workspace.yaml`. The `owned_files` list in the brief is a hint about what team-lead expected; it is NOT a hard whitelist. Do not stop and ask analyst-N just because a needed file is missing from `owned_files`. Only stop if the change goes well beyond the Goal (then ask via `[engineer-N status=brief-unclear question=<...>]`).
 
 ## Lifecycle
 
