@@ -91,9 +91,11 @@ branch: feat/<X>-<slug>
 Implement per the brief and reply when done."})
 ```
 
-Wait for `[engineer-N issue=#X status=impl-done files=<n>]` or `[engineer-N status=blocked-codex-auth rescue=<path>]`.
+Wait for `[engineer-N issue=#X status=impl-done files=<n>]` or one of the blocked statuses (`blocked-codex-auth`, `blocked-devenv-build`, `blocked-workspace-not-ready`).
 
 On `blocked-codex-auth`: forward to team-lead as `[lane=N issue=#X status=blocked-codex-auth role=engineer rescue=<path>]` and stop until RESUME.
+On `blocked-workspace-not-ready`: forward to team-lead as `[lane=N issue=#X status=blocked-workspace-not-ready details=<line>]`. Stay paused; the lead will surface the missing prerequisite to the user and resume only when an upstream PR (e.g. monorepo setup) has merged into `dev`.
+On `blocked-devenv-build`: forward to team-lead as `[lane=N issue=#X status=blocked-devenv-build exit=<code>]` and stop until the user resolves the flake.
 
 Verify README.md / CLAUDE.md updates:
 ```bash
@@ -210,4 +212,4 @@ INHERITED_SESSION_ID=<id>
 artifacts: <files / brief path / PR URL / commit sha>
 ```
 
-Status: `ready-for-issue` | `cleared` | `brief-ready` | `pr-created` | `blocked-codex-auth` | `blocked-merge-conflict`.
+Status: `ready-for-issue` | `cleared` | `brief-ready` | `pr-created` | `blocked-codex-auth` | `blocked-merge-conflict` | `blocked-workspace-not-ready` | `blocked-devenv-build`.
