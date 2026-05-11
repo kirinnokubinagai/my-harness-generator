@@ -54,7 +54,7 @@ After success the layout is `{.bare/, main/, stage/, dev/}` and the original tra
 bash "$SKILL_DIR/scripts/bootstrap.sh" "$ROOT" --config "$ROOT/.my-harness/.config" || exit $?
 ```
 
-This installs `dev/.my-harness/` (harness body), `start-dev.sh`, hooks, and `dev/.claude/settings.json` if `USE_GLOBAL_CLAUDE=no`.
+This installs `dev/.my-harness/` (harness body), hooks, and `dev/.claude/settings.json` if `USE_GLOBAL_CLAUDE=no`.
 
 ## Step 4 — Hand off to the user
 
@@ -68,7 +68,7 @@ Adoption complete.
 Restart Claude Code from the dev/ worktree to start using the harness:
 
   exit
-  $ROOT/start-dev.sh
+  cd $ROOT/dev && claude
 
 Then run /harness-team-lead.
 ```
@@ -79,7 +79,7 @@ If the user wants to undo:
 
 ```bash
 cd "$ROOT"
-rm -rf .bare main stage dev .my-harness start-dev.sh
+rm -rf .bare main stage dev .my-harness
 mv .my-harness-backup/<ts>/git .git
 # Anything dev/ created (commits, hooks files) should be inspected manually.
 ```

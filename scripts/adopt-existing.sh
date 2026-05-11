@@ -134,6 +134,6 @@ cat >&2 <<EOF
         Backup of original .git is at $BACKUP_DIR/git
         Next steps:
           1. Write or reuse $ROOT/.my-harness/.config (interview via /my-harness-adopt covers this).
-          2. Run bootstrap.sh --config to install dev/.my-harness/, hooks, start-dev.sh.
-          3. Restart Claude Code via $ROOT/start-dev.sh.
+          2. Run bootstrap.sh --config to install dev/.my-harness/, hooks.
+          3. Restart Claude Code via:  cd $ROOT/dev && claude
 EOF

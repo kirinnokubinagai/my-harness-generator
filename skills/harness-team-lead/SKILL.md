@@ -18,7 +18,7 @@ If non-zero, surface the remediation message to the user and stop.
 
 ## Precondition — project initialized + resources OK
 
-The user launches Claude Code from `<project>/dev/` via `start-dev.sh`. Pass `$(pwd)` to every script — they normalise to the project root (the directory holding `.bare/`) internally.
+The user launches Claude Code from `<project>/dev/` (typically `cd <project>/dev && claude`). Pass `$(pwd)` to every script — they normalise to the project root (the directory holding `.bare/`) internally.
 
 ```bash
 ROOT="$(pwd)"

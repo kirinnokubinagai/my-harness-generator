@@ -1545,8 +1545,7 @@ Claude Code does not expose a way to change CWD and reload CLAUDE.md /
 settings.json mid-session. To continue:
 
   1. Type /exit (or Ctrl+D) to end this session.
-  2. In your terminal, run:    <root>/start-dev.sh
-                               (or:  cd <root>/dev && claude)
+  2. In your terminal, run:    cd <root>/dev && claude
   3. In the new session, run:  /harness-team-lead
 
 That's it. Your project-local CLAUDE.md and settings
@@ -1583,8 +1582,7 @@ Claude Code にはセッション途中で CWD を変更し、CLAUDE.md / settin
 再ロードする手段が公式に存在しないためです。続けるには:
 
   1. /exit（または Ctrl+D）でこのセッションを終了する。
-  2. ターミナルで実行:    <root>/start-dev.sh
-                         （または: cd <root>/dev && claude）
+  2. ターミナルで実行:    cd <root>/dev && claude
   3. 新しいセッションで:  /harness-team-lead
 
 以上です。新セッション起動時にプロジェクトローカルの CLAUDE.md と

@@ -4,10 +4,14 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.9.1] — 2026-05-11
+
+- `bootstrap.sh` no longer generates `<root>/start-dev.sh`. The launcher script was a thin wrapper around `cd <root>/dev && claude`, and several users preferred not having an extra file at the project root. All completion banners (`bootstrap.sh`, `/my-harness-init` Phase 8.6, `/my-harness-adopt` Step 4) and READMEs now print the manual command directly.
+
 ## [3.9.0] — 2026-05-10
 
 - New `/my-harness-adopt` skill + `scripts/adopt-existing.sh`. Converts an existing git repo at `$(pwd)` into the harness layout (`.bare/` + `main/` `stage/` `dev/` worktrees + `dev/.my-harness/`) while preserving commit history. Backs up the original `.git/` to `<root>/.my-harness-backup/<ts>/git/` for rollback.
-- Asks a minimal subset of the `/my-harness-init` Setup questions (project name, lang, Codex flags, Playwright/Maestro, GitHub Issues, global CLAUDE.md), writes `.my-harness/.config`, then runs the existing `bootstrap.sh --config` to install hooks / `start-dev.sh` / `dev/.claude/settings.json`.
+- Asks a minimal subset of the `/my-harness-init` Setup questions (project name, lang, Codex flags, Playwright/Maestro, GitHub Issues, global CLAUDE.md), writes `.my-harness/.config`, then runs the existing `bootstrap.sh --config` to install hooks / `dev/.claude/settings.json`.
 
 ## [3.8.5] — 2026-05-10
 

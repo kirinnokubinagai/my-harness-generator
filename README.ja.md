@@ -77,13 +77,12 @@ Claude Code 内で:
 | 7 | **Data model** | エンティティ・関係・PII の扱い（mermaid ER 図）— 各エンティティを「ライフサイクル / GDPR / 権限 / 規模実態 / マイグレーション」で深掘り |
 | 8 | **Bootstrap** | 仕様の最終 cross-check、`bootstrap.sh` 実行、初期 issue / task ファイル生成（レーン割当含む） |
 
-bootstrap 完了後、**現在の Claude セッションを終了し `dev/` 内で再起動してください** — Claude Code にはセッション途中で作業ディレクトリを変更し `CLAUDE.md` / `settings.json` を再ロードする公式の手段がありません。生成される `start-dev.sh` ランチャーを使えばワンコマンドで切り替えられます:
+bootstrap 完了後、**現在の Claude セッションを終了し `dev/` 内で再起動してください** — Claude Code にはセッション途中で作業ディレクトリを変更し `CLAUDE.md` / `settings.json` を再ロードする公式の手段がありません。
 
 ```bash
 # ステップ 1: 現在の Claude セッションを終了（Ctrl+D または /exit）
 # ステップ 2: ターミナルで実行:
-~/<project>/start-dev.sh   # <project>/dev/ をルートに claude を起動
-# または同等: cd ~/<project>/dev && claude
+cd ~/<project>/dev && claude
 ```
 
 新しいセッション内で:
@@ -113,7 +112,7 @@ bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 | 1. Spec | 深掘り対話 + 機能 + データモデル | `/my-harness-init`（Discovery〜Features、データモデルはモックの後） |
 | 2. Design | ロゴ + プラットフォーム別 UI モック + 仕様 iteration。モックがツール選定の入力になる | `/my-harness-init`（Visual → Tools フェーズ） |
 | 3. Tasks | issue / task ファイル生成、4 レーンへのファイル所有割当、bootstrap 実行 | `/my-harness-init`（Bootstrap フェーズ） |
-| 3.5. Switch session | `<root>/dev/` 内で Claude Code を再起動してプロジェクトスコープの CLAUDE.md と settings を読み込む | `<root>/start-dev.sh` |
+| 3.5. Switch session | `<root>/dev/` 内で Claude Code を再起動してプロジェクトスコープの CLAUDE.md と settings を読み込む | `cd <root>/dev && claude` |
 | 4. Implementation | 4 レーン並列実装、各 issue を fresh subagent で処理 | `/harness-new-feature <issue>` |
 | 5. Deploy setup | Alchemy v2（Effect.ts）の infra スクリプト（`alchemy.run.ts`、Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel）、wrangler bindings、GitHub secrets / vars、fastlane（iOS） | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage`（自動 + 人間ラベル）→ `main`（canary 10% → 100%） | `/harness-deploy-execute` |
