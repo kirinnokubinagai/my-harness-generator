@@ -15,7 +15,7 @@
 #   bash scripts/scaffold-tsx-from-parts.sh <root> <platform> <screen-slug>
 #
 # Requires: jq + a manifest.json + parts.ts already present at
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/
+#   <root>/dev/docs/design/parts/<form-factor>/<screen-slug>/
 # (these are produced by crop-parts.sh).
 
 set -u
@@ -24,7 +24,7 @@ ROOT="${1:?root required}"
 PLATFORM="${2:?platform required}"
 SCREEN_SLUG="${3:?screen-slug required}"
 
-ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
+ASSET_DIR="$ROOT/dev/docs/design/parts/${PLATFORM}/${SCREEN_SLUG}"
 TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
 MANIFEST="$ASSET_DIR/manifest.json"
 

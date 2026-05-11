@@ -16,8 +16,8 @@
 # CHROMA_FUZZ (default 10%).
 #
 # Outputs:
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png      transparent PNG asset
-#   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts      TS import map
+#   <root>/dev/docs/design/parts/<form-factor>/<screen-slug>/<name>.png     transparent PNG asset
+#   <root>/dev/src/components/design/<form-factor>/<screen-slug>/parts.ts   TS import map
 #
 # Requires: ImageMagick (magick or convert) + jq.
 
@@ -56,7 +56,7 @@ CHROMA_FUZZ="${CHROMA_FUZZ:-30%}"
 CHROMA_ERODE="${CHROMA_ERODE:-Octagon:1}"
 
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
-ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
+ASSET_DIR="$ROOT/dev/docs/design/parts/${PLATFORM}/${SCREEN_SLUG}"
 TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
 MANIFEST="$ASSET_DIR/manifest.json"
 

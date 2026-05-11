@@ -4,6 +4,22 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.5.0] — 2026-05-12
+
+### Changed
+
+- **Cropped parts now land under `dev/docs/design/parts/<form-factor>/<screen-slug>/`** instead of `dev/public/design/parts/...`. The whole Phase-5 deliverable tree is now homogeneous under `dev/docs/design/` (page PNG, parts grid PNGs, cropped transparent parts, manifest, and the Tailwind HTML written by Claude). This makes the HTML's `<img src>` references a simple `parts/<form-factor>/<screen-slug>/<name>.png` relative path instead of `../../public/design/parts/...`, and treats Phase 5 cleanly as a "documentation / design source-of-truth" output rather than a runtime artifact.
+- Updated paths in: `scripts/gen-page-parts.sh` (mkdir, manifest output, prior-style_guide find), `scripts/crop-parts.sh` (ASSET_DIR), `scripts/upscale-part.sh` (ASSET_DIR), `scripts/scaffold-tsx-from-parts.sh` (manifest read).
+- Updated SKILL.md Phase 5 — HTML now references parts via the new relative path, output-location docs reflect new location, frontmatter description updated to reflect form-factor + docs/design layout.
+
+### Migration
+
+When the implementation phase wants to serve the parts via a dev server (Next.js / Vite), copy or symlink the parts tree into `dev/public/design/parts/` so requests to `/design/parts/...` resolve. Alternatively, import each PNG directly through the bundler. The `parts.ts` import map (scaffolded by `scaffold-tsx-from-parts.sh`) still writes absolute URLs of the form `/design/parts/...` — those work after the copy/symlink, or you can adjust them per project.
+
+For projects mid-Phase-5: existing parts under `dev/public/design/parts/<...>` stay valid but no longer match the harness's expectations. Move them with `mkdir -p dev/docs/design/parts && mv dev/public/design/parts/* dev/docs/design/parts/`, or rerun `gen-page-auto.sh` + `crop-parts.sh` to produce them in the new location (style_guide inheritance via prior-manifest discovery will pick up only manifests under `dev/docs/design/parts` going forward).
+
+---
+
 ## [7.4.0] — 2026-05-12
 
 Phase 5 reorganized around **form factor** (`pc` / `mobile`) instead of

@@ -7,7 +7,7 @@
 # Codex session as the original page generation so context (spec + prior
 # design choices) is preserved.
 #
-# Output: <root>/dev/public/design/parts/<platform>/<screen-slug>/<part>-<W>x<H>.png
+# Output: <root>/dev/docs/design/parts/<form-factor>/<screen-slug>/<part>-<W>x<H>.png
 # Also adds a key to parts.ts: e.g., heroIllustration1600x800.
 #
 # Usage:
@@ -28,7 +28,7 @@ case "$W" in ''|*[!0-9]*|0) echo "::error:: width must be positive integer (got:
 case "$H" in ''|*[!0-9]*|0) echo "::error:: height must be positive integer (got: $H)" >&2; exit 1 ;; esac
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
+ASSET_DIR="$ROOT/dev/docs/design/parts/${PLATFORM}/${SCREEN_SLUG}"
 TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
 MANIFEST="$ASSET_DIR/manifest.json"
 SOURCE_PNG="$ASSET_DIR/${PART}.png"

@@ -52,11 +52,11 @@ PROJECT_SLUG=$(printf '%s' "$PROJECT_NAME" \
 PROJECT_SLUG=${PROJECT_SLUG:-project}
 
 mkdir -p "$ROOT/dev/docs/design" \
-         "$ROOT/dev/public/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}" \
+         "$ROOT/dev/docs/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}" \
          "$ROOT/.my-harness"
 
 OUT_PAGE="$ROOT/dev/docs/design/page-${FORM_FACTOR}-${SCREEN_SLUG}.png"
-OUT_MANIFEST="$ROOT/dev/public/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}/manifest.json"
+OUT_MANIFEST="$ROOT/dev/docs/design/parts/${FORM_FACTOR}/${SCREEN_SLUG}/manifest.json"
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${FORM_FACTOR}-${SCREEN_SLUG}"
 
 # Project-wide image session — every screen / form-factor / refinement of
@@ -107,7 +107,7 @@ while IFS= read -r m; do
     echo "[gen-page-parts] inheriting style_guide from $m" >&2
     break
   fi
-done < <(find "$ROOT/dev/public/design/parts" -name 'manifest.json' -type f 2>/dev/null | sort)
+done < <(find "$ROOT/dev/docs/design/parts" -name 'manifest.json' -type f 2>/dev/null | sort)
 
 if [ -n "$PRIOR_STYLE_GUIDE" ]; then
   PRIOR_BLOCK=$(printf '## LOCKED-IN PROJECT INVARIANTS (no creative deviation)\n\nThe project'\''s visual identity was established in an earlier turn. **You MUST honor these EXACTLY here — no new colors, no shift in illustration style, no new character design, no new motifs.** Drift = failure.\n\n```json\n%s\n```\n\nWhen Codex inherits these invariants while moving to a NEW form factor (e.g. pc → mobile or mobile → pc): keep palette / illustration_style / line_weight / character_design / decorative_motifs IDENTICAL, but reinvent layout, spacing, type scale, and CTA placement to suit the new form factor. A PC mock shrunk into a mobile viewport is wrong; a mobile mock blown up into a PC viewport is wrong. Layout is the ONE thing you'\''re allowed to change.\n' "$PRIOR_STYLE_GUIDE")

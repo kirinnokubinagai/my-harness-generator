@@ -1,6 +1,6 @@
 ---
 name: my-harness-init
-description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates the complete feature list with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates per-platform page+parts mocks (one high-resolution image per screen, top is full page mock, bottom is a transparent-cropped grid of every UI component used; auto-extracted to dev/public/design/parts/ + dev/src/components/design/) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
+description: Runs the full new-project pipeline end-to-end. Phase 0 picks language, Phase 1 collects only the truly orthogonal setup flags, Phase 2 holds an open multi-turn discovery conversation that drills aggressively into the user's idea (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) and produces a structured discoverySheet, Phase 3 settles only the structural shape (architecture + platforms), Phase 4 elaborates the complete feature list with deep per-feature drills (onboarding / power-user / empty / failure / latency), Phase 5 generates per-form-factor (pc/mobile, auto-derived from platform flags) page+parts mocks via Codex with edit-mode chaining and project-wide style_guide inheritance, then Claude reads each PNG and writes the matching Tailwind HTML — all artifacts land under dev/docs/design/ (page-<ff>-<screen>.png, .html, and parts/<ff>/<screen>/<name>.png) which become the source of truth, Phase 6 picks concrete tools (framework / backend / DB / package manager / email / e2e / Claude Code Action) — each prompt referencing the approved mocks, Phase 7 drills the data model deeply (lifecycle / GDPR / permissions / cardinality / migration), Phase 8 finalizes spec and runs bootstrap. Triggered by /my-harness-init.
 ---
 
 # /my-harness-init
@@ -974,8 +974,8 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
 
 Run once per form factor that `gen-page-auto.sh` produced (typically `pc` and/or `mobile`). Outputs:
 
-- `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/<name>.png` — transparent-background PNG per cell. **Chroma key on pure magenta `#FF00FF`** removes the grid background — which means **white pixels inside assets are preserved** (clouds, paper, white logos, snow, white speech bubbles all stay opaque white). Override the key color via `HARNESS_CHROMA_KEY` env var (or per-call `CHROMA_KEY`) and tolerance via `CHROMA_FUZZ` (default 30%). Reachable at `/design/parts/<form-factor>/<screen-slug>/<name>.png` from the running app.
-- `$ROOT/dev/src/components/design/<form-factor>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
+- `$ROOT/dev/docs/design/parts/<form-factor>/<screen-slug>/<name>.png` — transparent-background PNG per cell. **Chroma key on pure magenta `#FF00FF`** removes the grid background — which means **white pixels inside assets are preserved** (clouds, paper, white logos, snow, white speech bubbles all stay opaque white). Override the key color via `HARNESS_CHROMA_KEY` env var (or per-call `CHROMA_KEY`) and tolerance via `CHROMA_FUZZ` (default 30%). Phase-5 HTML references these via a simple relative path (`parts/<form-factor>/<screen-slug>/<name>.png` from `dev/docs/design/`); implementation-phase TSX can either copy this tree to `dev/public/design/parts/` for runtime serving or import each PNG directly via the bundler.
+- `$ROOT/dev/src/components/design/<form-factor>/<screen-slug>/parts.ts` — TS asset map (written by `scaffold-tsx-from-parts.sh`, used only in the implementation phase).
 
 `crop-parts.sh` auto-opens every cropped part PNG on completion (suppress with `HARNESS_SKIP_OPEN=1` if scripting a batch). On macOS they all open in Preview as a single window list; on Linux each is opened via `xdg-open`.
 
@@ -992,7 +992,7 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/upscale-part.sh" \
 
 Output:
 
-- `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/<part>-<W>x<H>.png` — the upscaled PNG.
+- `$ROOT/dev/docs/design/parts/<form-factor>/<screen-slug>/<part>-<W>x<H>.png` — the upscaled PNG.
 - `parts.ts` gets a new entry, e.g., `heroIllustration1600x800: '/design/parts/.../hero-illustration-1600x800.png'`.
 
 The original 256×256 PNG is left in place. Components import whichever size matches their display context.
@@ -1006,7 +1006,7 @@ After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailw
 **Procedure** (per screen × per form factor that was generated — so a screen with NEED_PC=yes + NEED_MOBILE=yes yields TWO HTML files):
 
 1. `Read` the page mock PNG at `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.png` — this loads the image into Claude's vision context so you can see the actual design.
-2. `Read` the manifest at `$ROOT/dev/public/design/parts/<form-factor>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
+2. `Read` the manifest at `$ROOT/dev/docs/design/parts/<form-factor>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
 3. `Write` the HTML file to `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html` using the rules below.
 
 **HTML file structure (use this exact scaffold):**
@@ -1040,7 +1040,7 @@ After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailw
 - Realistic content (no Lorem Ipsum). Japanese stays Japanese; English stays English.
 - Semantic HTML (`<header>`, `<main>`, `<nav>`, `<section>`, `<article>`, `<button>`, `<label>`, `<input>` …). `aria-label` on icon-only buttons.
 - Inline `<svg>` for small Lucide-style icons; no JS-loaded icon library.
-- Cropped parts: from `dev/docs/design/`, the parts directory is `../../public/design/parts/<form-factor>/<screen-slug>/`. So `<img src="../../public/design/parts/<form-factor>/<screen-slug>/<name>.png" alt="..." class="...">`. Decorative-only assets: `alt=""` + `aria-hidden="true"`.
+- Cropped parts: HTML lives in `dev/docs/design/` and parts live in `dev/docs/design/parts/<form-factor>/<screen-slug>/`, so the relative path is just `parts/<form-factor>/<screen-slug>/<name>.png`. Example: `<img src="parts/<form-factor>/<screen-slug>/<name>.png" alt="..." class="...">`. Decorative-only assets: `alt=""` + `aria-hidden="true"`.
 - Page container max-width by form factor: `pc` → `max-w-7xl`, `mobile` → `max-w-[430px]`. Always mobile-responsive even on PC.
 - HTML must render correctly from `file://` (no dev server, no build step). Verify the relative parts paths resolve.
 
@@ -1148,7 +1148,7 @@ The 3-question post-mock drill runs on the text-spec markdown (treat the markdow
 - [ ] OG image / favicon generated
 - [ ] `visualMocks[]` in `init-state.json` populated, `decisionsRevealed` non-empty for every entry
 
-Save to: `dev/docs/spec/05-visual.md` and `dev/docs/design/page-<form-factor>-<screen-slug>.png` (one page mock per screen × form factor). Cropped transparent parts auto-land at `dev/public/design/parts/<form-factor>/<screen-slug>/<name>.png`; TSX import manifest at `dev/src/components/design/<form-factor>/<screen-slug>/parts.ts`. Update `init-state.json` to `current_phase: "tools"`.
+Save to: `dev/docs/spec/05-visual.md` and `dev/docs/design/page-<form-factor>-<screen-slug>.png` (one page mock per screen × form factor). Cropped transparent parts auto-land at `dev/docs/design/parts/<form-factor>/<screen-slug>/<name>.png`; the implementation-phase TSX import manifest (if scaffolded) lives at `dev/src/components/design/<form-factor>/<screen-slug>/parts.ts`. Update `init-state.json` to `current_phase: "tools"`.
 
 ---
 
