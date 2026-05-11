@@ -59,34 +59,18 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 4. **Tool selection is informed by mocks** (Phase 6). Frameworks, DB, package manager, email, e2e, Claude Code Action are chosen with the mocks open so we can say "this dashboard needs real-time → choose framework with realtime story" rather than asking blind.
 5. **Data model is reverse-engineered from mocks + discovery** (Phase 7) and drilled deeply — GDPR scope, access permissions, cardinality reality, migration scenarios.
 
-**Cardinal rules — applied every turn (full enumeration in `rules/communication.md`):**
+**Cardinal rules — applied every turn:**
 
-- **One topic per user-facing message.** A single reply must not stack multiple distinct subjects (analysis + decision + question + side note). If the harness has 3 things to convey, send 3 short messages, not 1 long one. Wait for the user's response before moving to the next subject. Tables, bullet lists, and headers are only allowed when the user explicitly asked for one (e.g., "summarize", "list the options"). Default to plain sentences.
+User-facing message style (one topic per message, plain language no invented compounds, Codex second-opinion opt-in, no internal terminology leaks, idea-suggestion guidance) — **canonical: `rules/communication.md`**. Read it once at skill start; do not restate its rules inline anywhere.
 
-- **Plain language the user already understands. No harness-invented compounds.** Use the most common product name or everyday Japanese / English word for a concept. Examples: say "Web アプリ" / "Web app" rather than `client-server`; say "Codex の二次チェック" / "second look from Codex" rather than `Codex consult`; say "前の会話で決めた範囲" rather than `discoverySheet`. **If you are about to write a hyphenated compound, stop and check: is this a word the user has seen elsewhere?** If not, replace with a normal phrase. Made-up compounds are a bug.
+Interview-specific rules (applied to every Phase 1-7 question, not just Phase 2):
 
-- **Codex second-opinion is opt-in per occurrence.** The harness must NEVER run `codex-ask.sh --role analyst|architect|harness-reviewer|code-reviewer` (or any Codex second-opinion call) without asking the user first. Even when `USE_CODEX=yes`, treat each occurrence as a separate ask. Image generation (page+parts mocks via `gen-page-parts.sh`) and session management (`--set-active` / `--clear-active`) are NOT second-opinions — those run normally per phase. Only the **review / verification** calls require asking. The ask template:
-  - **LANG=en:** "Want me to ask Codex for a second look at this? (yes / no)"
-  - **LANG=ja:** "ここまでの内容について、Codex に二次チェックしてもらいますか? (はい / いいえ)"
-
-  If "no" → skip the consult and continue. If "yes" → run the consult, then summarize the result in plain language (no `codex-phase2.md` filename in the user message).
-
-- **NEVER leak harness-internal terminology to the user.** The user reads product terms; Claude reads code. The following are **forbidden** in any user-facing message (questions, skip announcements, summaries, error displays, confirmations):
-  - Internal field names: `discoverySheet`, `visualMocks`, `initState`, `init-state.json`, `architectureHints`, `persistenceHints`, `topUserActions`, `scaleExpectation`, `failureModes`, `resistance`, `scaleBreakpoints`, `trustModel`, `differentiation`, `day2Operations`, `decisionsRevealed`, etc.
-  - Internal enum values: `client-server`, `client-serverless`, `p2p-pure`, `p2p-hybrid`, `nextjs`, `tanstack`, `sveltekit`, `swift`, `expo`, `flutter`, `kotlin`, `tauri`, `electron`, `hono`, `gin`, `rust`, `d1`, `postgres`, `mysql`, `sqlite`, `resend`, `pause`, `fail`, `oauth`, `api`. The user sees product names ("Next.js", "Cloudflare D1", "PostgreSQL", "Resend") or plain phrases ("Web app", "P2P app").
-  - Internal status codes (raw): `init-required`, `exceeds-max-lanes`, `corrupt-team`, `partial-lane`, `low-ram`, `swap-pressure`, `compressor-pressure`, `blocked-codex-auth`, `blocked-codex-error`, `subscription-or-quota`, `codex-no-op`, `suffixed-name`. If a status surfaces in chat, translate to plain language (e.g., `low-ram` → "memory is too low to spawn a new lane" / "メモリが足りないので新しいレーンを追加できません").
-  - Internal config keys (as identifiers): `USE_CODEX`, `USE_GLOBAL_CLAUDE`, `USE_GITHUB_ISSUES`, `MAX_LANES`, `ARCHITECTURE`, `WEB_KIND`, `IOS_KIND`, `ANDROID_KIND`, `DESKTOP_KIND`, `BACKEND_KIND`, `DB_KIND`, etc. Show the *concept* ("Codex integration", "max parallel lanes"), never the key.
-  - Internal file/script names (as identifiers): `SKILL.md`, `bootstrap.sh`, `spawn-lane-decision.sh`, `recommend-lanes.sh`, etc. These belong in operator docs, not in a Phase-2 interview question.
-  - Code-like notation: `ARCHITECTURE = client-server`, `<field> = <value>`, etc. The user sees natural sentences.
-
-  When in doubt: "would I show this string to a non-engineer end user?" — if no, it doesn't belong in a user-facing prompt. **Violation is a bug**, regardless of how technically accurate the term is.
-
-- **Never ask a question whose answer is already implied by what the user said or by an approved mock.** Before composing any prompt, re-read the internal notes (without exposing their names to the user) and skip questions whose answer is already on file.
-- **Drill down at least one level — and on hard topics, drill aggressively.** If a user answer is vague ("a chat app"), the immediate next question must narrow the space ("ephemeral or stored history? group or 1:1? media or text only?"). For probes around failure modes / resistance / scale / trust, push for concrete scenarios, not platitudes.
-- **One question per turn.** Batch questions are prohibited.
-- **Discovery before structure, structure before mocks, mocks before tools, tools before data.** Phases must run in order. Do not skip ahead.
-- **Bilingual parity.** Every user-facing prompt and explanation has both an `LANG=en` and `LANG=ja` variant. After Phase 0, render only the chosen language.
-- **No marketing / brand strategy / 5-year vision.** Stay system-relevant. Differentiation probe is allowed because it surfaces system constraints; "what's your North Star metric?" is not.
+- **Never ask a question whose answer is already implied** by what the user said or by an approved mock. Re-read the internal notes (without exposing their names to the user) before composing; skip what's already on file.
+- **Drill down at least one level.** Vague answer ("a chat app") → next question narrows ("group or 1:1? ephemeral or stored? text only or media?"). For failure / resistance / scale / trust probes, push for concrete scenarios, not platitudes.
+- **One question per turn.** Batch questions banned.
+- **Phase order is strict.** Discovery → structure → mocks → tools → data. No skipping ahead.
+- **Bilingual parity.** Every user-facing prompt has `LANG=en` and `LANG=ja` variants; after Phase 0, render only the chosen language.
+- **No marketing / brand / 5-year-vision questions.** Stay system-relevant. The differentiation probe is allowed only because it surfaces system constraints; "what's your North Star metric?" is not.
 
 ## Who executes this skill
 
