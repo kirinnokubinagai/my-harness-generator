@@ -281,39 +281,56 @@ async def run_async(args: argparse.Namespace) -> int:
 
             persist_thread_id(args.thread_id_file, handle.thread_id)
 
-            # ---- run turn ----
+            # ---- run turn via streaming chat() ----
+            #
+            # We use `handle.chat()` (AsyncIterator[ConversationStep]) instead
+            # of `chat_once()` because chat_once raises CodexProtocolError
+            # whenever final_text is empty — and Codex legitimately ends turns
+            # with empty text every time it only calls image_gen (the entire
+            # Phase-5 image-generation flow). The streaming variant returns
+            # cleanly on session.completed regardless of text content, letting
+            # us classify the turn ourselves: text-only / image-only / mixed
+            # are all success; only true failures (turn/failed, timeout,
+            # transport) get propagated.
+            #
+            # ConversationStep schema:
+            #   step_type: canonical UI label
+            #   item_type: raw protocol item (agentMessage / reasoning /
+            #              commandExecution / image_generation_call / ...)
+            #   text:      human-readable text when available
+            #   data:      full item payload (image paths live here)
+            text_parts: list[str] = []
+            event_dicts: list[dict[str, Any]] = []
+
             try:
-                result = await handle.chat_once(
+                async for step in handle.chat(
                     prompt_text,
                     inactivity_timeout=args.turn_timeout,
-                )
+                ):
+                    # Capture serialized form once — used for log file + image
+                    # detection scan.
+                    event_dicts.append(step.model_dump(mode="json"))
+
+                    # Aggregate ONLY agent_message text — never reasoning or
+                    # command-execution output, which would confuse the shell
+                    # caller's downstream pipeline.
+                    if step.item_type == "agentMessage" and step.text:
+                        text_parts.append(step.text)
             except CodexTimeoutError as e:
                 log(f"turn timed out: {e}")
                 return 1
+            except CodexProtocolError as e:
+                # session.failed → real failure from Codex. Surface and exit.
+                log(f"turn failed: {e}")
+                return 1
 
             if log_fp is not None:
-                for ev in result.raw_events:
+                for ev in event_dicts:
                     log_fp.write(json.dumps(ev, ensure_ascii=False) + "\n")
 
-            # ---- emit ----
-            # A turn can complete via three legitimate paths:
-            #   (1) text-only:  Codex returned an agent_message → final_text set
-            #   (2) image-only: Codex called image_gen and the turn ended
-            #                   without a follow-up text message → final_text empty
-            #                   but raw_events contains image_generation_call events
-            #                   referencing the saved file path(s)
-            #   (3) mixed:      both text and images produced
-            #
-            # The legacy code only handled (1) and (3) — it treated (2) as failure,
-            # which broke every Phase-5 image-generation call (gen-page-parts.sh,
-            # upscale-part.sh) where Codex saves the PNG and ends the turn silently.
-            #
-            # We now scan raw_events for image-generation evidence. If found,
-            # an empty final_text is success: stdout still emits whatever text
-            # exists (possibly empty line), and we exit 0 so the shell can rely
-            # on file-presence checks downstream.
-            text = (result.final_text or "").rstrip("\n")
-            images = _extract_image_paths(result.raw_events)
+            # ---- classify + emit ----
+            text = "\n".join(text_parts).rstrip("\n")
+            images = _extract_image_paths(event_dicts)
 
             if not text and not images:
                 log("turn ended with no agent_message and no image_generation_call — treating as failure")
@@ -322,9 +339,8 @@ async def run_async(args: argparse.Namespace) -> int:
             if images:
                 log(f"detected {len(images)} image_generation_call event(s); "
                     f"text_len={len(text)}")
-                # Emit detected image paths to stderr for observability; the
-                # primary contract with shell callers stays "stdout = assistant text"
-                # so callers verify the file on disk themselves.
+                # Image paths surface on stderr only; stdout stays "assistant text"
+                # so the shell caller's downstream contract is unchanged.
                 for p in images:
                     log(f"  image: {p}")
 

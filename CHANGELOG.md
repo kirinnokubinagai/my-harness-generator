@@ -4,6 +4,36 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.2.1] — 2026-05-11
+
+### Fixed
+
+- **Image-only Codex turns: real fix.** The 7.2.0 attempt at this bug
+  was based on a wrong assumption. `codex-app-server-call.py` was reading
+  `ChatResult.raw_events` from the `chat_once()` return value — but the
+  SDK's `chat_once()` raises `CodexProtocolError("turn completed but no
+  final assistant message could be resolved")` *unconditionally* when
+  `final_text` is empty, before returning. The result object never
+  reaches our code, so the post-result image-detection added in 7.2.0
+  never ran.
+
+  Confirmed from `codex_app_server_sdk/client.py` lines 1183-1190
+  (final_text empty → raise) and lines 1204-1310 (streaming `chat()`
+  returns cleanly on `session.completed` regardless of text content).
+
+  Real fix: switch from `chat_once()` to the streaming `chat()` API
+  (`AsyncIterator[ConversationStep]`). Each ConversationStep is captured
+  as it arrives via `model_dump(mode="json")`. We aggregate
+  `item_type == "agentMessage"` text ourselves and scan the full step
+  list for image-generation hints. The SDK no longer raises on empty
+  text because streaming completion is decoupled from text presence.
+
+  End-to-end verified: constructed a real ConversationStep with
+  `item_type="image_generation_call"` and `data.saved_path="/tmp/test.png"`;
+  `_extract_image_paths` recovers the path correctly.
+
+---
+
 ## [7.2.0] — 2026-05-11
 
 Phase 5 redesigned around an HTML deliverable + shared project-wide Codex
