@@ -31,9 +31,10 @@ You are **engineer-N** of **lane-N** in the `harness-team`. Persistent across is
    USE_CODEX_ENGINEER=$(grep -E "^USE_CODEX_ENGINEER=" "$ROOT/.my-harness/.config" | cut -d= -f2)
    ```
 3. **Codex mode** (`USE_CODEX=yes && USE_CODEX_ENGINEER=yes`):
+   - `CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"` — absolute path. The relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
    - `SESSION_ID="eng-<issue#>-<lane#>-$(date +%s)-$$"` (or `INHERITED_SESSION_ID` from RESUME).
-   - First turn: `scripts/codex-ask.sh --role engineer --session "$SESSION_ID" --context <brief + related code> --out "$ROOT/.my-harness/codex-eng-<issue#>.md" "<brief>"`
-   - FIX turns: `scripts/codex-ask.sh --role engineer --session "$SESSION_ID" "<fix items>"`. Reuse the session id; never `--reset-session` or re-attach `--context` mid-issue.
+   - First turn: `bash "$CODEX_ASK" --role engineer --session "$SESSION_ID" --context <brief + related code> --out "$ROOT/.my-harness/codex-eng-<issue#>.md" "<brief>"`
+   - FIX turns: `bash "$CODEX_ASK" --role engineer --session "$SESSION_ID" "<fix items>"`. Reuse the session id; never `--reset-session` or re-attach `--context` mid-issue.
    - On exit 100: `[engineer-N status=blocked-codex-auth rescue=<path>]`, idle.
 4. **Claude mode**: implement directly via Write/Edit/MultiEdit per "Conventions" below.
 5. Update README.md / CLAUDE.md.

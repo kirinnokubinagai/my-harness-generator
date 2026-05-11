@@ -34,11 +34,14 @@ USE_CODEX_REVIEWER=$(grep -E "^USE_CODEX_REVIEWER=" "$ROOT/.my-harness/.config" 
 ## Codex mode
 
 ```bash
+CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"
 SESSION_ID="rev-<issue#>-<lane#>-$(date +%s)-$$"   # or INHERITED_SESSION_ID
-scripts/codex-ask.sh --role harness-reviewer --session "$SESSION_ID" \
+bash "$CODEX_ASK" --role harness-reviewer --session "$SESSION_ID" \
   --context <changed files> --out "$ROOT/.my-harness/codex-rev-<issue#>.md" \
   "Review for harness conventions. Worktree: $WORKTREE. Changed: $(git -C $WORKTREE diff origin/dev...HEAD --name-only). Output PASS or file:line violations."
 ```
+
+The path must be absolute; the relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
 
 ## Claude checklist mode
 

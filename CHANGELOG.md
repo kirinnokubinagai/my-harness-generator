@@ -4,6 +4,10 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.9.4] — 2026-05-11
+
+- engineer / e2e-reviewer / reviewer now invoke `codex-ask.sh` via the absolute path `${CLAUDE_PLUGIN_ROOT}/scripts/codex-ask.sh`. The previous relative path `scripts/codex-ask.sh` did not exist inside the lane worktree, so every Codex call silently failed and the teammate fell back to Claude (or stalled in "blocker waiting"). Fixes Codex delegation never running even with `USE_CODEX_*=yes`.
+
 ## [3.9.3] — 2026-05-11
 
 - Clarify `owned_files` semantics: it is a dispatch-time lane-collision hint, NOT an in-lane file whitelist. engineer-N may freely touch any file the brief's Goal requires (including shared config like `biome.json`, `package.json`, `pnpm-workspace.yaml`) without escalating to analyst-N. analyst-N only escalates to team-lead when the file in question is also listed as `owned_files` of another currently-active lane. Fixes lanes stalling because they treated `owned_files` as a hard whitelist.

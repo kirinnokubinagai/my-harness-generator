@@ -55,7 +55,7 @@ fi
 
 Capture exit code, stdout/stderr, screenshot paths from `test-results/`.
 
-- **Codex mode**: `scripts/codex-ask.sh --role e2e-reviewer --session "e2e-<issue#>-<lane#>-$(date +%s)-$$" --out <report.md> "<output + diff>"` — use Codex's structured report.
+- **Codex mode**: `bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh" --role e2e-reviewer --session "e2e-<issue#>-<lane#>-$(date +%s)-$$" --out <report.md> "<output + diff>"` — use Codex's structured report. The path must be absolute; the relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
 - **Claude mode**: synthesize the report yourself.
 
 ## Reply format
