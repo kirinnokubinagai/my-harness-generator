@@ -3,28 +3,19 @@
 # bootstrapped project. Sourced by bootstrap.sh after worktrees are live.
 #
 # Requires from caller:
-#   HARNESS_DIR        — plugin root (so we can find templates/)
-#   USE_BACKEND        — "yes"/"no"
-#   BACKEND_KIND       — "hono"/"gin"/"rust"
+#   HARNESS_DIR        — plugin root
 #   copy_if_absent     — function defined in bootstrap.sh
 #
-# All copies are non-destructive: existing files in dev/ are kept.
+# 5.2.0 で簡素化:
+#   - CI workflow と renovate / dependabot は setup-common.sh の
+#     cp_glob_if_missing が `templates/github/` 全体を処理するため、
+#     ここでの個別コピーは重複だった (5.0/5.1 で混入していた)。
+#   - Hono middleware / lib は `templates/web/src/{interfaces,infrastructure}/`
+#     に移管したので setup-platforms.sh の rsync templates/web/ で配布される。
+#   - 残った真の責務は runbook (`templates/docs/runbooks/*.md`) のみ。
 
 # shellcheck shell=bash
 
 distribute_production_templates() {
-  copy_if_absent "$HARNESS_DIR/templates/docs/runbooks/*.md"                  "dev/docs/runbooks"
-  copy_if_absent "$HARNESS_DIR/templates/github/workflows/codeql.yml"         "dev/.github/workflows"
-  copy_if_absent "$HARNESS_DIR/templates/github/workflows/sbom.yml"           "dev/.github/workflows"
-  copy_if_absent "$HARNESS_DIR/templates/github/workflows/license-check.yml"  "dev/.github/workflows"
-  copy_if_absent "$HARNESS_DIR/templates/github/workflows/k6-smoke.yml"       "dev/.github/workflows"
-  copy_if_absent "$HARNESS_DIR/templates/github/workflows/lighthouse.yml"     "dev/.github/workflows"
-  copy_if_absent "$HARNESS_DIR/templates/github/renovate.json"                "dev"
-  copy_if_absent "$HARNESS_DIR/templates/github/dependabot.yml"               "dev/.github"
-
-  if [ "${USE_BACKEND:-no}" = "yes" ] && [ "${BACKEND_KIND:-hono}" = "hono" ]; then
-    for sub in middleware routes lib; do
-      copy_if_absent "$HARNESS_DIR/templates/backend/hono/$sub/*.ts" "dev/src/$sub"
-    done
-  fi
+  copy_if_absent "$HARNESS_DIR/templates/docs/runbooks/*.md" "dev/docs/runbooks"
 }

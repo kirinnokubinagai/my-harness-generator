@@ -4,7 +4,7 @@
  *       drizzle/ 配下の SQL ファイルをコミットする。`drizzle-kit push` は使用禁止。
  */
 
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 /**
@@ -31,3 +31,25 @@ export const passwordResetTokens = sqliteTable('password_reset_tokens', {
   expires_at: text('expires_at').notNull(),
   consumed_at: text('consumed_at'),
 });
+
+/**
+ * audit_log テーブル — append-only。
+ * 認証 / 権限変更 / データ削除 / 管理操作 / 課金イベントを全件記録する。
+ * retention ≥ 1 年（`rules/production.md`）。UPDATE / DELETE 禁止（DB ロールで強制）。
+ */
+export const auditLog = sqliteTable(
+  'audit_log',
+  {
+    id: text('id').primaryKey(),
+    actor_id: text('actor_id').notNull(),
+    action: text('action').notNull(),
+    resource: text('resource').notNull(),
+    metadata: text('metadata'),
+    ip: text('ip'),
+    occurred_at: text('occurred_at').notNull(),
+  },
+  (t) => [
+    index('idx_audit_log_actor').on(t.actor_id, t.occurred_at),
+    index('idx_audit_log_action').on(t.action, t.occurred_at),
+  ],
+);

@@ -8,15 +8,20 @@ not just MVPs. The defaults below are wired by `bootstrap.sh` and enforced by
 
 | Concern | Where it lives | Notes |
 |---|---|---|
-| Security headers (CSP/HSTS/XFO/COOP/CORP) | `dev/src/middleware/security-headers.ts` | Mounted globally |
-| Rate limiting (KV-backed) | `dev/src/middleware/rate-limit.ts` | Per-bucket: login / password-reset / api |
-| Structured logging (pino) + request-id | `dev/src/middleware/logger.ts` | `c.get("logger")` in every layer |
-| CORS allowlist (no `*`) | `dev/src/middleware/cors.ts` | Reads `ALLOWED_ORIGINS` env |
-| Idempotency (`Idempotency-Key`) | `dev/src/middleware/idempotency.ts` | 24 h KV cache for POST/PUT/PATCH/DELETE |
-| Health endpoints (`/healthz` `/readyz` `/livez`) | `dev/src/routes/health.ts` | `/readyz` runs DB ping + extras |
-| Sentry init (Workers) | `dev/src/lib/sentry.ts` | `withSentry(app, env)` wrap |
-| Audit log helper | `dev/src/lib/audit-log.ts` | Append-only `audit_log` table |
-| Feature flags | `dev/src/lib/feature-flag.ts` | Env-var driven (% rollout via stable hash) |
+| Security headers (CSP/HSTS/XFO/COOP/CORP/Permissions-Policy) | `dev/src/interfaces/http/app.ts` | `hono/secure-headers` with explicit options |
+| Rate limiting (KV-backed) | `dev/src/interfaces/http/middleware/rate-limit.ts` | Per-bucket: login / password-reset / api |
+| Structured logging (pino) + request-id | `dev/src/interfaces/http/middleware/request-logger.ts` + `dev/src/infrastructure/logging/pino-logger.ts` | `c.get('logger')` in every layer |
+| CORS allowlist (no `*`) | `dev/src/interfaces/http/middleware/cors.ts` | Reads `ALLOWED_ORIGINS` env |
+| Idempotency (`Idempotency-Key`) | `dev/src/interfaces/http/middleware/idempotency.ts` | 24 h KV cache for POST/PUT/PATCH/DELETE |
+| Health endpoints (`/healthz` `/readyz` `/livez`) | `dev/src/interfaces/http/routes/health.ts` | `/readyz` runs DB ping |
+| Sentry init (Workers) | `dev/src/infrastructure/monitoring/sentry.cloudflare.ts` | `withSentry(app, env)` wrap |
+| Audit log helper | `dev/src/infrastructure/audit/audit-log.ts` | Append-only `audit_log` table |
+| Feature flags | `dev/src/infrastructure/feature-flags/feature-flag.ts` | Env-var driven (% rollout via stable hash) |
+| Workers config | `dev/wrangler.jsonc` | D1 + KV (RATE_LIMIT_KV, IDEMPOTENCY_KV) + R2 (BackupBucket) bindings |
+| Alchemy stack | `dev/alchemy.run.ts` | One-shot infra: D1 + 2× KV + R2 + Worker |
+| k6 smoke | `dev/tests/load/smoke.js` | PR → stage baseline (p95 < 500 ms, error < 1 %) |
+| Lighthouse | `dev/lighthouserc.json` | perf ≥ 0.85, a11y ≥ 0.95, best-practices ≥ 0.90 |
+| audit_log table | `dev/src/db/schema.ts` + `dev/drizzle/0001_production_tables.sql` | Append-only, indexed by actor + action |
 | CodeQL SAST | `dev/.github/workflows/codeql.yml` | PR + weekly |
 | SBOM (CycloneDX) | `dev/.github/workflows/sbom.yml` | On release |
 | License audit | `dev/.github/workflows/license-check.yml` | Fails on GPL/AGPL/SSPL |

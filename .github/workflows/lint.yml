@@ -1,0 +1,72 @@
+# CI for the my-harness plugin itself.
+# Catches shell-script regressions and template TS type errors before they
+# hit users via /plugin marketplace update.
+
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n on every script
+        run: |
+          set -e
+          for f in $(find scripts skills/*/scripts tests -name '*.sh' -type f); do
+            echo "→ $f"
+            bash -n "$f"
+          done
+
+      - name: shellcheck (warning level)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # exclude SC1091 (sourced lib not in scope of shellcheck)
+          shellcheck -S warning -e SC1091 \
+            scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh tests/*.sh
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: shell
+    steps:
+      - uses: actions/checkout@v4
+      - name: spawn-lane-decision smoke
+        run: bash tests/spawn-lane-decision.sh
+
+  templates-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: shell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Install template deps in scratch dir
+        run: |
+          mkdir -p /tmp/templates-check
+          cp templates/typescript/tsconfig.json /tmp/templates-check/
+          cp -r templates/web/src              /tmp/templates-check/
+          cd /tmp/templates-check
+          pnpm init -y > /dev/null
+          pnpm add -D typescript@^5.7.0 @types/node@^22 @cloudflare/workers-types@latest > /dev/null
+          pnpm add hono@^4.12 pino@^10 @sentry/cloudflare@latest > /dev/null
+      - name: tsc --noEmit
+        run: |
+          cd /tmp/templates-check
+          npx tsc --noEmit --skipLibCheck --target ES2022 --module ESNext \
+            --moduleResolution Bundler --strict src/**/*.ts || \
+            echo "::warning:: template typecheck found issues (advisory)"

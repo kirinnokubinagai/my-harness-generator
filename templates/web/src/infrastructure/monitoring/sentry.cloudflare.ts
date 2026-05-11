@@ -1,17 +1,12 @@
 /**
- * Sentry 初期化ヘルパー — Cloudflare Workers 用 (`@sentry/cloudflare`)
+ * 概要: Sentry 初期化ヘルパー — Cloudflare Workers 用 (`@sentry/cloudflare`)。
+ *       source-map は CI のデプロイステップでアップロード (`docs/runbooks/deploy.md`)。
  *
- * source-map は CI のデプロイステップでアップロード (`docs/runbooks/deploy.md`)。
- *
- * 使い方:
- *   import { withSentry } from "./lib/sentry.cloudflare";
- *   export default withSentry(app, env);
- *
- * Node / Bun デプロイの場合は `sentry.node.ts` を使うこと。
+ *       Node / Bun デプロイの場合は `sentry.node.ts` を使うこと。
  */
 
-import * as Sentry from "@sentry/cloudflare";
-import type { Hono } from "hono";
+import * as Sentry from '@sentry/cloudflare';
+import type { Hono } from 'hono';
 
 type SentryEnv = {
   SENTRY_DSN?: string;
@@ -27,7 +22,7 @@ export function withSentry<TEnv extends SentryEnv>(
   return Sentry.withSentry(
     () => ({
       dsn: env.SENTRY_DSN,
-      environment: env.ENVIRONMENT ?? "production",
+      environment: env.ENVIRONMENT ?? 'production',
       release: env.RELEASE,
       tracesSampleRate: 0.1,
       sendDefaultPii: false,

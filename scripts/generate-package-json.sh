@@ -49,17 +49,25 @@ echo "$BASE" > "$TMP"
 apply() { jq "$1" "$TMP" > "$TMP.next" && mv "$TMP.next" "$TMP"; }
 
 if [ "$USE_WEB" = "yes" ]; then
+  # Workers-target (rules/production.md). `wrangler dev` is local dev so KV / D1
+  # / R2 bindings behave the same as prod.
   apply '.scripts += {
-    "dev": "tsx watch src/main.ts",
+    "dev": "wrangler dev",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/main.js"
+    "deploy:dev":   "bunx alchemy deploy --stage dev",
+    "deploy:stage": "bunx alchemy deploy --stage stage",
+    "deploy:prod":  "bunx alchemy deploy --stage prod"
   } | .dependencies += {
     "hono": "^4.12.16",
-    "@hono/node-server": "^1.18.0",
     "@hono/zod-validator": "^0.7.0",
     "zod": "^3.25.0",
     "ulid": "^3.0.0",
-    "pino": "^10.2.0"
+    "pino": "^10.2.0",
+    "@sentry/cloudflare": "^9.0.0"
+  } | .devDependencies += {
+    "alchemy": "2.0.0-beta.36",
+    "effect": "^4.0.0",
+    "@effect/platform-bun": "^0.0.0"
   }'
 fi
 

@@ -28,8 +28,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Generate SBOM (CycloneDX)
-        run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json --output-format json
+      # cdxgen は npm / pnpm / yarn / bun を auto-detect する。pnpm-lock.yaml も
+      # 含めて scan するので、pnpm 環境でも正確な SBOM を生成できる。
+      - name: Generate SBOM (CycloneDX cdxgen)
+        run: pnpm dlx @cyclonedx/cdxgen@latest -o sbom.cdx.json --spec-version 1.5
 
       - name: Attach SBOM to release
         uses: softprops/action-gh-release@v2

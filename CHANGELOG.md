@@ -4,6 +4,93 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [5.2.0] — 2026-05-11
+
+Integration pass. 5.0/5.1 added production middleware / docs / CI workflows
+but never connected them — the templates referenced KV bindings that didn't
+exist in `wrangler.jsonc`, the worker entrypoint was Node-flavoured while
+the deploy path was Workers, and `templates/backend/hono/` duplicated
+`templates/web/src/`. This release wires it all together.
+
+### BREAKING — Workers becomes the only production runtime
+
+The harness now ships **Cloudflare Workers + D1** as the documented production
+target. `@hono/node-server` is removed from generated `package.json`. Local
+development uses `wrangler dev` (so KV / D1 / R2 bindings behave identically
+to prod). Existing 4.x/5.x projects keep working but new `dev/src/main.ts`
+is a `export default { fetch }` Workers handler.
+
+### Added — real integration
+
+- `templates/web/src/main.ts` rewritten as Workers entrypoint with full `Env` type (D1 / RATE_LIMIT_KV / IDEMPOTENCY_KV / BackupBucket / SENTRY_DSN / etc.).
+- `templates/web/src/interfaces/http/app.ts` wires production middleware in the canonical order: `requestLogger → secureHeaders (with explicit CSP/COOP/CORP/Permissions-Policy) → strictCors → idempotency → routes`.
+- `templates/web/src/interfaces/http/routes/health.ts` exposes `/healthz`, `/livez`, `/readyz` (with D1 ping), plus legacy `/health`.
+- `templates/web/src/infrastructure/logging/pino-logger.ts` — pino factory with redact for `authorization` / `cookie` / `*.password` / `*.token`.
+- `templates/db/d1/src/db/schema.ts` adds the `audit_log` table (indexed by actor + action) referenced by `rules/production.md`.
+- `templates/db/d1/drizzle/0001_production_tables.sql` initial migration including `users`, `password_reset_tokens`, and `audit_log`.
+- `templates/db/d1/wrangler.jsonc` (new JSON variant) declares **all** bindings: D1 (`DB`), KV (`RATE_LIMIT_KV`, `IDEMPOTENCY_KV`), R2 (`BackupBucket`) per dev / stage / prod environments.
+- `templates/web/alchemy.run.ts` declares the Alchemy v2 stack (D1 + 2× KV + R2 + Worker).
+- `templates/web/tests/load/smoke.js` — k6 baseline (p95 < 500 ms, error < 1 %).
+- `templates/web/lighthouserc.json` — Lighthouse CI budgets (perf ≥ 0.85, a11y ≥ 0.95).
+
+### Added — harness self-CI (`.github/workflows/`)
+
+The plugin repo had no CI of its own. New `lint.yml` runs:
+- `bash -n` on every script (scripts / skills / tests)
+- shellcheck (warning level) on the same set
+- `bash tests/spawn-lane-decision.sh` smoke test
+- `tsc --noEmit` on `templates/web/src/` against pinned deps
+
+Catches regressions before they hit users via `/plugin marketplace update`.
+
+### Changed — middleware layout follows Clean Architecture
+
+5.0/5.1 placed middleware at `templates/backend/hono/middleware/`, lib at
+`templates/backend/hono/lib/`. That broke the existing `templates/web/src/`
+layered structure and would have shipped to `dev/src/middleware/` instead
+of the canonical layered location. 5.2.0 moves everything into the right
+layer:
+
+| 5.1 path | 5.2 path |
+|---|---|
+| `templates/backend/hono/middleware/security-headers.ts` | (deleted — uses built-in `hono/secure-headers` with options) |
+| `templates/backend/hono/middleware/cors.ts` | `templates/web/src/interfaces/http/middleware/cors.ts` |
+| `templates/backend/hono/middleware/rate-limit.ts` | `templates/web/src/interfaces/http/middleware/rate-limit.ts` |
+| `templates/backend/hono/middleware/idempotency.ts` | `templates/web/src/interfaces/http/middleware/idempotency.ts` |
+| `templates/backend/hono/middleware/logger.ts` | `templates/web/src/interfaces/http/middleware/request-logger.ts` |
+| `templates/backend/hono/routes/health.ts` | (merged into `templates/web/src/interfaces/http/routes/health.ts`) |
+| `templates/backend/hono/lib/sentry.cloudflare.ts` | `templates/web/src/infrastructure/monitoring/sentry.cloudflare.ts` |
+| `templates/backend/hono/lib/sentry.node.ts` | (deleted — Workers-only stack) |
+| `templates/backend/hono/lib/audit-log.ts` | `templates/web/src/infrastructure/audit/audit-log.ts` |
+| `templates/backend/hono/lib/feature-flag.ts` | `templates/web/src/infrastructure/feature-flags/feature-flag.ts` |
+| (no pino factory) | `templates/web/src/infrastructure/logging/pino-logger.ts` |
+
+`templates/backend/` is removed entirely.
+
+### Fixed — duplicate workflow distribution
+
+`scripts/lib/distribute-production.sh` was copying the CI workflows that
+`scripts/setup-common.sh` already distributes via `cp_glob_if_missing`. Now
+the production-distribute helper handles **only** the runbooks (which
+`templates/docs/runbooks/` is exclusively responsible for).
+
+### Fixed — `sbom.yml` for pnpm
+
+Switched from `@cyclonedx/cyclonedx-npm` (npm-only) to `@cyclonedx/cdxgen`
+which auto-detects pnpm / yarn / bun.
+
+### Fixed — `generate-package-json.sh` deps
+
+- Adds `@sentry/cloudflare` to deps when `USE_WEB=yes`.
+- Adds `alchemy`, `effect`, `@effect/platform-bun` to devDeps.
+- Removes `@hono/node-server` (Workers-target).
+- `dev` script: `tsx watch src/main.ts` → `wrangler dev`.
+
+### Documentation
+
+- `docs/PRODUCTION.md` — every path updated for the new layout, plus new rows for `wrangler.jsonc`, `alchemy.run.ts`, k6, Lighthouse, and `audit_log` schema.
+- `rules/production.md` — paths corrected.
+
 ## [5.1.0] — 2026-05-11
 
 Refactor pass on top of 5.0.0. No behaviour change; the harness now has a

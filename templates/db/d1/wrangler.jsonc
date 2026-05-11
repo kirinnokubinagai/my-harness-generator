@@ -1,0 +1,69 @@
+// 概要: Cloudflare Workers / D1 / KV / R2 の設定。
+//       database_id / KV id は Alchemy v2 が dev/alchemy.run.ts のリソース宣言から作成。
+//       初回 `bunx alchemy deploy --stage <env>` 後、以下で実 ID を取得して埋める:
+//         nix develop --command bunx alchemy state get harness <stage> Db | jq -r .id
+//       D1 マイグレーションは drizzle-kit generate で SQL 生成し、
+//       `wrangler d1 migrations apply DB --env <env> --remote` で適用する。
+{
+  "$schema": "https://unpkg.com/wrangler@latest/config-schema.json",
+  "name": "harness-app",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "harness-dev",
+      "database_id": "REPLACE_WITH_CLOUDFLARE_D1_DATABASE_ID",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "RATE_LIMIT_KV", "id": "REPLACE_WITH_KV_RATE_LIMIT_ID" },
+    { "binding": "IDEMPOTENCY_KV", "id": "REPLACE_WITH_KV_IDEMPOTENCY_ID" }
+  ],
+  "r2_buckets": [
+    { "binding": "BackupBucket", "bucket_name": "harness-dev-backups" }
+  ],
+  "vars": {
+    "ENVIRONMENT": "dev",
+    "LOG_LEVEL": "info"
+  },
+  "env": {
+    "stage": {
+      "name": "harness-app-stage",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "harness-stage",
+          "database_id": "REPLACE_WITH_STAGE_D1_ID",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "RATE_LIMIT_KV", "id": "REPLACE_WITH_STAGE_KV_RL_ID" },
+        { "binding": "IDEMPOTENCY_KV", "id": "REPLACE_WITH_STAGE_KV_IDEM_ID" }
+      ],
+      "r2_buckets": [{ "binding": "BackupBucket", "bucket_name": "harness-stage-backups" }],
+      "vars": { "ENVIRONMENT": "stage", "LOG_LEVEL": "info" }
+    },
+    "prod": {
+      "name": "harness-app-prod",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "harness-prod",
+          "database_id": "REPLACE_WITH_PROD_D1_ID",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "RATE_LIMIT_KV", "id": "REPLACE_WITH_PROD_KV_RL_ID" },
+        { "binding": "IDEMPOTENCY_KV", "id": "REPLACE_WITH_PROD_KV_IDEM_ID" }
+      ],
+      "r2_buckets": [{ "binding": "BackupBucket", "bucket_name": "harness-prod-backups" }],
+      "vars": { "ENVIRONMENT": "prod", "LOG_LEVEL": "warn" }
+    }
+  }
+}

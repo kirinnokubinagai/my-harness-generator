@@ -30,7 +30,7 @@ must add before being called "production-ready". Each item is wired by
 - `Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Resource-Policy: same-site`.
 
-Wired by `dev/src/middleware/security-headers.ts`.
+Wired by `hono/secure-headers` (with explicit options) in `dev/src/interfaces/http/app.ts`.
 
 ## Rate limiting (mandatory)
 
@@ -38,7 +38,7 @@ Wired by `dev/src/middleware/security-headers.ts`.
 - Password reset: 3 / hour per email.
 - Generic API: 100 / 15 min per IP authenticated, 30 / 15 min unauthenticated.
 - Use Cloudflare Rate Limiting binding when on Workers; fall back to KV-based
-  counter (`dev/src/middleware/rate-limit.ts`).
+  counter (`dev/src/interfaces/http/middleware/rate-limit.ts`).
 
 ## CORS (no wildcard ever)
 
@@ -50,7 +50,7 @@ Wired by `dev/src/middleware/security-headers.ts`.
 
 State-changing endpoints (POST / PUT / PATCH / DELETE) honour an
 `Idempotency-Key` header. Replays within 24 h return the cached response.
-Wired by `dev/src/middleware/idempotency.ts` (KV-backed).
+Wired by `dev/src/interfaces/http/middleware/idempotency.ts` (KV-backed).
 
 ## Health endpoints
 
@@ -64,7 +64,7 @@ Wired by `dev/src/middleware/idempotency.ts` (KV-backed).
 - Separate table (or stream) — `audit_log(actor_id, action, resource,
   metadata, occurred_at)`. Append-only.
 - Retention ≥ 1 year.
-- Write helper: `dev/src/lib/audit-log.ts`.
+- Write helper: `dev/src/infrastructure/audit/audit-log.ts`.
 - Required for: auth events / permission change / data deletion / admin
   actions / billing events.
 

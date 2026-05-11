@@ -1,37 +1,32 @@
 /**
- * 概要: アプリケーションのエントリポイント。
- *       Clean Architecture の outermost にあたり、
- *       依存性注入（DI）と Hono サーバの起動だけを行う。
- */
-import { serve } from '@hono/node-server';
-import { createApp } from './interfaces/http/app';
-import { loadConfig } from './infrastructure/config/load-config';
-import { createPostgresUserRepository } from './infrastructure/persistence/postgres-user-repository';
-import { createResendEmailSender } from './infrastructure/email/resend-email-sender';
-import { createPinoLogger } from './infrastructure/logging/pino-logger';
-
-/**
- * アプリケーションを起動する。
+ * 概要: Cloudflare Workers のエントリポイント。
+ *       Clean Architecture の outermost にあたり、依存性注入（DI）と
+ *       Hono アプリの起動だけを行う。
  *
- * @returns 起動した Hono アプリケーションのサーバインスタンス
+ *       本番デプロイは Workers (Alchemy + wrangler)。ローカル開発は `wrangler dev`
+ *       を推奨。`@hono/node-server` 経由の Node 起動は本テンプレートでは未サポート。
  */
-async function bootstrap(): Promise<void> {
-  const applicationConfig = loadConfig();
-  const structuredLogger = createPinoLogger(applicationConfig.logLevel);
 
-  const userRepository = createPostgresUserRepository(applicationConfig.databaseUrl);
-  const emailSender = createResendEmailSender(applicationConfig.resendApiKey, applicationConfig.emailFromAddress);
+import type { D1Database, KVNamespace, R2Bucket, ExecutionContext } from '@cloudflare/workers-types';
+import { createApp } from './interfaces/http/app';
 
-  const honoApplication = createApp({ userRepository, emailSender, logger: structuredLogger });
+/** Workers バインディング + シークレット型 */
+export type Env = {
+  DB: D1Database;
+  RATE_LIMIT_KV: KVNamespace;
+  IDEMPOTENCY_KV: KVNamespace;
+  BackupBucket: R2Bucket;
+  ALLOWED_ORIGINS: string;
+  SENTRY_DSN?: string;
+  ENVIRONMENT?: string;
+  RELEASE?: string;
+  LOG_LEVEL?: string;
+  FEATURE_FLAGS?: string;
+};
 
-  serve({ fetch: honoApplication.fetch, port: applicationConfig.port }, (info) => {
-    structuredLogger.info({ port: info.port }, 'サーバを起動しました');
-  });
-}
-
-bootstrap().catch((unexpectedError) => {
-  // 起動失敗は復旧不能なのでプロセスを終了する
-  // biome-ignore lint/suspicious/noConsole: bootstrap 失敗時はロガー初期化前のため例外的に許可
-  console.error('起動に失敗しました', unexpectedError);
-  process.exit(1);
-});
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const app = createApp(env);
+    return app.fetch(request, env, ctx);
+  },
+};
