@@ -1,0 +1,48 @@
+# Auto-regenerate dev/docs/architecture.mmd on every PR that touches src/.
+# Mermaid 図を最新に保ち、Clean Architecture 違反があれば PR を fail させる。
+
+name: Architecture Diagram
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/architecture-diagram.sh'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  diagram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Regenerate diagram
+        id: gen
+        run: |
+          set +e
+          bash .my-harness/scripts/architecture-diagram.sh
+          rc=$?
+          echo "violations_exit=$rc" >> $GITHUB_OUTPUT
+          exit 0
+
+      - name: Commit if changed
+        run: |
+          if ! git diff --quiet docs/architecture.mmd docs/architecture-meta.json 2>/dev/null; then
+            git config user.name  "harness-bot"
+            git config user.email "harness-bot@users.noreply.github.com"
+            git add docs/architecture.mmd docs/architecture-meta.json
+            git commit -m "chore: refresh architecture diagram"
+            git push
+          fi
+
+      - name: Fail PR on architecture violation
+        if: steps.gen.outputs.violations_exit == '2'
+        run: |
+          echo "::error:: Clean Architecture 違反を検出しました。docs/architecture-meta.json を確認してください。"
+          exit 1

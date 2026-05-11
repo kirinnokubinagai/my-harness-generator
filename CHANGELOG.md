@@ -4,6 +4,100 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.0.0] — 2026-05-11
+
+**研究色の濃いアイデア (16-24) を 1 段ずつ MVP 化した「ops surface」リリース。**
+スキャフォルドそのものは 6.0.0 で完成しているので、7.0.0 は **運用フェーズ** で
+効くツール群を一気に揃える。
+
+### Added — Pipeline 性能ベンチ (item 16)
+
+- `scripts/bench.sh` — 固定 `.config` で bootstrap を走らせ、所要 ms を
+  `bench-results.jsonl` に追記。プラグイン更新ごとに走らせれば performance
+  regression を早期検出できる。出力に git rev を含めるので diff が読める。
+
+### Added — Spec → Playwright E2E 自動生成 (item 17)
+
+- 新 skill: `harness-gen-e2e` (`skills/harness-gen-e2e/SKILL.md`)
+- `scripts/gen-e2e.sh` — `dev/docs/spec/features.md` の `## Feature: <name>` を
+  awk で分割し、各機能を `prompts/spec-to-e2e.md` テンプレートに埋めて
+  `codex-ask.sh --role harness-engineer` に渡す
+- `prompts/spec-to-e2e.md` — 「happy 1 + sad 2、`data-testid` 優先、API モック禁止、
+  ユーザー観点 assertion」の生成ルールをプロンプトに固定
+- 既存テストは skip、`--dry-run` でプロンプトのみ確認可
+
+### Added — Time-travel debugging (item 18)
+
+- `scripts/replay-agent.sh` — `.my-harness/logs/agents.log` から `--lane <N>` /
+  `--name <teammate>` / `--since <ISO>` / `--until <ISO>` で絞り込み、過去の
+  レーン動作を時系列で再生する。postmortem や教育素材として使える。
+
+### Added — Living architecture diagram (item 19)
+
+- `scripts/architecture-diagram.sh` — `dev/src/` の相対 import を辿り、
+  Clean Architecture の層別 (interfaces / application / domain / infrastructure) に
+  クラスタリングした Mermaid 図を `dev/docs/architecture.mmd` に出力。
+  layer ルール (`domain ← application ← others`) 違反を `architecture-meta.json`
+  にリストアップし、違反があれば exit 2。
+- `templates/github/workflows/architecture-diagram.yml` — `src/**` への PR で
+  自動再生成 + 違反検出時に PR fail。違反なければ commit が自動 push される。
+
+### Added — AI-suggested rollback (item 20)
+
+- `templates/github/workflows/auto-revert.yml` — `pr-to-stage.yml` が
+  workflow_run failure を返した場合、自動で:
+  1. 直近の main → stage マージコミットを特定
+  2. `revert/auto-<run-id>` ブランチを切って `git revert -m 1`
+  3. `approved-for-stage` + `auto-revert` ラベル付きで PR を作成 (24h soak スキップ)
+  4. on-call 向けの postmortem 案内を body に埋める
+
+### Added — Codex コスト透明性 (item 22)
+
+- `scripts/cost.sh` — `.my-harness/logs/codex-cost.jsonl` を読み、role 別 /
+  model 別 / 期間別の集計を出力。`--json` で機械可読。デフォルト単価:
+  gpt-5 ($5/1M in, $15/1M out)、o4-pro ($10/$30)、codex-mini ($1/$4)。
+  ※ `codex-ask.sh` / `codex-exec.sh` 側で token 数を書き出す改修は別途必要
+  (本リリースは集計層のみ — instrumentation は 7.1.0 で予定)
+
+### Added — Spec → Issue → Lane の閉ループ (item 24)
+
+- `scripts/spec-to-issues.sh` — `features.md` の各 `## Feature: <name>` を 1 issue
+  にし、YAML フロントマターの `owned_files` / `lane_hint` を抽出して
+  `gh issue create --label lane-hint:<N>` で登録。既存タイトル一致は skip
+  (冪等)。`--dry-run` でプレビュー可。
+- 仕様: `harness-team-lead` 側で `lane-hint:` ラベルと issue body の
+  `<!-- owned_files: [...] -->` コメントを読み取り、レーン割当の入力として
+  使う (lead SKILL.md の修正は 7.1.0 予定)
+
+### Added — Cloudflare MCP server (item 23)
+
+- `templates/mcp/cloudflare-server.ts` — `@modelcontextprotocol/sdk` ベースの
+  stdio MCP server。Claude Code / Cursor / Aider 等から:
+  - `list_workers` — アカウント内 Worker 一覧
+  - `list_deployments` — 指定 Worker のデプロイ履歴
+  - `rollback_deployment` — 指定 deployment ID にロールバック
+  - `d1_query` — D1 に **SELECT のみ** 実行 (DML は server 側で拒否)
+  を呼び出せる。デプロイ後の運用を AI から直接実行できる。
+
+### Added — Multi-tenant migration guide (item 21)
+
+- `docs/MULTI_TENANT.md` — `tenant_id` カラム追加、`tenants` テーブル設計、
+  JWT に `tid` claim を埋める、tenant middleware、repository 全関数の第 2
+  引数を tenantId に強制、rate-limit を per-tenant に切替、UNIQUE 制約の
+  複合化、削除ポリシー (onDelete: restrict + 30 日論理削除 + GDPR 連携)、
+  CI チェック追加までの完全手順。
+- 戦略 3 種 (共有 DB / Schema 分離 / 完全分離 D1) の比較表付き。harness の
+  default は意図的に single-tenant のまま — multi-tenant は **早ければ早い
+  ほど安い** ので「production 前に検討せよ」と明示。
+
+### 既知の積み残し (7.1.0 以降)
+
+- Codex token instrumentation (`codex-ask.sh` / `codex-exec.sh` を改修して
+  `codex-cost.jsonl` を書き出す)
+- `harness-team-lead` SKILL.md に `lane-hint:` ラベル読み取りを配線
+- multi-tenant ESLint カスタムルール
+- spec-to-e2e の fixture (`tests/e2e/fixtures/auth.ts`) 自動生成
+
 ## [6.0.0] — 2026-05-11
 
 **The "you can actually ship to production" release.** Bundles 5.2.1

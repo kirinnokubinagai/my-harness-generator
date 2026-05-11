@@ -1,0 +1,83 @@
+# stage の CI が落ちたら自動で revert PR を開く。
+# `pr-to-stage.yml` が approved-for-stage マージ後に走る CI なので、
+# その失敗 = stage に毒が入った状態。即時撤回が最優先。
+#
+# 動作:
+#   1. 直近の main → stage の merge commit を特定
+#   2. revert ブランチを切り、merge を revert
+#   3. PR を作成 (approved-for-stage ラベル付き — 24h soak をスキップ)
+#   4. on-call にメンション
+#
+# AI による説明文の自動付与は将来拡張 (Claude Action workflow と統合)。
+
+name: Auto Revert (stage)
+
+on:
+  workflow_run:
+    workflows: ["pr-to-stage"]
+    types: [completed]
+    branches: [stage]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  revert:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: stage
+
+      - name: Find last merge commit
+        id: merge
+        run: |
+          SHA=$(git log --merges --first-parent -n1 --format=%H)
+          SUBJECT=$(git log -n1 --format=%s "$SHA")
+          echo "sha=$SHA"           >> $GITHUB_OUTPUT
+          echo "subject=$SUBJECT"   >> $GITHUB_OUTPUT
+
+      - name: Create revert branch
+        run: |
+          git config user.name  "harness-bot"
+          git config user.email "harness-bot@users.noreply.github.com"
+          BRANCH="revert/auto-${{ github.event.workflow_run.id }}"
+          git checkout -b "$BRANCH"
+          git revert -m 1 --no-edit "${{ steps.merge.outputs.sha }}"
+          git push origin "$BRANCH"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+
+      - name: Open revert PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base stage \
+            --head "$BRANCH" \
+            --title "revert: ${{ steps.merge.outputs.subject }} (auto)" \
+            --label approved-for-stage \
+            --label auto-revert \
+            --body "$(cat <<EOF
+          ## Auto-generated revert
+
+          CI \`pr-to-stage\` failed on stage after merging:
+          \`${{ steps.merge.outputs.sha }}\` — ${{ steps.merge.outputs.subject }}
+
+          Failure run: ${{ github.event.workflow_run.html_url }}
+
+          ### Why this is a fast-track revert
+          stage が壊れている状態は production と同等の SEV2 です (\`docs/runbooks/incident-response.md\`)。
+          24h soak をスキップし即時マージしてください。原因調査は revert 後に。
+
+          ### Next steps
+          - [ ] このリビジョン以前の状態に戻ったことを synthetic check で確認
+          - [ ] 失敗 CI ログを保存
+          - [ ] 元のオーナーに新規 PR で fix forward を依頼
+          - [ ] postmortem (\`docs/runbooks/postmortem.md\`) を起こす
+          EOF
+          )"
