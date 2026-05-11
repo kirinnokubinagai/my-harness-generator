@@ -571,6 +571,21 @@ Phase 2 starts with one open question and continues as a free-form, multi-turn c
 
 **8. Binary when binary, multi-choice only when it matters.** If the realistic answer space is yes/no (e.g., "include local-LLM auto-post in v1?"), ask yes/no. Do not synthesize 3-option questions where (C) is just "both of A and B with conditions" — that's a `yes` with caveats; ask "yes/no" and apply the caveats as defaults.
 
+**10. Never force feature-ranking, "core" selection, or "MVP核" framing.** Once the user has listed N features, **all N are in scope** (Rule 1). Asking variants like:
+
+- "Which **one** feature, without which this project has no reason to exist?"
+- "What's the **core** that defines the MVP?"
+- "If you had to pick **one** differentiator, which one?"
+- "Rank these features by essentiality."
+- "Which feature is the heart of the product?"
+- Japanese variants: "これが無いなら作る意味がない、と一番強く感じる機能 1 つ" / "MVP の核を決めます" / "コア機能"
+
+…are **forbidden**. They are scope-reduction disguised as discovery. The harness is **not** producing an MVP — it produces a production-grade scaffold that implements **all** features the user listed.
+
+The differentiation probe (next section) asks **about competitive positioning** ("why does someone pick this over Notion/Substack/Ghost?") — that is allowed. It is **not** the same as "which of your features is THE one". Positioning is about the *whole product vs the world*; feature-ranking is about *cutting features from your own list*. Do not confuse them.
+
+When the user has already said "実装すればいい / build everything / all of the above / 全部やる" or equivalent, **no further prioritization questions are allowed at all** — proceed to the next discoverySheet field.
+
 **9. Never ask for unknowable future predictions.** The user cannot know "how many readers in year 1", "how many users at year 3", "monthly PV after launch", "revenue forecast". These are guesses, not constraints. **Forbidden** patterns:
    - "1 年後の読者規模は？" / "PV はどれくらい？" / "ユーザー数の年 1/年 3 目安は？"
    - "How big does it get in year one? Year three?"
@@ -724,9 +739,13 @@ The point is not to accept first answers as final. Examples:
 - Follow-ups: "Who could read this data if our DB leaked tomorrow?" "Is the answer different for the primary vs the secondary user?"
 
 #### Differentiation (`differentiation`)
-- **LANG=en:** "Name the closest thing that already exists. Why does someone pick this over that one? (Be concrete: 'Notion but offline-first', 'Linear but for legal review', 'Spreadsheet but with audit trails')"
-- **LANG=ja:** "一番近い既存サービスを 1 つ挙げてください。なぜユーザーはそれではなくこちらを選ぶ？具体的に。（「Notion だがオフライン優先」「Linear だが法務レビュー特化」「スプレッドシートだが監査ログ付き」）"
-- Follow-ups: "If their alternative dropped its main weakness next month, would this still have a reason to exist?"
+
+**Strict scope:** this probe is about **competitive positioning** (whole product vs the world), not about feature-ranking inside the user's own list. Do **not** ask "which feature is the core" / "what's the one feature without which it doesn't matter" — that's Rule 10 territory.
+
+- **LANG=en:** "What's the closest existing service to what you're building? Why does someone pick yours over theirs? (One concrete framing per side, like 'Notion but offline-first' or 'Substack but self-hostable'.)"
+- **LANG=ja:** "作ろうとしているものに一番近い既存サービスは？なぜ既存ではなくこっちを選ぶ？(片側ずつ具体的に。「Notion だがオフライン優先」「Substack だがセルフホスト可能」のような形)"
+- Follow-up: "If their alternative dropped its main weakness next month, would this still have a reason to exist?"
+- **Forbidden follow-ups:** "Which feature is the core?", "Which one feature without which this has no reason?", "Rank your features", "MVP の核は？" — all banned by Rule 10.
 
 #### Day-2 operations (`day2Operations`)
 - **LANG=en:** "Six months in, what does running this look like for whoever operates it? Backups? Bug-report inbox? On-call? Per-user support load? Something needs upgrading every 3 months?"
