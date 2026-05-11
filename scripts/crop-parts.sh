@@ -7,6 +7,14 @@
 # Cell size is FIXED at 256×256 (override via env CELL_SIZE). Cropping is
 # fully deterministic from manifest indices — no Vision required.
 #
+# Background removal uses CHROMA KEY on pure magenta `#FF00FF` (the color
+# Codex paints the grid background per prompts/codex-page-and-parts.md).
+# This means WHITE PIXELS INSIDE ASSETS ARE PRESERVED — clouds, paper,
+# white snow, white speech bubbles, white logos all stay opaque white in
+# the cropped PNG. Override the key color via env CHROMA_KEY (e.g.,
+# CHROMA_KEY='#00FF00' for legacy green-screen) or the fuzz tolerance via
+# CHROMA_FUZZ (default 10%).
+#
 # Outputs:
 #   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png      transparent PNG asset
 #   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts      TS import map
@@ -19,6 +27,8 @@ ROOT="${1:?root required}"
 PLATFORM="${2:?platform required}"
 SCREEN_SLUG="${3:?screen-slug required}"
 CELL_SIZE="${CELL_SIZE:-256}"
+CHROMA_KEY="${CHROMA_KEY:-#FF00FF}"
+CHROMA_FUZZ="${CHROMA_FUZZ:-10%}"
 
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
@@ -94,14 +104,17 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
   Y=$(( CELL_SIZE * R ))
   OUT="$ASSET_DIR/${N}.png"
 
+  # Chroma key: remove all pixels near the key color (pure magenta by
+  # default). This preserves WHITE pixels inside assets — clouds, paper,
+  # white speech bubbles, white snow, etc. — which the previous
+  # flood-fill-on-white approach would have eaten through anti-aliased
+  # edges. Pure magenta is reserved for the cell background per the
+  # Codex prompt; fuzz absorbs anti-aliased magenta→asset boundaries.
   $IM "$GRID" \
     -crop "${CELL_SIZE}x${CELL_SIZE}+${X}+${Y}" +repage \
-    -alpha set -fuzz 5% \
-    -fill none \
-    -draw "alpha 0,0 floodfill" \
-    -draw "alpha $((CELL_SIZE-1)),0 floodfill" \
-    -draw "alpha 0,$((CELL_SIZE-1)) floodfill" \
-    -draw "alpha $((CELL_SIZE-1)),$((CELL_SIZE-1)) floodfill" \
+    -alpha set \
+    -fuzz "$CHROMA_FUZZ" \
+    -transparent "$CHROMA_KEY" \
     -strip \
     "$OUT"
 

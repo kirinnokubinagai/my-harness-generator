@@ -946,7 +946,7 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
 
 Outputs:
 
-- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. 4-corner flood-fill removes the white grid background. Reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
+- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. **Chroma key on pure magenta `#FF00FF`** removes the grid background — which means **white pixels inside assets are preserved** (clouds, paper, white logos, snow, white speech bubbles all stay opaque white). The prompt instructs Codex to paint the grid background magenta exactly for this reason. Override the key color via `CHROMA_KEY` env var or tolerance via `CHROMA_FUZZ` (default 10%). Reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
 - `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
 
 `crop-parts.sh` auto-opens every cropped part PNG on completion (suppress with `HARNESS_SKIP_OPEN=1` if scripting a batch). On macOS they all open in Preview as a single window list; on Linux each is opened via `xdg-open`.

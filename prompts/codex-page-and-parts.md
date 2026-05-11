@@ -40,10 +40,10 @@ Each grid image catalogs **only the visual elements that CANNOT be recreated in 
 
 - Exactly **4 columns** wide.
 - **Maximum 7 rows per image** (so up to 28 assets per image — gpt-image-2 size limit).
-- Each cell is exactly **256 × 256 pixels** with 16px transparent / white padding inside (the asset occupies the central 224×224).
+- Each cell is exactly **256 × 256 pixels** with 16px padding inside (the asset occupies the central 224×224).
 - Image width = 1024 px (= 4 × 256), height = rows × 256 px (max 1792 px = 7 × 256).
-- Background of the entire image is solid white (#FFFFFF) — this is what the cropper flood-fills to transparency.
-- Below each cell, write the asset's name in **kebab-case** in a small sans-serif font, positioned at the bottom of the cell (within the 16px padding zone is fine).
+- **Background of the entire image is solid magenta `#FF00FF` (exactly RGB 255,0,255)** — this is the chroma-key color the cropper removes. This means **white pixels inside any asset are preserved as visible white** (clouds, paper, white logos, white snow, white speech bubbles all stay opaque white in the final transparent PNG). Do NOT use magenta or any near-magenta color (pink-magenta, hot pink, fuchsia) inside any asset, label, or accent — pure magenta is reserved exclusively for the background that will be removed.
+- Below each cell, write the asset's name in **kebab-case** in a small **black** sans-serif font (high contrast against the magenta background), positioned at the bottom of the cell (within the 16px padding zone is fine). Labels must NOT use magenta.
 
 **Splitting across images:**
 
