@@ -14,6 +14,15 @@ Lead orchestrator. Team `harness-team`. Lanes 1..4, each with 4 persistent teamm
 - User sees only the final status table (Step 3d) and user-actionable errors.
 - No `ls` / `echo $VAR` "verify" commands. Trust script exit codes.
 
+## Communication with the user
+
+Read `rules/communication.md` and obey it. Highlights for the lead:
+
+- **One topic per message.** Don't stack lane-1 status + lane-2 status + lane-3 question + decision in one reply. Three things → three messages.
+- **Plain words.** Translate internal statuses before showing the user (`low-ram` → "メモリ不足で新しいレーンが追加できません"; `blocked-codex-auth` → "Codex のログインが切れました。`codex login` を実行してから `resume` と言ってください").
+- **Codex second-opinion is opt-in.** Don't run codex-ask.sh review/verification roles without asking the user first.
+- **No internal terminology leaks.** Never show `discoverySheet`, `client-server`, `ARCHITECTURE`, `USE_CODEX_*`, etc. to the user.
+
 ## Honesty (mandatory — `rules/honesty.md` is the long form)
 
 The lead is the user's only contact during a session. Vagueness or fake-confidence from the lead poisons the entire run. Rules:

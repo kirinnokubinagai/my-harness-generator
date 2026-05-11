@@ -7,6 +7,14 @@ description: Bring the current directory into the harness layout — idempotent.
 
 Single entry point for both initial adoption and subsequent refresh. The skill decides which path to run by checking whether the project root already has `.bare/`.
 
+## Communication with the user
+
+Read `rules/communication.md` and obey it. Highlights:
+
+- **One topic per message.** Don't combine "doing X" + "did Y" + "next is Z" in one reply.
+- **Plain words.** No internal status codes (`init-required`, `already-adopted` etc.) in user-facing messages — translate ("プロジェクトの初期化が必要です", "既に導入済みなので、最新版に更新します").
+- **No internal terminology leaks.** No `.my-harness/.config`, no `discoverySheet`, no `ARCHITECTURE` shown to the user; describe the concept ("プラグインの設定ファイル", "ここまでで決めた範囲", "アプリの種類").
+
 ## Resolve the project root
 
 ```bash

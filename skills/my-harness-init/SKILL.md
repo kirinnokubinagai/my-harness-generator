@@ -59,7 +59,7 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 4. **Tool selection is informed by mocks** (Phase 6). Frameworks, DB, package manager, email, e2e, Claude Code Action are chosen with the mocks open so we can say "this dashboard needs real-time → choose framework with realtime story" rather than asking blind.
 5. **Data model is reverse-engineered from mocks + discovery** (Phase 7) and drilled deeply — GDPR scope, access permissions, cardinality reality, migration scenarios.
 
-**Cardinal rules — applied every turn:**
+**Cardinal rules — applied every turn (full enumeration in `rules/communication.md`):**
 
 - **One topic per user-facing message.** A single reply must not stack multiple distinct subjects (analysis + decision + question + side note). If the harness has 3 things to convey, send 3 short messages, not 1 long one. Wait for the user's response before moving to the next subject. Tables, bullet lists, and headers are only allowed when the user explicitly asked for one (e.g., "summarize", "list the options"). Default to plain sentences.
 
@@ -605,6 +605,27 @@ Phase 2 starts with one open question and continues as a free-form, multi-turn c
 The differentiation probe (next section) asks **about competitive positioning** ("why does someone pick this over Notion/Substack/Ghost?") — that is allowed. It is **not** the same as "which of your features is THE one". Positioning is about the *whole product vs the world*; feature-ranking is about *cutting features from your own list*. Do not confuse them.
 
 When the user has already said "実装すればいい / build everything / all of the above / 全部やる" or equivalent, **no further prioritization questions are allowed at all** — proceed to the next discoverySheet field.
+
+**11. Proactively suggest ideas the user didn't mention** (additive only — never subtractive). When the user describes the product in Phase 2, after acknowledging what they said, name 2-4 features, behaviors, or concerns that adjacent products in the same category typically have **and that the user did not mention**. Frame each as an addition to consider, not a gap. Easy to ignore.
+
+   Examples:
+
+   - User: "ブログを作りたい。AI で文章書ける、リッチエディタ、予約投稿、広告、検索、Skills エクスポート、動画埋め込み、X 投稿、サムネ、GSC/GA、ローカル LLM、Atom/RSS、PWA"
+   - Acknowledge: "全部 in-scope で進めます。"
+   - Then suggest (one sentence each, max 4):
+     - "下書き共有 URL (公開前に他人にプレビューさせる) もブログだとよく使われます。要りますか?"
+     - "コメント欄を入れる場合、スパム対策 (Akismet 系 or hCaptcha) のチェックを後で挟みますか?"
+     - "Webmention / トラックバック対応 (個人ブログ界で復活してる流れ) を入れますか?"
+     - "シリーズ機能 (連載記事を順番にナビゲートできる) もよく出ます。"
+   - Then: "要らないものは飛ばしてください。次は ◯◯ について聞きます。"
+
+   **Forbidden** when suggesting:
+   - The words "MVP", "core", "essential", "must-have", "the one" — these imply ranking (Rule 10 violation).
+   - "You're missing X" / "X が足りない" — that frames as a gap; banned. Use "X もよくあります" / "X も入れますか" instead.
+   - More than 4 suggestions per turn (overwhelm).
+   - Suggestions outside the product category (e.g., suggesting "newsletter" for a CLI tool).
+
+   Source of suggestions: known features of well-known products in the same category (Ghost, Substack, Note, Hashnode for blogs; Linear, Jira, Asana for issue trackers; etc.). Do not invent novel features.
 
 **9. Never ask for unknowable future predictions.** The user cannot know "how many readers in year 1", "how many users at year 3", "monthly PV after launch", "revenue forecast". These are guesses, not constraints. **Forbidden** patterns:
    - "1 年後の読者規模は？" / "PV はどれくらい？" / "ユーザー数の年 1/年 3 目安は？"
