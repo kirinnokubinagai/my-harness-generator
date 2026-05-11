@@ -381,17 +381,37 @@ auto_attach_rules "$ROLE"
 add_role_prefix "$ROLE"
 
 # ===== Append context files =====
+# Two modes per file:
+#   (a) text-like (UTF-8 readable) → embed contents inside a fenced block,
+#       so Codex sees them as quoted reference.
+#   (b) binary (e.g., PNG/JPEG/PDF) → DO NOT cat. Catting binary into a
+#       UTF-8 prompt corrupts the JSON-RPC payload and Codex fails. Instead
+#       emit only the absolute path, and ask Codex to open it with its
+#       file-read / multimodal tool. Codex's prompt-side image tooling
+#       handles PNGs natively when given a path.
 if [ "${#CONTEXT_FILES[@]}" -gt 0 ]; then
   {
     echo
     echo "# Reference files"
     for f in "${CONTEXT_FILES[@]}"; do
       [ -f "$f" ] || { echo "::warning:: $f not found" >&2; continue; }
+      # Resolve to an absolute path so Codex (whose cwd may differ from
+      # ours) can find the file regardless of how the caller passed it.
+      abs_f=$(cd "$(dirname "$f")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$f")" || printf '%s' "$f")
+      kind=$(file --brief --mime-type "$f" 2>/dev/null || echo "application/octet-stream")
       echo
-      echo "## $f"
-      echo '```'
-      cat "$f"
-      echo '```'
+      echo "## $abs_f  ($kind)"
+      case "$kind" in
+        text/*|application/json|application/xml|application/javascript|application/x-sh|application/x-shellscript|inode/x-empty)
+          echo '```'
+          cat "$f"
+          echo '```'
+          ;;
+        *)
+          # Binary file — paste path only, instruct Codex to read it itself.
+          echo "(binary asset — open it using your file-read or image-input tool at the absolute path above; do not attempt to decode it inline)"
+          ;;
+      esac
     done
   } >> "$TMP_PROMPT"
 fi
@@ -479,12 +499,21 @@ if [ "${CODEX_EXIT:-0}" -ne 0 ] && [ -f "$TMP_LOG.err" ]; then
 fi
 
 # ===== Output =====
-# The helper already writes JSONL to --log-file (when set) and emits only the
-# assistant body to stdout, so $ASSISTANT_TEXT is final. If empty, treat as
-# failure (helper has already logged the cause to stderr).
+# The helper writes JSONL to --log-file (when set) and emits only the assistant
+# body to stdout. $ASSISTANT_TEXT may be empty in two distinct cases:
+#   (a) helper reported success (CODEX_EXIT=0) but the turn was image-only.
+#       Codex saved the requested PNG(s) and ended the turn without an
+#       agent_message. The helper logged the detected image paths to stderr.
+#       This IS success — callers (e.g. gen-page-parts.sh) verify the PNG on
+#       disk themselves, they do not depend on $ASSISTANT_TEXT being non-empty.
+#   (b) helper reported failure (CODEX_EXIT!=0). Real failure — propagate.
 if [ -z "$ASSISTANT_TEXT" ]; then
-  echo "::warning:: codex app-server returned no assistant body (exit=$CODEX_EXIT). See stderr above." >&2
-  exit "${CODEX_EXIT:-1}"
+  if [ "${CODEX_EXIT:-1}" -eq 0 ]; then
+    echo "::warning:: codex app-server returned an empty body but exited 0 — likely an image-only turn. Check stderr above for image paths; verify the expected file exists on disk." >&2
+  else
+    echo "::warning:: codex app-server returned no assistant body (exit=$CODEX_EXIT). See stderr above." >&2
+    exit "${CODEX_EXIT:-1}"
+  fi
 fi
 
 if [ -n "$OUT_FILE" ]; then

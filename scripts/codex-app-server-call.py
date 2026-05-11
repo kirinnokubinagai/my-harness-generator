@@ -43,6 +43,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import socket
 import sys
 from pathlib import Path
@@ -70,6 +71,51 @@ DEFAULT_DAEMON_PORT_FILE = os.path.expanduser("~/.codex/my-harness-daemon.port")
 
 def log(msg: str) -> None:
     print(f"[codex-app-server] {msg}", file=sys.stderr, flush=True)
+
+
+# Substrings (case-insensitive on JSON dumps) that indicate an event relates to
+# image generation. We match defensively rather than against a fixed event-name
+# schema because Codex's app-server protocol surfaces image-gen results under
+# slightly different keys across versions (image_generation_call, image_gen,
+# imageGeneration, etc.). The shell never *parses* these paths — it only
+# checks file presence downstream — so a few false positives are harmless.
+_IMAGE_EVENT_HINTS = ("image_generation", "imageGeneration", "image_gen")
+
+# Regex matching common image-path shapes Codex emits when reporting a saved
+# image. We accept absolute paths under ~/.codex/generated_images, /tmp,
+# /var/folders (macOS temp), or any path the prompt explicitly told Codex to
+# save to. Both forward-slash and backslash variants are tolerated.
+_IMAGE_PATH_RE = re.compile(
+    r'"(/[^"]+?\.(?:png|jpe?g|webp|gif))"',
+    re.IGNORECASE,
+)
+
+
+def _extract_image_paths(raw_events) -> list[str]:
+    """Scan raw JSON-RPC events for image-generation file paths.
+
+    Used to decide whether an image-only turn (final_text empty) is a success
+    rather than a no-output failure. We do NOT depend on a specific event
+    name — we serialize each event to JSON, check for an image-related hint,
+    and pull any *.png/*.jpg/*.webp/*.gif path out of the string. Duplicates
+    are de-duped while preserving first-seen order.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for ev in raw_events or []:
+        try:
+            blob = json.dumps(ev, ensure_ascii=False)
+        except (TypeError, ValueError):
+            continue
+        blob_lower = blob.lower()
+        if not any(h.lower() in blob_lower for h in _IMAGE_EVENT_HINTS):
+            continue
+        for m in _IMAGE_PATH_RE.finditer(blob):
+            path = m.group(1)
+            if path not in seen:
+                seen.add(path)
+                found.append(path)
+    return found
 
 
 def detect_daemon_port() -> Optional[int]:
@@ -250,10 +296,38 @@ async def run_async(args: argparse.Namespace) -> int:
                     log_fp.write(json.dumps(ev, ensure_ascii=False) + "\n")
 
             # ---- emit ----
+            # A turn can complete via three legitimate paths:
+            #   (1) text-only:  Codex returned an agent_message → final_text set
+            #   (2) image-only: Codex called image_gen and the turn ended
+            #                   without a follow-up text message → final_text empty
+            #                   but raw_events contains image_generation_call events
+            #                   referencing the saved file path(s)
+            #   (3) mixed:      both text and images produced
+            #
+            # The legacy code only handled (1) and (3) — it treated (2) as failure,
+            # which broke every Phase-5 image-generation call (gen-page-parts.sh,
+            # upscale-part.sh) where Codex saves the PNG and ends the turn silently.
+            #
+            # We now scan raw_events for image-generation evidence. If found,
+            # an empty final_text is success: stdout still emits whatever text
+            # exists (possibly empty line), and we exit 0 so the shell can rely
+            # on file-presence checks downstream.
             text = (result.final_text or "").rstrip("\n")
-            if not text:
-                log("no agent_message produced before turn/completed")
+            images = _extract_image_paths(result.raw_events)
+
+            if not text and not images:
+                log("turn ended with no agent_message and no image_generation_call — treating as failure")
                 return 1
+
+            if images:
+                log(f"detected {len(images)} image_generation_call event(s); "
+                    f"text_len={len(text)}")
+                # Emit detected image paths to stderr for observability; the
+                # primary contract with shell callers stays "stdout = assistant text"
+                # so callers verify the file on disk themselves.
+                for p in images:
+                    log(f"  image: {p}")
+
             sys.stdout.write(text + "\n")
             sys.stdout.flush()
             return 0
