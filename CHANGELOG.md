@@ -4,6 +4,62 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.0.4] — 2026-05-11
+
+実プロジェクト (ブログアプリ) でインタビュー継続中のユーザーから:
+
+> セキュリティだけどこれは普遍なものでしょ？なんで私にいちいち聞くわけ？
+> 聞かずに完璧なセキュリティにしてください。そういうのが多すぎます。
+> 質問が長すぎる。改善余地があるなら直してください。
+
+ご指摘の通り、harness は universal best-practice を user に選ばせては
+いけない。Phase 2 NON-NEGOTIABLE rules を 3 件追加し、構造的に防止:
+
+### Rule 6: Universal-default policy
+
+`rules/production.md` で決まる engineering practices は **聞かずに自動適用**。
+インタビューが訊くのは **product 判断** (機能・エンティティ・UX) のみ。
+具体的な禁止質問パターン表 (9 ケース) を SKILL.md に明示:
+
+- "シークレット混入の主犯はどっち？" → 禁止 (全層常時 on)
+- "ログ送信先は？" → 禁止 (pino default、env で override)
+- "暗号化は？" → 禁止 (TLS 1.3 + bcrypt ≥ 12 + AES-256)
+- "レート制限は？" → 禁止 (常時 yes)
+- "バックアップ保持期間は？" → 禁止 (30d hot + 1y cold default)
+- "CSP report-only vs enforce?" → 禁止 (7d report → enforce 自動)
+- "LLM 自動投稿に承認は要る？" → 禁止 (draft + human gate 一択)
+- "TS strict は？" → 禁止 (常時 strict + noUncheckedIndexedAccess)
+- "コミット前 hook は？" → 禁止 (常時 husky + biome + gitleaks)
+
+迷ったら「最も厳しい production default を適用 + rules/production.md /
+runbook に記述」。質問にはしない。
+
+### Rule 7: Question length cap
+
+ユーザー向け質問 + 前置きは **5 行以内**。4 層脅威モデルのような
+framework explanation は rules/ / docs/ に置いて agent が黙読する。
+> 5 行の preamble が要るなら質問が構造的に間違ってる → 分解するか
+default 適用してスキップ。
+
+### Rule 8: Binary when binary
+
+(A) (B) (C) の (C) が「A と B 両方やる」なら、それは Yes + caveat なので
+yes/no に整理する。3 択は本当に独立な選択肢のときだけ。
+
+### Privacy housekeeping (同 commit に含む)
+
+- LICENSE copyright holder を `kirinnokubinagaiyo` から `my-harness-generator
+  contributors` に変更 (個人 macOS username が露出していた)
+- 全 git history blob から長形 username `kirinnokubinagaiyo` を `anonymous`
+  に置換 (filter-repo + force-push)
+- 全 commit author/committer を `anonymous <anonymous@noreply.local>` に
+  rewrite
+- 現リポの local `.git/config` も anonymous に設定 (今後のコミットも匿名)
+
+これで marketplace.json / plugin.json / LICENSE / blob 履歴 / commit author
+すべてから personal markers が消えた。残るは GitHub URL 構造上の短形 GH
+ハンドルだけ。
+
 ## [7.0.2] — 2026-05-11
 
 Phase 2 (Discovery) の **scope-reduction バグ** を完全削除。実プロジェクト

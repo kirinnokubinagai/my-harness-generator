@@ -549,6 +549,28 @@ Phase 2 starts with one open question and continues as a free-form, multi-turn c
 
 **5. Probes describe constraints, not choices.** Reframe any "simple vs complex" probe as "what's the upper bound the system must handle". The user's scope is fixed; only the budget is being elicited.
 
+**6. Universal-default policy (DO NOT ask about security / observability / quality / operations).** Production-grade defaults are decided by `rules/production.md` and applied **automatically** at bootstrap. The interview NEVER asks the user to choose between defense layers, log sinks, quality gates, or operational practices that have an industry-standard correct answer. The interview asks about **product** decisions (what features, what entities, what user-visible behavior), not about engineering practices.
+
+   Specifically **forbidden** question patterns:
+
+   | Forbidden | Why | What the harness does instead |
+   |---|---|---|
+   | "Which security layer should we invest in first?" / "シークレット混入の主犯はどっち？" | All layers always on by default | gitleaks pre-commit + GH Push Protection + GHA re-scan + Sentry source-map upload — all wired |
+   | "Where should logs go?" / "ログ送信先は？" | pino default; env var override only | `infrastructure/logging/pino-logger.ts` with redact; user can wire Axiom/Datadog later |
+   | "What encryption strength?" / "暗号化はどのくらい？" | Industry standard | TLS 1.3, bcrypt cost ≥ 12, AES-256, age for at-rest |
+   | "Should we have rate limiting?" / "レート制限は？" | Always yes | `middleware/rate-limit.ts` with login/password-reset/api buckets |
+   | "Backup retention?" / "バックアップ保持期間は？" | 30 d hot + 1 y cold default | Set in `rules/production.md`; user overrides only if regulator demands |
+   | "CSP report-only vs enforce?" / "CSP は報告のみ・強制？" | report-only 7d → enforce auto | `docs/runbooks/deploy.md` documents the cutover |
+   | "Should LLM auto-post require approval?" / "LLM 自動投稿に承認は要る？" | Yes, always — draft + human gate is the only sane default | Default for any auto-ingest path |
+   | "How strict should TypeScript be?" / "TS の strict 設定は？" | Always strict | `tsconfig.json` has `strict: true`, `noImplicitAny`, `noUncheckedIndexedAccess` |
+   | "Pre-commit hooks?" / "コミット前 hook は？" | Always yes | Husky + biome + commitlint + gitleaks |
+
+   When in doubt: **apply the strictest production-grade default and document it in `rules/production.md` or a runbook**, do not surface it as a question.
+
+**7. Question length cap.** Every question Claude sends to the user must fit in ≤ 5 lines as rendered. Long threat models / 4-layer frameworks / architectural explanations belong in `rules/` or `docs/` files for the agents to read silently — **not** in the user-facing question. If Claude needs > 5 lines of preamble to ask a question, the question is structurally wrong — break it into smaller atomic questions, or apply a default and skip asking entirely.
+
+**8. Binary when binary, multi-choice only when it matters.** If the realistic answer space is yes/no (e.g., "include local-LLM auto-post in v1?"), ask yes/no. Do not synthesize 3-option questions where (C) is just "both of A and B with conditions" — that's a `yes` with caveats; ask "yes/no" and apply the caveats as defaults.
+
 ### Internal `discoverySheet` (the state Claude maintains)
 
 Persist as `discoverySheet` inside `<root>/.my-harness/init-state.json`. Update after **every** user reply.
