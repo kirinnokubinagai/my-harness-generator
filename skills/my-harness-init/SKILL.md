@@ -135,21 +135,19 @@ Apply before writing to `docs/talk/` or `docs/spec/`. The pre-commit hook (`gitl
 
 At the completion of each phase, write the following. `current_phase` is the **next** phase to advance to; `phases_completed` is the list of **already finished** phases:
 
-```bash
-ROOT=<root>
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-mkdir -p "$ROOT/.my-harness"
-cat > "$ROOT/.my-harness/init-state.json" <<EOF
+Use the `Write` tool to create `$ROOT/.my-harness/init-state.json` directly (no shell heredoc needed). Replace every `<...>` placeholder with the actual value gathered so far. `timestamp` is the current UTC time in ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`).
+
+```json
 {
   "schema_version": "3",
   "project_name": "<PROJECT_NAME>",
   "lang": "en",
-  "root": "$ROOT",
+  "root": "<ROOT>",
   "current_phase": "<next phase>",
   "phases_completed": ["language", "setup", "discovery", "structure"],
   "next_action": "interview",
   "next_action_command": "Continue /my-harness-init (Phase: <next>)",
-  "working_directory": "$ROOT",
+  "working_directory": "<ROOT>",
   "discoverySheet": {
     "projectName": "...",
     "oneLineDescription": "...",
@@ -175,9 +173,8 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
   "visualMocks": [
     { "platform": "web", "screen": "Dashboard", "path": "dev/docs/design/mock-dashboard-1.png", "caption": "...", "decisionsRevealed": ["needs realtime", "needs filtering"] }
   ],
-  "timestamp": "$TIMESTAMP"
+  "timestamp": "<UTC ISO-8601>"
 }
-EOF
 ```
 
 ### Pause/resume
@@ -191,18 +188,16 @@ When the user comes back:
 ### At startup: auto-detect init-state.json
 
 ```bash
-find_existing_state() {
-  local d="$PWD"
-  for _ in 1 2 3 4 5; do
-    if [ -f "$d/.my-harness/init-state.json" ]; then
-      echo "$d/.my-harness/init-state.json"
-      return 0
-    fi
-    d=$(dirname "$d")
-  done
-  return 1
+STATE_FILE=$(bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/find-existing-state.sh") && {
+  # resume — STATE_FILE points to the init-state.json that should be loaded
+  :
+} || {
+  # not found — proceed with fresh start
+  :
 }
 ```
+
+Implementation: walks up to 5 parent directories from `$PWD`. Source: `scripts/find-existing-state.sh`.
 
 **Pre-Phase 0 messages are also shown bilingually** because `LANG` isn't set yet:
 
@@ -528,7 +523,21 @@ Use `AskUserQuestion` with named options:
 
 Map: `Local markdown` / `ローカルマークダウン` → `USE_GITHUB_ISSUES=no`. `GitHub Issues` → `USE_GITHUB_ISSUES=yes`. No default applied.
 
-After all four are answered, update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+### Setup Q5: Start (or revive) the shared codex app-server daemon — **only when USE_CODEX=yes**
+
+When `USE_CODEX=yes`, every later phase that touches Codex (Phase 2 / 4 / 5 / 7 consultations, Phase 5 image generation, Phase 5 HTML rendering, etc.) will call `codex-ask.sh`. Without a shared daemon, each call spawns a fresh `codex app-server` Node process (cold-start cost per call). One persistent daemon eliminates that cost and is reused across every subsequent Codex call in this and future sessions.
+
+The daemon script is idempotent and best-effort: `start` is a no-op if a healthy daemon is already running, brings one up otherwise, and never blocks the init flow. Run this exactly once at the end of Phase 1, only when `USE_CODEX=yes`:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-daemon.sh" "$ROOT"
+```
+
+Implementation: reads `USE_CODEX` from `.config`; if `yes`, branches on `harness-codex-daemon` `status` (0 = healthy, 1 = start, 2 = restart). Best-effort: failure only loses the cold-start savings, never blocks the init flow. Source: `scripts/ensure-codex-daemon.sh`.
+
+When `USE_CODEX=no`, skip this step entirely — no Codex calls will be made, so the daemon serves no purpose.
+
+After all five steps are answered (Q5 only runs the daemon command — no user question), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 
@@ -914,13 +923,11 @@ The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, no
 When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same project-wide Codex session** that `gen-page-parts.sh` wrote at `$ROOT/.my-harness/codex-session-design-image.txt` (format: `design-image-<project-slug>`). This single session is shared across every screen and every platform in the project — that is how design decisions (palette, typography, icon language, brand voice, button rounding) propagate from the first screen to every later one. Because the session contains multiple screens, **name the target screen explicitly** in your prompt. Do not re-attach `--context`, do not pass `--reset-session`:
 
 ```bash
-SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-image.txt")
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
-  --role designer \
-  --session "$SESSION_KEY" \
-  --out "$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r1.md" \
-  "Apply this change to the <SCREEN_NAME> screen on <PLATFORM>: <user's edit request>. Regenerate and overwrite the same PNG path."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" image \
+  "$ROOT" "<PLATFORM>" "<SCREEN_NAME>" "<user's edit request>"
 ```
+
+Resumes `design-image-<project-slug>`, names the target screen explicitly in the prompt, writes the response log to `$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r<unix-ts>.md`. Source: `scripts/refine-design.sh`.
 
 Iterate until the user approves. Once approved, proceed to the cropping step below.
 
@@ -995,13 +1002,11 @@ The prompt body lives at `prompts/codex-page-to-html.md` — edit it there, not 
 Refinements on the HTML use the same project-wide `design-html-<project-slug>` session. Name the target screen explicitly (the session contains multiple screens):
 
 ```bash
-SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-html.txt")
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
-  --role designer \
-  --session "$SESSION_KEY" \
-  --out "$ROOT/.my-harness/codex-html-<platform>-<screen-slug>-r1.md" \
-  "Apply this change to the <SCREEN_NAME> screen on <PLATFORM>: <user's edit request>. Overwrite the same HTML file."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" html \
+  "$ROOT" "<PLATFORM>" "<SCREEN_NAME>" "<user's edit request>"
 ```
+
+Resumes `design-html-<project-slug>`. Source: `scripts/refine-design.sh`.
 
 ### Implementation-phase TSX conversion (NOT part of Phase 5)
 
@@ -1325,12 +1330,15 @@ Persist `CLAUDE_AUTH=api|oauth`.
 
 ### After Phase 6
 
-Save the consolidated config to `<root>/.my-harness/.config`:
+Save the consolidated config to `<root>/.my-harness/.config`. Create the directory tree first, then use the `Write` tool to drop the config in place (no shell heredoc):
 
 ```bash
-mkdir -p <root>/.my-harness <root>/dev/docs/spec <root>/dev/docs/design <root>/dev/docs/talk <root>/dev/docs/task
+mkdir -p "$ROOT/.my-harness" "$ROOT/dev/docs/spec" "$ROOT/dev/docs/design" "$ROOT/dev/docs/talk" "$ROOT/dev/docs/task"
+```
 
-cat > <root>/.my-harness/.config <<EOF
+Then `Write` `$ROOT/.my-harness/.config` with this template (replace every `<...>` placeholder with the value chosen during Phases 1 / 3 / 6):
+
+```ini
 LANG=<en|ja>
 PROJECT_NAME=<from discoverySheet.projectName>
 PROJECT_SLUG=<derived lowercase-hyphen>
@@ -1366,7 +1374,6 @@ USE_CLAUDE_ACTION=<yes|no>
 CLAUDE_AUTH=<api|oauth>
 PACKAGE_MANAGER=<pnpm|bun|npm|yarn>
 ARCHITECTURE=<client-server|client-serverless|p2p-pure|p2p-hybrid>
-EOF
 ```
 
 The two keys `PACKAGE_MANAGER` and `ARCHITECTURE` go at the **end** of the file so older readers stay compatible.
@@ -1607,38 +1614,30 @@ These files are mirrored to `<root>/dev/.my-harness/rules/` by bootstrap, embedd
 After Claude writes these 2 files to `dev/`, stage and commit in dev. Use `$LANG`:
 
 ```bash
-cd "<root>/dev"
-git add README.md CLAUDE.md
-# LANG=en:
-git -c user.name="harness-bot" -c user.email="harness@local" \
-  commit --no-verify -m "docs: generate initial README.md and CLAUDE.md from spec"
-# LANG=ja:
-git -c user.name="harness-bot" -c user.email="harness@local" \
-  commit --no-verify -m "docs: README.md と CLAUDE.md の初版を spec から生成"
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/commit-initial-docs.sh" "$ROOT" "$LANG"
 ```
+
+Implementation: cd into `$ROOT/dev`, git add (only files that exist), commit with `harness-bot` identity and `--no-verify`. Commit message is language-aware (`ja` → Japanese, else English). Source: `scripts/commit-initial-docs.sh`.
 
 ### 8.6 Update init-state.json + stop + guide user to dev
 
-```bash
-ROOT=<root>
-ISSUE_COUNT=<number of child issues generated>
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-cat > "$ROOT/.my-harness/init-state.json" <<EOF
+Use the `Write` tool to overwrite `$ROOT/.my-harness/init-state.json` with the completion state. `timestamp` is the current UTC time in ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`):
+
+```json
 {
   "schema_version": "3",
   "project_name": "<PROJECT_NAME>",
-  "lang": "${LANG:-en}",
-  "root": "$ROOT",
+  "lang": "<LANG (en|ja)>",
+  "root": "<ROOT>",
   "current_phase": "completed",
   "phases_completed": ["language", "setup", "discovery", "structure", "features", "visual", "tools", "data-model", "bootstrap", "tasks"],
   "next_action": "implementation",
   "next_action_command": "/harness-team-lead",
-  "working_directory": "$ROOT/dev",
-  "issue_count": $ISSUE_COUNT,
+  "working_directory": "<ROOT>/dev",
+  "issue_count": <number of child issues generated>,
   "lanes_assigned": true,
-  "timestamp": "$TIMESTAMP"
+  "timestamp": "<UTC ISO-8601>"
 }
-EOF
 ```
 
 Then **present the following message and stop automatically** (do not proceed). Use `$PACKAGE_MANAGER` in the placeholders. Render only the block matching `$LANG`.
