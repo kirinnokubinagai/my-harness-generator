@@ -55,11 +55,23 @@ GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 SESSION_KEY="design-image-${PROJECT_SLUG}"
 echo "$SESSION_KEY" > "$ROOT/.my-harness/codex-session-design-image.txt"
 
+# Chroma-key color for transparent-background cropping. Defaults to pure
+# magenta (#FF00FF) — a color virtually never used in real designs, making
+# it a safe key. Override via env when the design legitimately uses
+# magenta-family colors:
+#   HARNESS_CHROMA_KEY='#00FF00' bash scripts/gen-page-parts.sh ...
+#
+# The same value is persisted to .my-harness/chroma-key.txt so crop-parts.sh
+# can read it without the user re-passing the env var.
+CHROMA_KEY="${HARNESS_CHROMA_KEY:-#FF00FF}"
+printf '%s\n' "$CHROMA_KEY" > "$ROOT/.my-harness/chroma-key.txt"
+
 PROMPT=$(sed \
   -e "s|<PROJECT_NAME>|$PROJECT_NAME|g" \
   -e "s|<PLATFORM>|$PLATFORM|g" \
   -e "s|<SCREEN_NAME>|$SCREEN_NAME|g" \
   -e "s|<SCREEN_SLUG>|$SCREEN_SLUG|g" \
+  -e "s|<CHROMA_KEY>|$CHROMA_KEY|g" \
   -e "s|<root>|$ROOT|g" \
   "$PROMPT_TMPL")
 
@@ -149,7 +161,7 @@ while : ; do
   [ -z "$IMG_COUNT" ] && \
     NUDGE="$NUDGE Manifest JSON missing or unparseable. Output exactly one fenced \`\`\`json block with {image_count, rows_per_image, cells:[{image,row,col,name}]}.  "
   if [ -n "$MISSING_GRIDS" ]; then
-    NUDGE="$NUDGE Missing grid image(s): $MISSING_GRIDS — call image_gen for each one (4 cols, 256×256 cells, ≤7 rows per image, solid magenta #FF00FF background per the original prompt).  "
+    NUDGE="$NUDGE Missing grid image(s): $MISSING_GRIDS — call image_gen for each one (4 cols, 256×256 cells, ≤7 rows per image, solid ${CHROMA_KEY} background per the original prompt, NO anti-aliasing on the background↔asset boundary).  "
   fi
 
   echo "::warning:: attempt $RETRY/$MAX_RETRY failed; following up: $NUDGE" >&2

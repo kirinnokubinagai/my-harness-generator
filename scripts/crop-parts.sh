@@ -27,8 +27,33 @@ ROOT="${1:?root required}"
 PLATFORM="${2:?platform required}"
 SCREEN_SLUG="${3:?screen-slug required}"
 CELL_SIZE="${CELL_SIZE:-256}"
-CHROMA_KEY="${CHROMA_KEY:-#FF00FF}"
-CHROMA_FUZZ="${CHROMA_FUZZ:-10%}"
+
+# Chroma key color — priority: env (CHROMA_KEY or HARNESS_CHROMA_KEY) >
+# saved file written by gen-page-parts.sh > default. Pinning the key from
+# one source ensures gen-page-parts.sh (which told Codex what color to
+# paint the background) and crop-parts.sh (which removes that color) agree.
+SAVED_KEY_FILE="$ROOT/.my-harness/chroma-key.txt"
+if [ -n "${CHROMA_KEY:-}" ]; then
+  : # explicit env wins
+elif [ -n "${HARNESS_CHROMA_KEY:-}" ]; then
+  CHROMA_KEY="$HARNESS_CHROMA_KEY"
+elif [ -f "$SAVED_KEY_FILE" ]; then
+  CHROMA_KEY=$(head -n 1 "$SAVED_KEY_FILE")
+else
+  CHROMA_KEY="#FF00FF"
+fi
+
+# Fuzz raised from 10% → 30% so anti-aliased background↔asset borders
+# (which render as pink / light purple / dusty rose when the key is
+# magenta, or pale green when the key is #00FF00) are caught. Override
+# with CHROMA_FUZZ='15%' for assets that legitimately contain key-family
+# colors and need a tighter match.
+CHROMA_FUZZ="${CHROMA_FUZZ:-30%}"
+# Erode the alpha channel by N px after chroma key to nibble away the last
+# 1-2 residual background-color pixels at the asset rim that fuzz missed.
+# Set to the empty string ("") to disable — preserves asset edges fully
+# at the cost of leaving a faint colored halo in some cells.
+CHROMA_ERODE="${CHROMA_ERODE:-Octagon:1}"
 
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
@@ -104,17 +129,31 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
   Y=$(( CELL_SIZE * R ))
   OUT="$ASSET_DIR/${N}.png"
 
-  # Chroma key: remove all pixels near the key color (pure magenta by
-  # default). This preserves WHITE pixels inside assets — clouds, paper,
-  # white speech bubbles, white snow, etc. — which the previous
-  # flood-fill-on-white approach would have eaten through anti-aliased
-  # edges. Pure magenta is reserved for the cell background per the
-  # Codex prompt; fuzz absorbs anti-aliased magenta→asset boundaries.
+  # Chroma key (two-step) — remove magenta background without leaving a halo.
+  #
+  # Step 1: Wide-fuzz `-transparent` to catch the pure magenta + every
+  #         anti-aliased magenta→asset boundary pixel (which renders as
+  #         pink / light purple / dusty rose after blending). Pure magenta
+  #         is reserved by the Codex prompt exclusively for background, so
+  #         a 20% fuzz radius is safe by default.
+  # Step 2: Erode the alpha channel by 1 px. After step 1 there may still
+  #         be a 1-2 pixel rim of "barely-magenta" pixels at the asset
+  #         edge — too far from pure magenta for fuzz to catch, but too
+  #         close for the eye to read as "real asset color". Eroding alpha
+  #         pulls the asset boundary inward just enough to nibble that
+  #         residue away. White pixels INSIDE the asset (clouds, paper,
+  #         snow) are untouched because they're nowhere near the alpha
+  #         boundary.
+  ERODE_OPS=()
+  if [ -n "$CHROMA_ERODE" ]; then
+    ERODE_OPS=(-channel A -morphology Erode "$CHROMA_ERODE" +channel)
+  fi
   $IM "$GRID" \
     -crop "${CELL_SIZE}x${CELL_SIZE}+${X}+${Y}" +repage \
     -alpha set \
     -fuzz "$CHROMA_FUZZ" \
     -transparent "$CHROMA_KEY" \
+    "${ERODE_OPS[@]}" \
     -strip \
     "$OUT"
 

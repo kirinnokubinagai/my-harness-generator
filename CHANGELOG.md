@@ -4,6 +4,47 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.2.2] — 2026-05-11
+
+### Fixed
+
+- **Magenta residue at asset edges after cropping.** With `fuzz=10%` and
+  no morphology, anti-aliased magenta→asset boundary pixels (which the
+  image generator emits as pink / light-purple / dusty-rose blends) were
+  too far from pure magenta in RGB-distance terms to be caught by
+  `-transparent`, so a 1-2 pixel residue remained around every asset.
+  Raised default fuzz to `30%` and added a 1-pixel alpha erosion
+  (`-morphology Erode Octagon:1`) so the asset boundary is pulled in
+  just enough to nibble the residue away. Empirically: alpha mean
+  dropped from "noisy halo" to "clean transparent edge" on synthetic
+  test cells. Override via `CHROMA_FUZZ` / `CHROMA_ERODE` env vars.
+
+### Added
+
+- **Chroma-key color is now configurable per project.** Set
+  `HARNESS_CHROMA_KEY` when running `gen-page-parts.sh` to pick a
+  different background color (e.g. `#00FF00` lime green) when the
+  design legitimately uses magenta-family colors. The value is
+  persisted to `.my-harness/chroma-key.txt` so subsequent `crop-parts.sh`
+  invocations read the same key without re-passing the env var.
+  Resolution order: explicit `CHROMA_KEY` env > `HARNESS_CHROMA_KEY` env
+  > saved file > default (`#FF00FF`).
+
+### Changed
+
+- **Prompt now demands pixel-perfect aliased background↔asset boundary.**
+  Codex was producing a soft anti-aliased boundary by default, which is
+  the root cause of the magenta-residue bug above. The prompt now
+  explicitly says: "Every pixel is EITHER exactly `<CHROMA_KEY>`
+  background OR a definite asset color. There must NEVER be any
+  in-between pixel along the boundary. Imagine rendering with
+  `image-rendering: pixelated`." Combined with the cropper-side
+  improvements, residue is reduced further when Codex obeys.
+- **Prompt uses `<CHROMA_KEY>` placeholder** (was hardcoded `#FF00FF`).
+  Allows the same prompt template to work with any chroma key.
+
+---
+
 ## [7.2.1] — 2026-05-11
 
 ### Fixed
