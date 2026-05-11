@@ -1,60 +1,72 @@
 #!/usr/bin/env bash
-# crop-parts.sh — slice the bottom-35 % parts grid of a page+parts image
-# into transparent-background PNGs that are usable as runtime assets,
-# and emit a TypeScript manifest so components can import the asset paths.
+# crop-parts.sh — slice the parts-grid PNG into transparent-background per-part
+# PNGs using ImageMagick. Cell size is FIXED at 256×256 (override via env
+# CELL_SIZE), so cropping is fully deterministic — no Claude Vision required.
 #
-# Layout (from gen-page-parts.sh + Codex):
-#   y = 0      .. 0.65 × H : full page mock (untouched)
-#   y = 0.65 H .. H        : parts grid, 4 columns × N rows, white background
-#
-# Caller passes a manifest.json (produced by Claude via Vision on the bottom
-# 35 %) listing each cell's row / col / name. Cropping is deterministic from
-# the manifest; transparency is produced by flood-fill from the 4 corners of
-# each cropped cell (preserves any white pixels INSIDE the component).
-#
-# Usage:
-#   bash scripts/crop-parts.sh <root> <platform> <screen-slug> <manifest.json>
+# The parts-grid image (produced by gen-page-parts.sh) has known dimensions:
+#   width  = 1024
+#   height = manifest.rows × 256
+# Columns are 4. Each cell is 256×256 (or CELL_SIZE).
 #
 # Outputs:
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png    (transparent PNG asset)
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/manifest.json (copy)
-#   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts    (TS path manifest)
+#   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png         transparent PNG asset
+#   <root>/dev/public/design/parts/<platform>/<screen-slug>/manifest.json      (already there from gen-page-parts.sh)
+#   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts         TS import map
 #
 # Requires: ImageMagick (magick or convert) + jq.
+#
+# Usage:
+#   bash scripts/crop-parts.sh <root> <platform> <screen-slug>
+#
+# Manifest path is inferred:
+#   <root>/dev/public/design/parts/<platform>/<screen-slug>/manifest.json
 
 set -u
 
 ROOT="${1:?root required}"
 PLATFORM="${2:?platform required}"
 SCREEN_SLUG="${3:?screen-slug required}"
-MANIFEST="${4:?manifest.json required}"
+CELL_SIZE="${CELL_SIZE:-256}"
 
-IN_PNG="$ROOT/dev/docs/design/page-${PLATFORM}-${SCREEN_SLUG}.png"
-[ -f "$IN_PNG" ]   || { echo "::error:: not found: $IN_PNG" >&2; exit 1; }
-[ -f "$MANIFEST" ] || { echo "::error:: not found: $MANIFEST" >&2; exit 1; }
+IN_GRID="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}.png"
+ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
+TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
+MANIFEST="$ASSET_DIR/manifest.json"
+
+[ -f "$MANIFEST" ] || { echo "::error:: not found: $MANIFEST (run gen-page-parts.sh first)" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 3; }
 if command -v magick >/dev/null 2>&1; then IM="magick"
 elif command -v convert >/dev/null 2>&1; then IM="convert"
 else echo "::error:: ImageMagick required (brew install imagemagick / apt install imagemagick)" >&2; exit 3
 fi
 
-# Image dimensions.
-read -r IMG_W IMG_H < <($IM identify -format "%w %h" "$IN_PNG")
-[ -n "${IMG_W:-}" ] && [ -n "${IMG_H:-}" ] || { echo "::error:: can't read $IN_PNG dimensions" >&2; exit 1; }
-
-GRID_TOP=$(( IMG_H * 65 / 100 ))
-GRID_H=$(( IMG_H - GRID_TOP ))
-
 ROWS=$(jq -r .rows "$MANIFEST")
-case "$ROWS" in ''|*[!0-9]*|0) echo "::error:: rows must be positive int (got: $ROWS)" >&2; exit 1 ;; esac
+case "$ROWS" in ''|*[!0-9]*) echo "::error:: manifest.rows invalid: '$ROWS'" >&2; exit 1 ;; esac
 
-CELL_W=$(( IMG_W / 4 ))
-CELL_H=$(( GRID_H / ROWS ))
+# Zero-asset case: nothing to crop. Still create an empty parts.ts so imports work.
+if [ "$ROWS" = "0" ]; then
+  mkdir -p "$TS_DIR"
+  {
+    printf '/** Auto-generated empty parts map for %s / %s (no non-HTML assets). */\n' "$PLATFORM" "$SCREEN_SLUG"
+    printf 'export const parts = {} as const;\n'
+    printf 'export type PartKey = keyof typeof parts;\n'
+  } > "$TS_DIR/parts.ts"
+  echo "no assets to crop. wrote empty parts map."
+  exit 0
+fi
 
-ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
-TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
+[ -f "$IN_GRID" ] || { echo "::error:: not found: $IN_GRID (gen-page-parts.sh should have produced it when rows > 0)" >&2; exit 1; }
+
+read -r IMG_W IMG_H < <($IM identify -format "%w %h" "$IN_GRID")
+[ -n "${IMG_W:-}" ] && [ -n "${IMG_H:-}" ] || { echo "::error:: can't read grid dimensions" >&2; exit 1; }
+
+# Width sanity: should be 4 × CELL_SIZE (default 1024). Tolerate small deviation.
+EXPECTED_W=$(( CELL_SIZE * 4 ))
+if [ "$IMG_W" -lt $(( EXPECTED_W - 16 )) ] || [ "$IMG_W" -gt $(( EXPECTED_W + 16 )) ]; then
+  echo "::warning:: parts-grid width is $IMG_W, expected ~$EXPECTED_W (4 × CELL_SIZE=$CELL_SIZE). Cropping may misalign." >&2
+fi
+
 mkdir -p "$ASSET_DIR" "$TS_DIR"
-cp "$MANIFEST" "$ASSET_DIR/manifest.json"
 
 PARTS_TS="$TS_DIR/parts.ts"
 {
@@ -66,20 +78,13 @@ PARTS_TS="$TS_DIR/parts.ts"
   printf 'export const parts = {\n'
 } > "$PARTS_TS"
 
-# -fuzz is a core ImageMagick option present in every version >= 6. 5 % tolerance
-# catches anti-aliased near-white edges; pure white grid bg stays the target.
-FUZZ_OPT="-fuzz 5%"
-
 camel_case() {
   printf '%s' "$1" | awk -F'-' '{
     out=""
     for (i=1; i<=NF; i++) {
       w = $i
-      if (i == 1) {
-        out = tolower(w)
-      } else {
-        out = out toupper(substr(w,1,1)) tolower(substr(w,2))
-      }
+      if (i == 1) { out = tolower(w) }
+      else { out = out toupper(substr(w,1,1)) tolower(substr(w,2)) }
     }
     print out
   }'
@@ -91,32 +96,29 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
   N=$(jq -r .name <<<"$CELL")
   case "$R$C" in ''|*[!0-9]*) echo "::warning:: bad cell row=$R col=$C, skip" >&2; continue ;; esac
 
-  X=$(( CELL_W * C ))
-  Y=$(( GRID_TOP + CELL_H * R ))
+  X=$(( CELL_SIZE * C ))
+  Y=$(( CELL_SIZE * R ))
   OUT="$ASSET_DIR/${N}.png"
 
-  # Crop the cell, then flood-fill from all 4 corners with transparent to
-  # remove the white background while preserving any white pixels INSIDE
-  # the component (because they're not connected to a corner).
-  $IM "$IN_PNG" \
-    -crop "${CELL_W}x${CELL_H}+${X}+${Y}" +repage \
-    -alpha set $FUZZ_OPT \
+  $IM "$IN_GRID" \
+    -crop "${CELL_SIZE}x${CELL_SIZE}+${X}+${Y}" +repage \
+    -alpha set -fuzz 5% \
     -fill none \
     -draw "alpha 0,0 floodfill" \
-    -draw "alpha $((CELL_W-1)),0 floodfill" \
-    -draw "alpha 0,$((CELL_H-1)) floodfill" \
-    -draw "alpha $((CELL_W-1)),$((CELL_H-1)) floodfill" \
+    -draw "alpha $((CELL_SIZE-1)),0 floodfill" \
+    -draw "alpha 0,$((CELL_SIZE-1)) floodfill" \
+    -draw "alpha $((CELL_SIZE-1)),$((CELL_SIZE-1)) floodfill" \
     -strip \
     "$OUT"
 
   KEY=$(camel_case "$N")
   REL_PATH="/design/parts/${PLATFORM}/${SCREEN_SLUG}/${N}.png"
   printf '  %s: %s,\n' "$KEY" "'$REL_PATH'" >> "$PARTS_TS"
-  echo "  cropped: $OUT"
+  echo "  cropped: $OUT  (${CELL_SIZE}×${CELL_SIZE} @ ${X},${Y})"
 done
 
 printf '} as const;\n\nexport type PartKey = keyof typeof parts;\n' >> "$PARTS_TS"
 
 echo
-echo "assets: $ASSET_DIR"
-echo "ts:     $PARTS_TS"
+echo "assets:   $ASSET_DIR"
+echo "parts.ts: $PARTS_TS"

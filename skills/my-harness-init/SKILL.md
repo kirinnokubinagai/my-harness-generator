@@ -915,40 +915,48 @@ Iterate until the user approves. Once approved, proceed to the cropping step bel
 
 **Reliability:** `gen-page-parts.sh` already retries up to 3 times in the same session if Codex returns text without calling `image_gen` (a known intermittent failure). If those retries exhaust, the script exits non-zero. Surface this to the user plainly: "Codex did not produce the PNG after 3 attempts. The Codex session is preserved at `<key>` — want to retry manually, or skip this screen for now?"
 
-### Slicing the parts grid into individual PNGs
+### What's in the parts grid (and what is NOT)
 
-Once the user approves the page+parts image, read the bottom 35 % via Vision and produce a manifest at `$ROOT/dev/docs/design/parts/<platform>/<screen-slug>/manifest.json`:
+The parts grid catalogs **only non-HTML assets** — visual elements that cannot be cleanly recreated in HTML/CSS:
 
-```json
-{
-  "rows": 3,
-  "cells": [
-    { "row": 0, "col": 0, "name": "primary-button" },
-    { "row": 0, "col": 1, "name": "primary-button-hover" },
-    { "row": 0, "col": 2, "name": "primary-button-disabled" }
-  ]
-}
-```
+- **Include:** custom illustrations, brand marks / logos / badges, decorative graphics, bespoke icons not in Lucide / common libraries, hand-drawn shapes, texture patterns.
+- **Exclude:** buttons, inputs, dropdowns, cards, nav items, list rows, modals, typography, library icons (Lucide / Heroicons), and any element that is "a colored box with text". Those are HTML-rendered and never live as PNG assets.
 
-`name` is a `kebab-case` slug derived from the visible label under each cell.
+If a screen has zero non-HTML assets, `gen-page-parts.sh` produces only the page mock and a manifest with `"rows": 0`. Cropping and TSX scaffolding are then no-ops (`parts.ts` is still emitted but empty).
 
-Then crop deterministically. The script outputs **transparent-background PNGs** (4-corner flood-fill removes the white grid background while preserving any white pixels inside the component) directly to a runtime-accessible path and emits a TypeScript manifest:
+### Slicing the parts grid into transparent PNGs (fully automated)
+
+Cropping is deterministic — cells are a fixed 256×256 (override via `CELL_SIZE` env var). The manifest produced by `gen-page-parts.sh` is already at the right path; Claude does NOT need to look at the image via Vision.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/crop-parts.sh" \
-  "$ROOT" "<platform>" "<screen-slug>" \
-  "$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json"
+  "$ROOT" "<platform>" "<screen-slug>"
 ```
 
 Outputs:
 
-- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. Lives under `public/` so it's reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
-- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json` — copy of the cell manifest (for reference).
-- `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; exported `parts` object maps each cell name (camelCase key) to its public URL. Used by the TSX components below.
+- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<name>.png` — transparent-background PNG per cell. 4-corner flood-fill removes the white grid background. Reachable at `/design/parts/<platform>/<screen-slug>/<name>.png` from the running app.
+- `$ROOT/dev/src/components/design/<platform>/<screen-slug>/parts.ts` — TS asset map; `parts.<camelKey>` returns the public URL.
 
-Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface plainly: "ImageMagick is required for slicing the parts grid. Install with `brew install imagemagick` (macOS) or `apt install imagemagick` (Linux), then retry."
+Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface plainly: "ImageMagick is required to slice the parts grid. Install with `brew install imagemagick` (macOS) or `apt install imagemagick` (Linux), then retry."
 
-The manifest.json the user produces before this step should be written to the same output directory (`$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json`).
+### Upscaling a part when the display size exceeds 256×256
+
+The 256×256 source is the default size. When the page calls for an asset at a larger display size (e.g., a hero illustration at 1600×800), regenerate **just that part** at the target size via Codex (same session — palette and style are preserved):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/upscale-part.sh" \
+  "$ROOT" "<platform>" "<screen-slug>" "<part-name>" <width> <height>
+```
+
+Output:
+
+- `$ROOT/dev/public/design/parts/<platform>/<screen-slug>/<part>-<W>x<H>.png` — the upscaled PNG.
+- `parts.ts` gets a new entry, e.g., `heroIllustration1600x800: '/design/parts/.../hero-illustration-1600x800.png'`.
+
+The original 256×256 PNG is left in place. Components import whichever size matches their display context.
+
+Decide when to upscale based on the page mock: if a part is rendered larger than 256px on either axis in the page, upscale it. Otherwise, the source is enough.
 
 ### TSX component scaffolding (automated)
 
