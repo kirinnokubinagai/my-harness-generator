@@ -950,32 +950,38 @@ Requires ImageMagick (`magick` or `convert` on `$PATH`). If missing, surface pla
 
 The manifest.json the user produces before this step should be written to the same output directory (`$ROOT/dev/public/design/parts/<platform>/<screen-slug>/manifest.json`).
 
-### TSX component extraction
+### TSX component scaffolding (automated)
 
-For every cropped part PNG, read the image (Vision) and write a real React + Tailwind component at:
+Immediately after `crop-parts.sh` finishes, run:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/scaffold-tsx-from-parts.sh" \
+  "$ROOT" "<platform>" "<screen-slug>"
+```
+
+This reads the same manifest.json and produces one TSX file per cell at:
 
 ```
 $ROOT/dev/src/components/design/<platform>/<screen-slug>/<PartName>.tsx
 ```
 
-The same directory already has a `parts.ts` (emitted by `crop-parts.sh`) mapping each part to its public URL — components import from there:
+The baseline output renders the transparent PNG via `<img src={parts.<key>} />` using the already-generated `parts.ts` import map. Every component:
 
-```tsx
-import { parts } from './parts';
-// parts.primaryButton          -> '/design/parts/web/login/primary-button.png'
-// parts.primaryButtonHover     -> '/design/parts/web/login/primary-button-hover.png'
-```
+- Has a `/** 概要: ... */` JSDoc comment naming the part.
+- Accepts a `className` prop (further props are added when the component is upgraded).
+- Compiles and type-checks immediately — no manual TSX writing required to reach a working state.
+- Idempotent: existing files are skipped. Delete a file to force regeneration.
 
-Each component:
+### Upgrading scaffolded components
 
-- Implements the visual using Tailwind classes (or `rules/design.md`-compliant CSS) for any element that can be recreated in code.
-- For decorative graphics / illustrations / icons that cannot be cleanly recreated in code, renders the transparent PNG via `<img src={parts.<key>} />` or Next.js `<Image>` directly.
-- Uses Lucide icons where icons appear (per `rules/design.md`).
-- Accepts props matching the visible variants (`disabled`, `variant`, `size`, etc.) — one prop per state variant seen in the grid.
-- Includes a `/** 概要: ... */` JSDoc comment naming the part.
-- Imports nothing AI-style (no purple-blue gradients per `rules/design.md`).
+The PNG-embed baseline is a starting point. When the implementation phase touches a component, replace the `<img>` with a pure Tailwind / Lucide reproduction:
 
-The cropped PNG remains accessible as a runtime asset (via `parts.ts`); the TSX component is the canonical implementation used by `harness-team-lead` during the build phase. The two coexist: code is the source of truth for behavior + accessibility; the PNG is the source of truth for pixel reference and as a fallback for hard-to-recreate visuals.
+- Use Tailwind classes for buttons, inputs, cards, list rows, nav items — anything code can recreate.
+- Keep `<img src={parts.<key>} />` only for decorative graphics / illustrations / icons that don't recreate cleanly in code.
+- Add props for the state variants visible in the parts grid (`disabled`, `variant`, `size`, `selected`).
+- Remove the `parts.<key>` import line once the PNG is no longer used.
+
+The cropped PNG and the TSX component coexist throughout: code is the source of truth for behavior + accessibility; the PNG is the source of truth for pixel reference. The `harness-team-lead` implementation phase reads both.
 
 ### Crucial post-mock drill (NEW — runs after EVERY mock)
 
