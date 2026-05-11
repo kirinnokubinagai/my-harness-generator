@@ -129,7 +129,7 @@ On `codex-ask.sh` exit 100: `[analyst-N issue=#X status=blocked-codex-auth role=
      - <observable 1>
      - ...
    Constraints:
-     - <skill names: harness-tdd, harness-jsdoc, harness-hono-clean-arch, ...>
+     - <rule file names: tdd, jsdoc, hono-clean-arch, drizzle, design, nix-pure, no-hardcoded-secrets — under .my-harness/rules/>
    Reference: https://github.com/<owner>/<repo>/issues/<N>
    ```
 4. `[analyst-N issue=#X step=1-brief status=ready brief=<path>]`.

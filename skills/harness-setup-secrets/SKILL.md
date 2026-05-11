@@ -59,4 +59,4 @@ For each secret/var, launches `gh secret set` / `gh variable set` → enter valu
 ## Related
 
 - Branch protection: `harness-branch-protection`
-- No-hardcode policy: `harness-no-hardcoded-secrets`
+- No-hardcode policy: see `rules/no-hardcoded-secrets.md`

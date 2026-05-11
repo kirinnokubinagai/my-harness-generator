@@ -157,8 +157,7 @@ After init, these are the slash commands you'll reach for most often:
 | What you want | Command |
 |---|---|
 | Drive all pending issues in parallel | `/harness-team-lead` |
-| Convert an existing git repo into harness layout | `/my-harness-adopt` |
-| Push a plugin upgrade into an already-adopted project | `/my-harness-update` |
+| Adopt an existing git repo OR refresh an adopted project after a plugin upgrade | `/my-harness-adopt` (idempotent — auto-detects `.bare/`) |
 | Manual secret scan | `/harness-check-secrets` |
 | Apply branch protection in bulk | `/harness-branch-protection` |
 | Generate Alchemy v2 deploy infrastructure (`alchemy.run.ts`) | `/harness-deploy-setup` |
@@ -166,31 +165,29 @@ After init, these are the slash commands you'll reach for most often:
 | Live view of all lane agents (separate terminal) | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
 | Watchdog mode (lead consumes via Step 3.0) | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
 
-## Auto-firing skills
+## Conventions (single source of truth: `rules/*.md`)
 
-These convention skills load automatically when you do certain things — you don't have to invoke them:
+All harness conventions live in `rules/*.md` and are loaded automatically by every entry point:
 
-| Skill | When it fires |
-|-------|---------------|
-| `harness-tdd` | Writing tests, fixing bugs, refactoring, behavior changes |
-| `harness-hono-clean-arch` | Implementing Hono routes, services, repositories |
-| `harness-drizzle-rules` | Schema changes or migrations (enforces migrate-only, blocks `drizzle-kit push`) |
-| `harness-nix-pure` | Running commands or installing tools (forbids `brew install`, requires `nix develop --command`) |
-| `harness-design-rules` | UI components, color choices, icon usage (Lucide only, no AI-style gradients) |
-| `harness-jsdoc` | Writing functions, types, comments (JSDoc/TSDoc required, no inline comments inside functions) |
-| `harness-git-discipline` | Git operations and conflicts (no `rebase` / `reset --hard` / `push --force`) |
-| `harness-no-hardcoded-secrets` | Working with env vars, API keys, `.env` files |
+| Rule file | Enforces |
+|---|---|
+| `rules/tdd.md` | Red / Green / Refactor cycle; AAA pattern; `$LANG` test names |
+| `rules/hono-clean-arch.md` | 4-layer Clean Architecture; strict dependency direction |
+| `rules/drizzle.md` | Drizzle migrate-only; `drizzle-kit push` prohibited |
+| `rules/nix-pure.md` | Every tool invocation via the per-worktree devshell wrapper; no `brew install` |
+| `rules/design.md` | Lucide Icons only; no AI-style gradients; WCAG AA |
+| `rules/jsdoc.md` | TSDoc on every export; no inline comments inside function bodies |
+| `rules/no-hardcoded-secrets.md` | env vars / SOPS only; gitleaks at pre-commit |
+
+These files are mirrored to `<root>/dev/.my-harness/rules/` by bootstrap, embedded in `dev/CLAUDE.md` + `dev/AGENTS.md` (Claude Code / Codex CLI / Cursor / Aider all read them automatically), and auto-attached to Codex via `codex-ask.sh --role engineer` / `--role harness-reviewer` / `--role harness-analyst`. There is no per-rule slash command — the rules are always in scope.
 
 ## Slash commands
 
-**Four slash commands you'll use directly:**
+**Three slash commands you'll use directly:**
 
-- `/my-harness-init` — start a new project (one-time, per project). Detects existing `.my-harness/init-state.json` and resumes from the saved phase.
-- `/my-harness-adopt` — convert an existing git repo into the harness layout (preserves history).
-- `/my-harness-update` — push the latest plugin assets into an already-adopted project (idempotent).
+- `/my-harness-init` — start a new project from an empty directory (one-time, per project). Detects existing `.my-harness/init-state.json` and resumes from the saved phase.
+- `/my-harness-adopt` — idempotent. On first run (no `.bare/` yet) converts an existing git repo into the harness layout while preserving history. On subsequent runs (`.bare/` already present) refreshes `dev/.my-harness/` with the latest plugin assets and regenerates `dev/CLAUDE.md` / `dev/AGENTS.md`. Non-destructive on the refresh path.
 - `/harness-team-lead` — coordinate ongoing 4-lane parallel implementation.
-
-Plus a handful of convention skills (TDD, JSDoc, Hono Clean Arch, Drizzle, Nix-pure, design, no-hardcoded-secrets, git-discipline) that are thin pointers to `rules/*.md`. The same rule files are also auto-attached to Codex via `codex-ask.sh --role engineer` / `--role harness-reviewer` / `--role harness-analyst`, so Claude and Codex apply identical conventions.
 
 ## Architecture
 

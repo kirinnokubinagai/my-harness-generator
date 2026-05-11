@@ -126,8 +126,7 @@ init 後の開発で使うコマンド一覧:
 | やりたいこと | コマンド |
 |---|---|
 | 全 pending issue を並列で進める | `/harness-team-lead` |
-| 既存 git repo を harness 構造に変換 | `/my-harness-adopt` |
-| plugin 更新を既存プロジェクトに反映 | `/my-harness-update` |
+| 既存 git repo を harness 構造に変換 or 既存 adopted を最新 plugin に同期 | `/my-harness-adopt` (冪等 — `.bare/` の有無で自動分岐) |
 | 機密チェック（手動） | `/harness-check-secrets` |
 | ブランチ保護を一括適用 | `/harness-branch-protection` |
 | Alchemy v2 デプロイ設定（`alchemy.run.ts`）を生成 | `/harness-deploy-setup` |
@@ -135,31 +134,29 @@ init 後の開発で使うコマンド一覧:
 | 各 lane の動作を live で観察（別ターミナル） | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
 | watchdog モード（lead が Step 3.0 で読み込む） | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
 
-## 自動発火する規約 skill
+## 規約 (single source of truth: `rules/*.md`)
 
-以下は会話の文脈に応じて**自動で**読み込まれる skill。あなたが明示的に呼ぶ必要はありません。
+すべての harness 規約は `rules/*.md` に置かれており、全エントリポイントが自動で読み込みます:
 
-| skill | 発火するとき |
-|-------|-------------|
-| `harness-tdd` | テスト記述 / バグ修正 / リファクタ / 振る舞い変更 |
-| `harness-hono-clean-arch` | Hono ルート / サービス / リポジトリ実装 |
-| `harness-drizzle-rules` | スキーマ変更 / マイグレーション（migrate-only 強制、`drizzle-kit push` 禁止） |
-| `harness-nix-pure` | コマンド実行 / ツールインストール（`brew install` 禁止、`nix develop --command` 必須） |
-| `harness-design-rules` | UI コンポーネント / 配色 / アイコン（Lucide のみ、AI 風グラデ禁止） |
-| `harness-jsdoc` | 関数 / 型 / コメント記述（JSDoc 必須、関数内コメント禁止） |
-| `harness-git-discipline` | git 操作 / コンフリクト（`rebase` / `reset --hard` / `push --force` 禁止） |
-| `harness-no-hardcoded-secrets` | 環境変数 / API キー / `.env` 操作 |
+| rule ファイル | 内容 |
+|---|---|
+| `rules/tdd.md` | Red / Green / Refactor、AAA pattern、`$LANG` テスト名 |
+| `rules/hono-clean-arch.md` | 4 層 Clean Architecture、厳格な依存方向 |
+| `rules/drizzle.md` | Drizzle migrate-only、`drizzle-kit push` 禁止 |
+| `rules/nix-pure.md` | 全ツール起動を per-worktree devshell wrapper 経由、`brew install` 禁止 |
+| `rules/design.md` | Lucide Icons のみ、AI風グラデ禁止、WCAG AA |
+| `rules/jsdoc.md` | 全 export に TSDoc、関数内インラインコメント禁止 |
+| `rules/no-hardcoded-secrets.md` | env vars / SOPS のみ、pre-commit で gitleaks |
+
+これらは bootstrap が `<root>/dev/.my-harness/rules/` にミラーし、`dev/CLAUDE.md` と `dev/AGENTS.md` に埋め込まれます (Claude Code / Codex CLI / Cursor / Aider が自動で読み込む)。さらに `codex-ask.sh --role engineer` / `--role harness-reviewer` / `--role harness-analyst` の context にも自動 attach されるので、Claude と Codex は同じ規約で動作します。個別の規約 slash command はありません — rules は常に有効。
 
 ## スラッシュコマンド
 
-**直接使用する 4 つのスラッシュコマンド：**
+**直接使用する 3 つのスラッシュコマンド：**
 
-- `/my-harness-init` — 新規プロジェクトをゼロから開始（プロジェクトごとに 1 回）。既存の `.my-harness/init-state.json` を検出すると保存済みフェーズから再開する。
-- `/my-harness-adopt` — 既存 git repo を harness 構造に変換（履歴は保持）。
-- `/my-harness-update` — plugin の最新版を既存 adopted プロジェクトに反映（冪等）。
+- `/my-harness-init` — 空ディレクトリから新規プロジェクトを開始（プロジェクトごとに 1 回）。既存の `.my-harness/init-state.json` を検出すると保存済みフェーズから再開する。
+- `/my-harness-adopt` — 冪等。初回 (`.bare/` 無し) は既存 git repo を harness 構造に変換 (履歴保持)。2 回目以降 (`.bare/` あり) は plugin 最新版を `dev/.my-harness/` に再配布し、`dev/CLAUDE.md` / `dev/AGENTS.md` を再生成。refresh パスは非破壊。
 - `/harness-team-lead` — 4 レーン並列実装を統括。
-
-この他に少数の規約 skill (TDD / JSDoc / Hono Clean Architecture / Drizzle / Nix pure / デザイン規約 / no-hardcoded-secrets / Git discipline) があり、これらは `rules/*.md` への薄い pointer になっています。同じ rule ファイルが `codex-ask.sh --role engineer` / `harness-reviewer` / `harness-analyst` の context にも自動 attach されるため、Claude と Codex は同じ規約で動きます。
 
 ## アーキテクチャ図
 

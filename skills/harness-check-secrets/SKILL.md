@@ -46,9 +46,9 @@ bash .my-harness/scripts/check-forbidden-patterns.sh $(git diff --name-only)
 
 1. Move the hardcoded value to an environment variable
 2. Move it to a SOPS-encrypted file (`*.enc.json`)
-3. See `harness-no-hardcoded-secrets` skill for details
+3. See `rules/no-hardcoded-secrets.md` skill for details
 
 ## Related
 
 - Masking: `scripts/mask-secrets.sh` (invoked by the conversation logging hook)
-- No-hardcode policy: `harness-no-hardcoded-secrets`
+- No-hardcode policy: `rules/no-hardcoded-secrets.md`

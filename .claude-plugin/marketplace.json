@@ -5,17 +5,17 @@
     "name": "kirinnokubinagai",
     "email": "removed@redacted.local"
   },
-  "description": "Parallel multi-agent harness for Claude Code + Codex CLI. /my-harness-init walks you through a structured interview and bootstraps the project; /my-harness-adopt converts an existing git repo while preserving history; /my-harness-update keeps an adopted project in sync after plugin upgrades. /harness-team-lead drives up to 4 lanes in parallel with per-lane resource gating; each lane role (analyst / engineer / e2e-reviewer / reviewer) can individually delegate to Codex via codex-ask.sh or codex-exec.sh.",
-  "version": "4.3.0",
+  "description": "Parallel multi-agent harness for Claude Code + Codex CLI. /my-harness-init bootstraps a fresh project from a structured interview; /my-harness-adopt is idempotent and handles both initial adoption of an existing git repo (history preserved) and ongoing refresh after plugin upgrades. /harness-team-lead drives up to 4 lanes in parallel with per-lane resource gating; each lane role (analyst / engineer / e2e-reviewer / reviewer) can individually delegate to Codex via codex-ask.sh or codex-exec.sh.",
+  "version": "4.4.0",
   "metadata": {
-    "version": "4.3.0"
+    "version": "4.4.0"
   },
   "plugins": [
     {
       "name": "my-harness",
       "source": "./",
-      "description": "Harness generator core. /my-harness-init (interview + bootstrap), /my-harness-adopt (existing-repo conversion), /my-harness-update (sync after plugin upgrade), /harness-team-lead (4-lane parallel orchestrator). Four lane roles — analyst / engineer / e2e-reviewer / reviewer — each individually delegable to Codex. One rule set (rules/*.md) shared across Claude / Codex / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md. Live observability + watchdog auto-intervention via scripts/monitor-agents.sh. Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1.",
-      "version": "4.3.0",
+      "description": "Harness generator core. /my-harness-init (fresh-project interview + bootstrap), /my-harness-adopt (idempotent — initial adoption of an existing repo on first run, ongoing refresh on subsequent runs), /harness-team-lead (4-lane parallel orchestrator). Four lane roles — analyst / engineer / e2e-reviewer / reviewer — each individually delegable to Codex. One rule set (rules/*.md) shared across Claude / Codex / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md. Live observability + watchdog auto-intervention via scripts/monitor-agents.sh. Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1.",
+      "version": "4.4.0",
       "author": {
         "name": "kirinnokubinagai",
         "email": "removed@redacted.local"

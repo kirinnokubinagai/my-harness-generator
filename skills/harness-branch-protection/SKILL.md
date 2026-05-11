@@ -34,7 +34,7 @@ bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
 - `allow_auto_merge=true` (auto-merge feature enabled)
 - `allow_merge_commit=true` (merge commits preserved)
 - `allow_squash_merge=false` (squash disabled — rewrites history)
-- `allow_rebase_merge=false` (rebase disabled — follows `harness-git-discipline`)
+- `allow_rebase_merge=false` (rebase disabled — follows the git policy in `rules/` and `docs/HOTFIX.md`)
 - `delete_branch_on_merge=true` (cleanup after merge)
 
 ## Verification
@@ -45,10 +45,10 @@ gh api "repos/<owner>/<repo>/branches/main/protection" | jq .
 
 ## Why this matters
 
-The `harness-git-discipline` skill prohibits rebase / reset / force-push at the local level. This skill enforces the same rules **server-side**, so that even a local `--no-verify` bypass cannot slip through on push. It is the last line of defense.
+The local git policy (documented in `rules/` and `docs/HOTFIX.md`) prohibits rebase / reset / force-push. This skill enforces the same rules **server-side**, so that even a local `--no-verify` bypass cannot slip through on push. It is the last line of defense.
 
 ## Related
 
-- Git discipline: `harness-git-discipline`
+- Git discipline: see `rules/` and `docs/HOTFIX.md`
 - Secrets setup: `harness-setup-secrets`
 - Execution order: bootstrap → branch protection → secrets (once each)

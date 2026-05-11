@@ -4,6 +4,17 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.4.0] — 2026-05-11
+
+### Unified `/my-harness-adopt` and dropped 8 thin-wrapper rule skills
+
+- `/my-harness-update` is folded into `/my-harness-adopt`. The adopt skill now branches on whether `.bare/` already exists: first-run does the destructive conversion, subsequent runs are non-destructive refreshes (rsync `dev/.my-harness/` from the latest plugin, regenerate `dev/CLAUDE.md` / `dev/AGENTS.md`, append new config flags with safe defaults). One command, two paths.
+- Removed 8 thin-wrapper rule skills: `harness-tdd`, `harness-jsdoc`, `harness-hono-clean-arch`, `harness-drizzle-rules`, `harness-design-rules`, `harness-nix-pure`, `harness-no-hardcoded-secrets`, `harness-git-discipline`. The actual rule bodies live in `rules/*.md` (Single Source of Truth) and are loaded by four existing paths anyway: `dev/CLAUDE.md` (Claude Code), `dev/AGENTS.md` (Codex / Cursor / Aider), the agents' Conventions sections (Read directly), and `codex-ask.sh --role` (`--context` auto-attach). The wrapper skills were a fifth path that nobody invoked.
+
+### Why
+
+Skill surface is part of the API: every wrapper is a name users have to remember and we have to maintain. 4.3.0 already showed how much could be removed by deleting unused helpers; 4.4.0 follows the same logic on slash commands and rule skills.
+
 ## [4.3.0] — 2026-05-11
 
 ### Refactor — drop unused scripts / skills / templates and tighten docs

@@ -86,7 +86,7 @@ gh release edit vX.Y.Z --draft=false
 
 ## Rollback
 
-On problems, use `git revert` (rebase / reset prohibited per `harness-git-discipline`):
+On problems, use `git revert` (rebase / reset prohibited per `rules/` git policy (see `rules/nix-pure.md` / `docs/HOTFIX.md`)):
 
 ```bash
 git checkout main
@@ -129,6 +129,6 @@ For urgent fixes that bypass the normal deploy flow, follow the manual procedure
 
 - Setup: `harness-deploy-setup`
 - Hotfix: see `docs/HOTFIX.md`
-- Git discipline: `harness-git-discipline`
+- Git discipline: `rules/` git policy (see `rules/nix-pure.md` / `docs/HOTFIX.md`)
 - Secrets: `harness-setup-secrets`
 - Infrastructure details: `docs/INFRA.md`

@@ -139,7 +139,7 @@ export default Alchemy.Stack(
 ```
 
 Notes:
-- Literal values are sample only. Real values come from `process.env` / SOPS-decrypted env vars at deploy time. No hardcoding (see `harness-no-hardcoded-secrets`).
+- Literal values are sample only. Real values come from `process.env` / SOPS-decrypted env vars at deploy time. No hardcoding (see `rules/no-hardcoded-secrets.md`).
 - State store: `Cloudflare.state()` puts Alchemy state in a Cloudflare Worker + Durable Object. No AWS dependency. Manual repair via `bunx alchemy cloudflare ...`.
 - `--adopt`: pass at deploy time (`bunx alchemy deploy --stage prod --adopt`) to take over existing Cloudflare resources without recreation.
 

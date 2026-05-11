@@ -229,6 +229,6 @@ Or per-resource by adding `adopt: true` in `alchemy.run.ts` and re-running deplo
 ## Related skills
 
 - Secrets registration: `harness-setup-secrets`
-- No-hardcode policy: `harness-no-hardcoded-secrets`
+- No-hardcode policy: see `rules/no-hardcoded-secrets.md`
 - Execution: `harness-deploy-execute`
 - Infrastructure details: `docs/INFRA.md`
