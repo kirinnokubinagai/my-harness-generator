@@ -1,7 +1,7 @@
 # Production-grade requirements
 
-The harness ships scaffolding for production use. The list below is what an MVP
-must add before being called "production-ready". Each item is wired by
+The harness ships scaffolding for production use. The list below is what every
+generated project must have before its first launch. Each item is wired by
 `bootstrap.sh` when applicable; the team is responsible for keeping it healthy.
 
 ## Observability

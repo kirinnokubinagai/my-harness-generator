@@ -354,8 +354,8 @@ Use `AskUserQuestion` (do NOT phrase as y/n):
     "header": "Engineer runner",
     "multiSelect": false,
     "options": [
-      { "label": "Codex (Recommended)", "description": "Routes implementation work to Codex — strong at code generation. Default for Codex-enabled projects." },
-      { "label": "Claude", "description": "Keep implementation in Claude. Pick this if you want a single AI surface for all coding tasks." }
+      { "label": "Codex", "description": "Routes implementation work to Codex. Trade-off: separate AI surface, additional API round-trip, but Codex's coding model can differ from Claude's." },
+      { "label": "Claude", "description": "Keep implementation in Claude. Trade-off: single AI surface, no Codex round-trip, but no second-opinion code generation." }
     ]
   }]
 }
@@ -369,14 +369,14 @@ Use `AskUserQuestion` (do NOT phrase as y/n):
     "header": "実装担当",
     "multiSelect": false,
     "options": [
-      { "label": "Codex（推奨）", "description": "コード生成が得意な Codex に実装を委任。Codex を有効化したプロジェクトのデフォルト。" },
-      { "label": "Claude", "description": "実装は Claude のまま。コーディングを 1 つの AI に統一したい場合に選択。" }
+      { "label": "Codex", "description": "実装を Codex に委任。AI サーフェスが分離し API ラウンドトリップが増えるが、Codex のコーディングモデルは Claude と異なる挙動を持つ。" },
+      { "label": "Claude", "description": "実装は Claude のまま。AI サーフェスを 1 つに統一でき Codex ラウンドトリップ無し。コード生成のセカンドオピニオンは得られない。" }
     ]
   }]
 }
 ```
 
-Map: `Codex (Recommended)` / `Codex（推奨）` → `USE_CODEX_ENGINEER=yes`. `Claude` → `USE_CODEX_ENGINEER=no`.
+Map: `Codex` → `USE_CODEX_ENGINEER=yes`. `Claude` → `USE_CODEX_ENGINEER=no`. No default applied.
 
 ##### Q2c: Who synthesizes the e2e failure report?
 
@@ -390,8 +390,8 @@ Use `AskUserQuestion`. Note: Playwright/Maestro themselves always run locally un
     "header": "E2E reviewer",
     "multiSelect": false,
     "options": [
-      { "label": "Claude (Recommended)", "description": "Claude runs the tests AND writes the failure report — single tool surface, no extra Codex round-trip." },
-      { "label": "Codex", "description": "Claude runs the tests; Codex composes the failure-report write-up afterward (synthesis only)." }
+      { "label": "Claude", "description": "Claude both runs the tests and writes the failure-report synthesis. Single tool surface, no Codex round-trip." },
+      { "label": "Codex", "description": "Claude runs the tests; Codex composes the failure-report write-up afterward. Adds a Codex round-trip but gives independent synthesis." }
     ]
   }]
 }
@@ -405,14 +405,14 @@ Use `AskUserQuestion`. Note: Playwright/Maestro themselves always run locally un
     "header": "E2Eレビュー担当",
     "multiSelect": false,
     "options": [
-      { "label": "Claude（推奨）", "description": "テスト実行と失敗レポート合成の両方を Claude が担当。AI を 1 つに統一でき Codex 経由のラウンドトリップ不要。" },
-      { "label": "Codex", "description": "テストは Claude、失敗レポート合成は Codex に依頼（合成のみ Codex）。" }
+      { "label": "Claude", "description": "テスト実行と失敗レポート合成の両方を Claude が担当。AI サーフェスを 1 つに統一でき Codex ラウンドトリップ無し。" },
+      { "label": "Codex", "description": "テストは Claude、失敗レポート合成のみ Codex に委任。Codex ラウンドトリップ 1 回増えるが独立した視点でのまとめが得られる。" }
     ]
   }]
 }
 ```
 
-Map: `Claude (Recommended)` / `Claude（推奨）` → `USE_CODEX_E2E_REVIEWER=no`. `Codex` → `USE_CODEX_E2E_REVIEWER=yes`.
+Map: `Claude` → `USE_CODEX_E2E_REVIEWER=no`. `Codex` → `USE_CODEX_E2E_REVIEWER=yes`. No default applied.
 
 ##### Q2d: Who runs the reviewer (convention review) subagent?
 
@@ -426,8 +426,8 @@ Use `AskUserQuestion`:
     "header": "Reviewer runner",
     "multiSelect": false,
     "options": [
-      { "label": "Codex (Recommended)", "description": "Use Codex for convention/style review — second-opinion catches more issues than a single AI." },
-      { "label": "Claude", "description": "Keep reviewer in Claude for a single AI surface." }
+      { "label": "Codex", "description": "Convention/style review runs in Codex (second AI surface)." },
+      { "label": "Claude", "description": "Convention/style review stays in Claude (single AI surface)." }
     ]
   }]
 }
@@ -441,14 +441,14 @@ Use `AskUserQuestion`:
     "header": "レビュー担当",
     "multiSelect": false,
     "options": [
-      { "label": "Codex（推奨）", "description": "規約・スタイルレビューは Codex に委任。セカンドオピニオンの方が単一 AI より検出が多い。" },
-      { "label": "Claude", "description": "レビューも Claude のままにして AI を 1 つに統一。" }
+      { "label": "Codex", "description": "規約・スタイルレビューを Codex (別 AI サーフェス) で実施。" },
+      { "label": "Claude", "description": "規約・スタイルレビューを Claude (単一 AI サーフェス) で実施。" }
     ]
   }]
 }
 ```
 
-Map: `Codex (Recommended)` / `Codex（推奨）` → `USE_CODEX_REVIEWER=yes`. `Claude` → `USE_CODEX_REVIEWER=no`.
+Map: `Codex` → `USE_CODEX_REVIEWER=yes`. `Claude` → `USE_CODEX_REVIEWER=no`. No default applied.
 
 If USE_CODEX=no, all three sub-flags forced to `no` (skip Q2b/c/d entirely).
 
@@ -464,7 +464,7 @@ Use `AskUserQuestion` (do NOT phrase as y/n):
     "header": "Global CLAUDE.md",
     "multiSelect": false,
     "options": [
-      { "label": "Inherit (Recommended)", "description": "Default. Your personal global instructions in `~/.claude/CLAUDE.md` apply to this project too." },
+      { "label": "Inherit", "description": "Your personal global instructions in `~/.claude/CLAUDE.md` apply to this project too." },
       { "label": "Isolate", "description": "Writes `dev/.claude/settings.json` with `claudeMdExcludes` pointing at your absolute `~/.claude/CLAUDE.md` path so the project starts free of personal global instructions." }
     ]
   }]
@@ -479,14 +479,14 @@ Use `AskUserQuestion` (do NOT phrase as y/n):
     "header": "グローバル CLAUDE.md",
     "multiSelect": false,
     "options": [
-      { "label": "引き継ぐ（推奨）", "description": "デフォルト。`~/.claude/CLAUDE.md` の個人グローバル指示をこのプロジェクトでも適用。" },
-      { "label": "切り離す", "description": "`dev/.claude/settings.json` の `claudeMdExcludes` に `~/.claude/CLAUDE.md` の絶対パスを登録し、このプロジェクトでは個人グローバル指示を読み込まないようにする。" }
+      { "label": "引き継ぐ", "description": "`~/.claude/CLAUDE.md` の個人グローバル指示をこのプロジェクトでも適用。" },
+      { "label": "切り離す", "description": "`dev/.claude/settings.json` の `claudeMdExcludes` に `~/.claude/CLAUDE.md` の絶対パスを登録し、このプロジェクトでは個人グローバル指示を読み込まない。" }
     ]
   }]
 }
 ```
 
-Map: `Inherit (Recommended)` / `引き継ぐ（推奨）` → `USE_GLOBAL_CLAUDE=yes`. `Isolate` / `切り離す` → `USE_GLOBAL_CLAUDE=no`.
+Map: `Inherit` / `引き継ぐ` → `USE_GLOBAL_CLAUDE=yes`. `Isolate` / `切り離す` → `USE_GLOBAL_CLAUDE=no`. No default applied.
 
 ### Setup Q4: Task management
 
@@ -500,8 +500,8 @@ Use `AskUserQuestion` with named options:
     "header": "Task tracking",
     "multiSelect": false,
     "options": [
-      { "label": "Local markdown (Recommended)", "description": "Default. Task files live in `dev/docs/task/` as plain markdown — no GitHub account needed, fully offline-capable." },
-      { "label": "GitHub Issues", "description": "Use `gh issue create` to manage tasks as GitHub Issues. Requires `gh` auth and a remote repo." }
+      { "label": "Local markdown", "description": "Task files live in `dev/docs/task/` as plain markdown — no GitHub account needed, fully offline-capable. Trade-off: no built-in collaboration / audit trail." },
+      { "label": "GitHub Issues", "description": "Use `gh issue create` to manage tasks as GitHub Issues. Requires `gh` auth and a remote repo. Trade-off: full audit trail, collaboration UI, requires online GitHub access." }
     ]
   }]
 }
@@ -515,14 +515,14 @@ Use `AskUserQuestion` with named options:
     "header": "タスク管理",
     "multiSelect": false,
     "options": [
-      { "label": "ローカルマークダウン（推奨）", "description": "デフォルト。`dev/docs/task/` のマークダウンでタスク管理。GitHub アカウント不要、オフライン可。" },
-      { "label": "GitHub Issues", "description": "`gh issue create` を使って GitHub Issues でタスク管理。`gh` の認証とリモートリポジトリが必要。" }
+      { "label": "ローカルマークダウン", "description": "`dev/docs/task/` のマークダウンでタスク管理。GitHub アカウント不要、オフライン可。コラボレーション / 監査ログ機能は無い。" },
+      { "label": "GitHub Issues", "description": "`gh issue create` を使って GitHub Issues でタスク管理。`gh` 認証とリモートリポジトリが必要。監査ログ・コラボレーション UI 完備、オンライン GitHub アクセス必須。" }
     ]
   }]
 }
 ```
 
-Map: `Local markdown (Recommended)` / `ローカルマークダウン（推奨）` → `USE_GITHUB_ISSUES=no`. `GitHub Issues` → `USE_GITHUB_ISSUES=yes`.
+Map: `Local markdown` / `ローカルマークダウン` → `USE_GITHUB_ISSUES=no`. `GitHub Issues` → `USE_GITHUB_ISSUES=yes`. No default applied.
 
 After all four are answered, update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
@@ -716,7 +716,9 @@ When the discoverySheet already implies a decision, say it explicitly and skip:
 
 Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question, max 4 questions per turn. Use `multiSelect: true` where appropriate. Use `preview` (single-select only) for choices that need comparison.
 
-**Recommendation policy:** Do not mark any choice as `(Recommended)` unless the prompt itself can name the specific `discoverySheet` field or `visualMocks[].decisionsRevealed` entry that justifies the recommendation. If you cannot cite a specific user-derived justification, present choices in neutral order with no label.
+**Recommendation policy (strict):** **Never** add `(Recommended)` / `(推奨)` / "Default" / "デフォルト" to any choice label or description in any `AskUserQuestion` payload. The interview is the user's decision space; the harness must not steer it with unjustified opinions. Choices stay in neutral order, descriptions describe trade-offs only ("Trade-off: X but Y"). If a real user-derived justification exists in `discoverySheet` or `visualMocks[].decisionsRevealed`, surface it as a separate sentence before the question — never as a label on a choice.
+
+**MVP wording is forbidden anywhere user-facing.** The harness generates production-grade scaffolds; never frame the project as "an MVP" in questions, descriptions, or generated docs. Use "first version", "initial release", or "before launch" instead.
 
 ### Decision 1 — Architecture (only when `architectureHints == "undecided"`)
 

@@ -14,7 +14,7 @@
 
 ## プロダクション級デフォルト (5.0+)
 
-MVP スキャフォールドではなく**そのまま本番に出せる**スキャフォールドを生成します。後から付けるのが大変なものを bootstrap 時に全部配線:
+**そのまま本番に出せる**スキャフォールドを生成します。後から付けるのが大変なものを bootstrap 時に全部配線:
 
 - **Hono middleware スイート** — セキュリティヘッダー (CSP/HSTS/COOP/CORP/Permissions-Policy)、KV ベースレート制限、構造化ログ (pino + `x-request-id`)、冪等性 (`Idempotency-Key`)、CORS 明示許可リスト
 - **ヘルスエンドポイント** — `/healthz` / `/readyz` (DB ping + smoke) / `/livez`

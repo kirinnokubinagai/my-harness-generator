@@ -14,7 +14,7 @@ Runs a structured interview, optionally consults Codex for second opinions, gene
 
 ## Production-grade by default (5.0+)
 
-The harness no longer scaffolds an MVP that you have to harden later. Everything that's hard to retrofit is wired in at bootstrap:
+The harness scaffolds projects with production controls wired in at bootstrap. Everything that's hard to retrofit later is present from the first commit:
 
 - **Hono middleware suite** — security headers (CSP/HSTS/COOP/CORP/Permissions-Policy), KV-backed rate limiting, structured logging (pino + `x-request-id`), idempotency (`Idempotency-Key`), strict CORS allowlist
 - **Health endpoints** — `/healthz` / `/readyz` (DB ping + smoke checks) / `/livez`

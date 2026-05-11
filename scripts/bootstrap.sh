@@ -205,9 +205,12 @@ else
   USE_CODEX=$(ask_yn "Use Codex integration (second opinion / image generation / subagent delegation)" "n")
   if [ "$USE_CODEX" = "yes" ]; then
     CODEX_SESSION=$(ask "  Codex session name" "my-harness-init")
+    # Per-role Codex delegation. No defaults are implied — each role is a
+    # standalone decision. The harness does not have evidence to recommend
+    # one over the other; user picks per their own preference.
     USE_CODEX_ANALYST=$(ask_yn "  Delegate analyst (brief / commit msg / PR body) to Codex" "y")
     USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer (file edits via codex exec --sandbox workspace-write) to Codex" "y")
-    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer failure-report synthesis to Codex (test execution stays local)" "n")
+    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer failure-report synthesis to Codex (Playwright/Maestro always run under Claude)" "y")
     USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer (codex exec --sandbox read-only) to Codex" "y")
     ON_CODEX_AUTH_FAIL=$(ask_choice "  Behavior on auth/subscription failure" "pause" pause fail)
   else

@@ -4,9 +4,45 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.0.1] — 2026-05-11
+
+UX/copy 修正パッチ。インタビューの選択肢ラベルに付いていた **`(Recommended)`
+/ `（推奨）`** ラベル全削除 + `MVP` 文言の全削除。harness は本来「ユーザーの判
+断空間」であるべきで、根拠のない誘導をしてはいけない。
+
+### Fixed — interview の誘導語を全廃 (`skills/my-harness-init/SKILL.md`)
+
+- Q2b Engineer runner: `Codex (Recommended)` → `Codex`
+- Q2c E2E reviewer: `Claude (Recommended)` → `Claude` (説明文も trade-off 形式に書き換え)
+- Q2d Reviewer runner: `Codex (Recommended)` → `Codex`
+- Q3 Global CLAUDE.md: `Inherit (Recommended)` → `Inherit`
+- Q4 Task management: `Local markdown (Recommended)` → `Local markdown` (説明文を trade-off に)
+- 各 Map 行から `(Recommended)` を削除、`No default applied.` を明示
+
+### Changed — Recommendation policy を strict 化
+
+`SKILL.md` 末尾の policy を「根拠があれば Recommended OK」から **「いかなる選択肢にも `(Recommended)` / `(推奨)` / `Default` / `デフォルト` を付与してはいけない」** に強化。根拠がある場合は質問の前に独立した文として提示し、選択肢ラベルには載せない。
+
+### Added — MVP wording forbidden 規約
+
+`SKILL.md` policy セクションに「MVP という語は user-facing で禁止」を追記。代替: `first version` / `initial release` / `before launch`。
+
+### Fixed — MVP 文言削除
+
+- `rules/production.md` 冒頭の "what an MVP must add" → "what every generated project must have before its first launch"
+- `docs/PRODUCTION.md`: "not just MVPs" → "with full controls"
+- `README.md`: "no longer scaffolds an MVP" → "scaffolds projects with production controls wired in"
+- `README.ja.md`: "MVP スキャフォールドではなく" → "そのまま本番に出せる" (重複削除)
+- `docs/MULTI_TENANT.md`: "POC / MVP 段階" → "個人プロジェクト / 検証段階"
+- `CHANGELOG.md` 5.0.0 / 7.0.0 エントリの MVP 言及を中立表現に置換
+
+### Fixed — `USE_CODEX_E2E_REVIEWER` の非対称な default
+
+`bootstrap.sh` で USE_CODEX_E2E_REVIEWER だけ default `"n"` (Claude) だったのを `"y"` に揃えた。他の `USE_CODEX_*` (analyst / engineer / reviewer) はすべて default `"y"` (Codex) だったので、根拠不明な非対称が解消。質問文の "test execution stays local" という誤解を生む補足も削除し "Playwright/Maestro always run under Claude" に改めた (実際の挙動は何も変わらない — Codex に渡るのは synthesis のみで execution は常に Claude)。
+
 ## [7.0.0] — 2026-05-11
 
-**研究色の濃いアイデア (16-24) を 1 段ずつ MVP 化した「ops surface」リリース。**
+**研究色の濃いアイデア (16-24) を 1 段ずつ最小実装に落とした「ops surface」リリース。**
 スキャフォルドそのものは 6.0.0 で完成しているので、7.0.0 は **運用フェーズ** で
 効くツール群を一気に揃える。
 
@@ -280,7 +316,7 @@ cleaner internal API, faster TS templates, and tighter docs.
 ## [5.0.0] — 2026-05-11
 
 **Production-grade rebuild.** The harness now scaffolds projects that can ship
-to production, not just MVPs. Every concern that's hard to retrofit (security
+to production with full controls. Every concern that's hard to retrofit (security
 headers, rate limiting, structured logging with request-id propagation,
 idempotency, health endpoints, Sentry, audit log, feature flags, CodeQL,
 SBOM, license audit, k6, Lighthouse, Renovate, Dependabot, six runbooks)

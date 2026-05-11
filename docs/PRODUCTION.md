@@ -1,8 +1,9 @@
 # Production guide
 
-This harness was rebuilt at 5.0.0 to produce **production-grade** scaffolds,
-not just MVPs. The defaults below are wired by `bootstrap.sh` and enforced by
-`rules/production.md`.
+This harness produces **production-grade** scaffolds. The defaults below are
+wired by `bootstrap.sh` and enforced by `rules/production.md`. None of the
+items are optional for production use; the harness installs them at bootstrap
+so they cannot be forgotten later.
 
 ## What you get out of the box
 
