@@ -45,12 +45,15 @@ if ! jq -e --arg n "$PART" '.cells[] | select(.name == $n)' "$MANIFEST" >/dev/nu
 fi
 
 OUT="$ASSET_DIR/${PART}-${W}x${H}.png"
-SESSION_FILE="$ROOT/.my-harness/codex-session-design-${PLATFORM}-${SCREEN_SLUG}.txt"
+# Project-wide image-generation session — same thread that originally drew
+# the 256×256 part. Resuming it means Codex still knows the palette / style
+# / composition decisions it applied to the smaller version.
+SESSION_FILE="$ROOT/.my-harness/codex-session-design-image.txt"
 [ -f "$SESSION_FILE" ] || { echo "::error:: $SESSION_FILE missing — re-run gen-page-parts.sh first to recreate the Codex session" >&2; exit 1; }
 SESSION_KEY=$(cat "$SESSION_FILE")
 
 PROMPT=$(cat <<EOF
-\$imagegen Regenerate the part you previously drew as '$PART' (visible in the parts-grid image for the '$SCREEN_SLUG' screen of this project), but at a larger resolution.
+\$imagegen Regenerate the part you previously drew as '$PART' on the '$SCREEN_SLUG' screen for the '$PLATFORM' platform of this project, but at a larger resolution. (This session contains every screen and platform for the project — be explicit about which part is being upscaled.)
 
 Use the exact same design choices (palette, style, composition) as the 256×256 version. Just render it at the larger size with the additional fidelity that the extra pixels allow.
 

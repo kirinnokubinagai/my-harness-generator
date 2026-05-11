@@ -911,15 +911,15 @@ The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, no
 
 ### Iterative refinement
 
-When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same Codex session** by passing the same `--session` key that `gen-page-parts.sh` wrote at `$ROOT/.my-harness/codex-session-design-<platform>-<screen-slug>.txt` (format: `design-page-<platform>-<screen-slug>`). Do not re-attach `--context`, do not pass `--reset-session`:
+When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same project-wide Codex session** that `gen-page-parts.sh` wrote at `$ROOT/.my-harness/codex-session-design-image.txt` (format: `design-image-<project-slug>`). This single session is shared across every screen and every platform in the project — that is how design decisions (palette, typography, icon language, brand voice, button rounding) propagate from the first screen to every later one. Because the session contains multiple screens, **name the target screen explicitly** in your prompt. Do not re-attach `--context`, do not pass `--reset-session`:
 
 ```bash
-SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-<platform>-<screen-slug>.txt")
+SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-image.txt")
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
   --role designer \
   --session "$SESSION_KEY" \
   --out "$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r1.md" \
-  "Apply this change: <user's edit request>. Regenerate and overwrite the same PNG path."
+  "Apply this change to the <SCREEN_NAME> screen on <PLATFORM>: <user's edit request>. Regenerate and overwrite the same PNG path."
 ```
 
 Iterate until the user approves. Once approved, proceed to the cropping step below.
@@ -971,38 +971,41 @@ The original 256×256 PNG is left in place. Components import whichever size mat
 
 Decide when to upscale based on the page mock: if a part is rendered larger than 256px on either axis in the page, upscale it. Otherwise, the source is enough.
 
-### TSX component scaffolding (automated)
+### Page HTML generation (final Phase 5 deliverable)
 
-Immediately after `crop-parts.sh` finishes, run:
+After `crop-parts.sh` finishes, run `gen-page-html.sh` to convert the approved page-mock PNG into a self-contained Tailwind HTML file. **This is the Phase 5 deliverable** — pixel-perfect design fidelity, no JavaScript, no state, no React, just markup and Tailwind utility classes. The implementation phase converts this HTML to TSX later.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/scaffold-tsx-from-parts.sh" \
-  "$ROOT" "<platform>" "<screen-slug>"
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-html.sh" \
+  "$ROOT" "<platform>" "<screen-slug>" "$PROJECT_NAME"
 ```
 
-This reads the same manifest.json and produces one TSX file per cell at:
+Output:
 
+- `$ROOT/dev/docs/design/page-<platform>-<screen-slug>.html` — self-contained HTML. Tailwind Play CDN + Google Fonts (Inter + Noto Sans JP). Cropped transparent PNG assets are referenced relatively via `<img src="../../public/design/parts/<platform>/<screen-slug>/<name>.png">`. Opens directly in any browser via `file://` — no dev server, no build step.
+
+The script uses **one project-wide Codex session** (`design-html-<project-slug>`), separate from the image-generation session (`design-image-<project-slug>`). Sharing one HTML session across every screen and platform means Tailwind palette, spacing scale, component class conventions, and accessibility patterns established for the first screen propagate to every subsequent screen automatically. Auto-opens the HTML in the default browser on completion.
+
+**Why HTML, not TSX, at this stage:** Phase 5 is design-fidelity. TSX requires state design (props, event handlers, state machines) which is implementation work — making those decisions during the design phase mixes concerns and wastes effort if the design changes. HTML is purely visual, opens instantly in a browser for review, and is trivial for the implementation phase to convert to TSX with Codex's help.
+
+The prompt body lives at `prompts/codex-page-to-html.md` — edit it there, not in this SKILL.
+
+### Iteration
+
+Refinements on the HTML use the same project-wide `design-html-<project-slug>` session. Name the target screen explicitly (the session contains multiple screens):
+
+```bash
+SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-html.txt")
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role designer \
+  --session "$SESSION_KEY" \
+  --out "$ROOT/.my-harness/codex-html-<platform>-<screen-slug>-r1.md" \
+  "Apply this change to the <SCREEN_NAME> screen on <PLATFORM>: <user's edit request>. Overwrite the same HTML file."
 ```
-$ROOT/dev/src/components/design/<platform>/<screen-slug>/<PartName>.tsx
-```
 
-The baseline output renders the transparent PNG via `<img src={parts.<key>} />` using the already-generated `parts.ts` import map. Every component:
+### Implementation-phase TSX conversion (NOT part of Phase 5)
 
-- Has a `/** 概要: ... */` JSDoc comment naming the part.
-- Accepts a `className` prop (further props are added when the component is upgraded).
-- Compiles and type-checks immediately — no manual TSX writing required to reach a working state.
-- Idempotent: existing files are skipped. Delete a file to force regeneration.
-
-### Upgrading scaffolded components
-
-The PNG-embed baseline is a starting point. When the implementation phase touches a component, replace the `<img>` with a pure Tailwind / Lucide reproduction:
-
-- Use Tailwind classes for buttons, inputs, cards, list rows, nav items — anything code can recreate.
-- Keep `<img src={parts.<key>} />` only for decorative graphics / illustrations / icons that don't recreate cleanly in code.
-- Add props for the state variants visible in the parts grid (`disabled`, `variant`, `size`, `selected`).
-- Remove the `parts.<key>` import line once the PNG is no longer used.
-
-The cropped PNG and the TSX component coexist throughout: code is the source of truth for behavior + accessibility; the PNG is the source of truth for pixel reference. The `harness-team-lead` implementation phase reads both.
+`scripts/scaffold-tsx-from-parts.sh` exists for **the implementation phase**, not Phase 5. It generates one thin TSX wrapper per cropped PNG (each renders `<img src={parts.<key>} />`). Use it only when you've decided to start React-izing the design. The natural alternative — and usually the better one — is to ask Codex during implementation to convert the HTML directly into one or more TSX components, since the HTML already encodes the structure and Tailwind classes.
 
 ### Crucial post-mock drill (NEW — runs after EVERY mock)
 

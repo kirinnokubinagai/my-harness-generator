@@ -70,6 +70,6 @@ fi
 
 if [ "${#FAILED_PLATFORMS[@]}" -gt 0 ]; then
   echo "::error:: $((${#FAILED_PLATFORMS[@]})) platform(s) failed: ${FAILED_PLATFORMS[*]}" >&2
-  echo "::error:: the Codex sessions for failed platforms are preserved at $ROOT/.my-harness/codex-session-design-<platform>-${SCREEN_SLUG}.txt" >&2
+  echo "::error:: the Codex session for this project is preserved at $ROOT/.my-harness/codex-session-design-image.txt — retry by re-running gen-page-parts.sh for the failed platform; the session will resume the prior context." >&2
   exit 2
 fi

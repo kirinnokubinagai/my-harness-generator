@@ -29,15 +29,31 @@ SCREEN_SLUG=$(printf '%s' "$SCREEN_NAME" \
   | sed 's/[^a-z0-9-]//g; s/--*/-/g; s/^-//; s/-$//')
 SCREEN_SLUG=${SCREEN_SLUG:-screen}
 
+# Project-wide slug — used for the Codex session key so that ALL screens
+# across ALL platforms in this project share one Codex thread. This is
+# how design decisions (palette, typography, icon language, brand voice,
+# button rounding) propagate from the first screen to every later one.
+PROJECT_SLUG=$(printf '%s' "$PROJECT_NAME" \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed 's/[^a-z0-9-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+PROJECT_SLUG=${PROJECT_SLUG:-project}
+
 mkdir -p "$ROOT/dev/docs/design" \
-         "$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
+         "$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}" \
+         "$ROOT/.my-harness"
 
 OUT_PAGE="$ROOT/dev/docs/design/page-${PLATFORM}-${SCREEN_SLUG}.png"
 OUT_MANIFEST="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}/manifest.json"
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 
-SESSION_KEY="design-page-${PLATFORM}-${SCREEN_SLUG}"
-echo "$SESSION_KEY" > "$ROOT/.my-harness/codex-session-design-${PLATFORM}-${SCREEN_SLUG}.txt"
+# One Codex image-generation session per project — NOT per screen, NOT per
+# platform. The session accumulates every prior decision in the same thread,
+# so when generating the 2nd screen Codex already knows the palette / icon
+# style / brand language it established for the 1st. To refine a specific
+# screen later, name the screen explicitly in your prompt ("update the Login
+# screen's hero illustration") since the session contains multiple screens.
+SESSION_KEY="design-image-${PROJECT_SLUG}"
+echo "$SESSION_KEY" > "$ROOT/.my-harness/codex-session-design-image.txt"
 
 PROMPT=$(sed \
   -e "s|<PROJECT_NAME>|$PROJECT_NAME|g" \
@@ -126,12 +142,14 @@ while : ; do
     exit 2
   fi
 
-  NUDGE=""
+  # Project-wide session contains multiple screens — always name the target
+  # screen explicitly in retry prompts so Codex doesn't regenerate the wrong one.
+  NUDGE="For the '$SCREEN_NAME' screen on '$PLATFORM' of project '$PROJECT_NAME':  "
   [ "$PAGE_OK" -eq 0 ] && NUDGE="$NUDGE Page PNG missing at $OUT_PAGE. Call image_gen and save it now.  "
   [ -z "$IMG_COUNT" ] && \
     NUDGE="$NUDGE Manifest JSON missing or unparseable. Output exactly one fenced \`\`\`json block with {image_count, rows_per_image, cells:[{image,row,col,name}]}.  "
   if [ -n "$MISSING_GRIDS" ]; then
-    NUDGE="$NUDGE Missing grid image(s): $MISSING_GRIDS — call image_gen for each one (4 cols, 256×256 cells, ≤7 rows per image, white background).  "
+    NUDGE="$NUDGE Missing grid image(s): $MISSING_GRIDS — call image_gen for each one (4 cols, 256×256 cells, ≤7 rows per image, solid magenta #FF00FF background per the original prompt).  "
   fi
 
   echo "::warning:: attempt $RETRY/$MAX_RETRY failed; following up: $NUDGE" >&2
