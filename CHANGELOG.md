@@ -4,6 +4,113 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.2.0] — 2026-05-11
+
+Phase 5 redesigned around an HTML deliverable + shared project-wide Codex
+sessions, plus three serious bridge-layer bugs that were silently
+deleting Phase-5 work, plus a SKILL.md refactor that extracted ~80 lines
+of inline bash into reviewable / lint-able scripts.
+
+### Added
+
+- **Phase 5 ends with a self-contained Tailwind HTML file per screen.**
+  `scripts/gen-page-html.sh` converts the approved page-mock PNG into a
+  self-contained HTML document (Tailwind Play CDN, Google Fonts, parts
+  referenced via relative `<img>` paths). Opens directly in a browser
+  via `file://` — no React build needed. Implementation-phase Codex
+  later converts the HTML to TSX. Prompt template at
+  `prompts/codex-page-to-html.md`.
+- **Per-platform mock orchestrator.** `scripts/gen-page-cross-platform.sh`
+  generates the same screen's mock on multiple platforms (web + ios +
+  android …) in series with independent sessions per platform, then
+  opens every result PNG (page + grids) simultaneously so users can
+  compare side by side.
+- **Auto-open hooks in image / crop scripts.** `gen-page-parts.sh` opens
+  the page PNG and every grid PNG on completion; `crop-parts.sh` opens
+  every cropped part PNG. OS-aware helper `scripts/lib/open-file.sh`
+  (`open` / `xdg-open` / `start`). Suppress with `HARNESS_SKIP_OPEN=1`.
+- **Multi-page parts grid.** When a screen has > 28 non-HTML assets,
+  Codex paginates into `parts-grid-<platform>-<screen>-0.png`, `-1.png`, …
+  `gen-page-parts.sh` retries with per-image-specific nudges if any
+  declared grid PNG is missing.
+- **Project-wide Codex sessions.** Sessions moved from screen-scoped
+  (`design-page-<platform>-<screen-slug>`) to project-scoped
+  (`design-image-<project-slug>` for image generation,
+  `design-html-<project-slug>` for HTML conversion). One thread per
+  project per task — palette / typography / icon language / brand voice /
+  button rounding all propagate from screen 1 to every later screen.
+  Refinement prompts must name the target screen explicitly since the
+  session now contains multiple screens.
+- **Auto-start of the shared `codex app-server` daemon at Phase 1.**
+  `scripts/ensure-codex-daemon.sh` runs at the end of Phase 1 when
+  `USE_CODEX=yes`: branches on `status` exit code (0 = healthy/no-op,
+  1 = start, 2 = restart). Eliminates per-call cold-start overhead for
+  every later Codex invocation in the session.
+- **Bridge image-event awareness.** `codex-app-server-call.py` now
+  scans `ChatResult.raw_events` for `image_generation_call` /
+  `imageGeneration` / `image_gen` hints and accepts an empty
+  `final_text` as success when image paths are detected. Logs each
+  detected path to stderr. Detection is protocol-version-agnostic.
+- **`--context` binary-aware embedding.** `codex-ask.sh` runs
+  `file --mime-type` per context file: text/JSON/script files are
+  embedded as before; PNGs/JPEGs/PDFs are referenced by absolute path
+  only with an instruction for Codex to open them via its file-read /
+  image-input tool. Stops UTF-8 corruption that was breaking every
+  Phase-5 `--context "$PAGE_PNG"` call.
+
+### Changed
+
+- **Background-removal switched from white flood-fill to chroma-key on
+  pure magenta (`#FF00FF`).** Old approach: 4-corner flood-fill on white
+  background — anti-aliased cloud edges blended into the background and
+  the flood-fill walked into the cloud interior, destroying white pixels
+  that should have been preserved. New approach: Codex paints the grid
+  background pure magenta (a color no real design uses) and labels in
+  black; `crop-parts.sh` removes pixels near `#FF00FF` with 10 % fuzz
+  tolerance. White pixels inside assets (clouds, paper, snow, white
+  speech bubbles, white logos) are preserved as opaque white in the
+  cropped PNG. Override via `CHROMA_KEY` / `CHROMA_FUZZ` env vars.
+- **SKILL.md inline-bash refactor.** Eight bash heredocs / multi-line
+  ceremony blocks extracted out of `skills/my-harness-init/SKILL.md`:
+  - Logic → callable scripts: `find-existing-state.sh`,
+    `ensure-codex-daemon.sh`, `refine-design.sh image|html`,
+    `commit-initial-docs.sh`.
+  - File-emission heredocs → `Write`-tool JSON / ini templates with
+    `<...>` placeholders (init-state.json at Phase 3 boundary, `.config`
+    at end of Phase 6, init-state.json at completion).
+  Bash blocks in SKILL.md: 26 → 22; every remaining block is a
+  single-line `bash scripts/<name>.sh …` call. Script-syntax errors now
+  surface at lint time, not at skill runtime.
+
+### Fixed
+
+- **Image-only Codex turns no longer drop the generated PNG.** Before,
+  `codex-app-server-call.py` saw `final_text=""` (Codex returned only
+  `image_generation_call`, no follow-up `agent_message`) and exited 1,
+  so the shell layer reported failure and downstream callers retried
+  pointlessly. Now treated as success when image events are detected.
+- **PNG attached via `--context` no longer corrupts the JSON-RPC
+  payload.** `codex-ask.sh` previously `cat`'d binary file bytes into a
+  UTF-8 prompt — PNG magic bytes are not valid UTF-8 and the
+  SDK/transport rejected the prompt. Now binary files are referenced by
+  absolute path only.
+- **Shell layer no longer overrides helper-success as failure.**
+  `codex-ask.sh` exited non-zero whenever `ASSISTANT_TEXT` was empty,
+  even when the python helper reported `CODEX_EXIT=0`. Now empty body +
+  helper-success is treated as a legitimate image-only turn (warning
+  logged, downstream verifies the PNG on disk itself).
+
+### Migration
+
+No user action required. New projects automatically use the new
+project-wide sessions and chroma-key cropping. Existing in-progress
+sessions: if you regenerate any screen on an existing run after this
+upgrade, the bridge bug fixes apply immediately. Previously-cropped
+parts on white backgrounds need re-generation only if you want the
+white-pixel-preservation benefit; on-disk PNGs remain valid as-is.
+
+---
+
 ## [7.1.0] — 2026-05-11
 
 A bundle of interview behavior, communication, design pipeline, and
