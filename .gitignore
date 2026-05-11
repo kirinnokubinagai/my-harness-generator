@@ -1,14 +1,14 @@
-# Claude Code / OMC セッション状態
+# Claude Code / OMC session state
 .omc/
 templates/.omc/
 
-# OS / エディタ
+# OS / editor
 .DS_Store
 .vscode/
 .idea/
 *.swp
 
-# 生成物
+# Generated artifacts
 node_modules/
 dist/
 build/

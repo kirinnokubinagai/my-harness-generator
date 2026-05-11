@@ -1,38 +1,39 @@
 # Multi-Tenant Guide
 
-`/my-harness-init` のデフォルトは **single-tenant**。商用 SaaS で multi-tenant
-が必要になった場合、この手順で後付けする。**早ければ早いほど安い** ので、
-production 投入前に検討すること。
+The default scaffold produced by `/my-harness-init` is **single-tenant**. If
+the project needs multi-tenancy (commercial SaaS), follow the steps below to
+retrofit. **Earlier is cheaper** — consider this before production launch.
 
-## いつ multi-tenant に切るか
+## When to switch to multi-tenant
 
-- B2B SaaS で顧客企業ごとに分離が必要
-- データ residency 要件 (顧客ごとに region 指定など)
-- 顧客ごとの限界スループット制御 (rate-limit の per-tenant 化)
-- ホワイトラベル展開
+- B2B SaaS where each customer organization needs isolation
+- Data residency requirements (per-customer region pinning)
+- Per-customer throughput control (per-tenant rate limiting)
+- White-label deployments
 
-逆に **不要なケース**:
-- B2C (ユーザー単位の分離で十分)
-- 内部用ツール
-- 個人プロジェクト / 検証段階
+Cases where multi-tenant is **not** needed:
 
-## 戦略 3 種
+- B2C (per-user isolation is enough)
+- Internal tools
+- Personal projects / validation stage
 
-| 戦略 | DB 分離 | コスト | 隔離強度 | 推奨ケース |
+## Three strategies
+
+| Strategy | DB isolation | Cost | Isolation strength | When to use |
 |---|---|---|---|---|
-| 共有 DB + `tenant_id` 列 | なし | 低 | 中 | 数十〜数百テナント、低リスク領域 |
-| Schema 分離 | DB 内 schema | 中 | 高 | 数十テナント、コンプライアンス要件あり |
-| 完全分離 (テナント別 D1) | 完全 | 高 | 最強 | エンタープライズ、GDPR / HIPAA |
+| Shared DB + `tenant_id` column | None | Low | Medium | Tens–hundreds of tenants, low-risk domain |
+| Schema isolation | Per-tenant schema in shared DB | Medium | High | Tens of tenants with compliance requirements |
+| Full isolation (per-tenant D1) | Complete | High | Strongest | Enterprise, GDPR / HIPAA |
 
-harness は **戦略 1 (共有 DB + `tenant_id`)** を想定した後付け手順を提供する。
-戦略 2/3 は手動。
+The harness provides retrofit steps assuming **Strategy 1 (shared DB +
+`tenant_id`)**. Strategies 2 and 3 are manual.
 
-## 手順 — 共有 DB + tenant_id
+## Procedure — shared DB + tenant_id
 
-### 1. tenants テーブル追加
+### 1. Add the `tenants` table
 
 ```typescript
-// dev/src/db/schema.ts に追記
+// Append to dev/src/db/schema.ts
 export const tenants = sqliteTable('tenants', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -40,24 +41,24 @@ export const tenants = sqliteTable('tenants', {
 });
 ```
 
-### 2. 全業務テーブルに `tenant_id` を追加
+### 2. Add `tenant_id` to every business table
 
 ```typescript
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
   tenant_id: text('tenant_id').notNull().references(() => tenants.id, { onDelete: 'restrict' }),
   email: text('email').notNull(),
-  // ... 既存列
+  // ... existing columns
 }, (t) => [
   uniqueIndex('uniq_users_tenant_email').on(t.tenant_id, t.email),
   index('idx_users_tenant').on(t.tenant_id),
 ]);
 ```
 
-**注意:** `email` の UNIQUE 制約は `(tenant_id, email)` の複合に変える。
-別テナントで同じ email を許容するため。
+**Note:** the UNIQUE constraint on `email` must become composite
+`(tenant_id, email)` so different tenants can register the same email.
 
-### 3. JWT に `tid` claim を入れる
+### 3. Add a `tid` claim to the JWT
 
 ```typescript
 // dev/src/application/auth/login.ts
@@ -68,7 +69,7 @@ const accessToken = await new SignJWT({ sub: user.id, tid: user.tenant_id })
   .sign(new TextEncoder().encode(secret));
 ```
 
-### 4. tenant middleware を追加
+### 4. Add tenant middleware
 
 ```typescript
 // dev/src/interfaces/http/middleware/tenant.ts
@@ -93,7 +94,7 @@ export function tenantMiddleware(): MiddlewareHandler<TenantVars & { Bindings: {
 }
 ```
 
-### 5. Repository に tenant scoping を強制
+### 5. Enforce tenant scoping at the repository layer
 
 ```typescript
 // dev/src/infrastructure/persistence/post-repository.ts
@@ -106,10 +107,10 @@ export async function findPostsByUser(db: D1Database, tenantId: string, userId: 
 }
 ```
 
-**ルール:** すべての repository 関数の第 2 引数を `tenantId` にする。
-これを徹底するため `rules/multi-tenant.md` を作成して enforce する。
+**Rule:** every repository function's second parameter is `tenantId`. To
+enforce this, create `rules/multi-tenant.md` and gate reviews on it.
 
-### 6. rate-limit を per-tenant に
+### 6. Convert rate-limit to per-tenant
 
 ```typescript
 app.use('/api/*', rateLimit({
@@ -120,27 +121,28 @@ app.use('/api/*', rateLimit({
 }));
 ```
 
-### 7. テストを増やす
+### 7. Add tests
 
-最低限、以下のシナリオを追加する:
+At minimum, add these scenarios:
 
-- 別テナントのデータを叩こうとすると 404 を返すこと (403 ではなく — 存在自体を漏らさない)
-- 同一 email + 別テナントで両方ログインできること
-- tenant_id 欠落の JWT で 401 になること
+- Cross-tenant access returns 404 (not 403 — never leak existence)
+- The same email logs in successfully under two different tenants
+- A JWT missing `tid` returns 401
 
-## 監査ログの拡張
+## Extending the audit log
 
-`audit_log` テーブルにも `tenant_id` を追加し、`recordAudit()` から渡す。
-コンプライアンス監査で「テナント X のアクセス履歴を出せ」と言われた時に必要。
+Add `tenant_id` to the `audit_log` table and pass it through `recordAudit()`.
+Required when compliance auditors ask "show me tenant X's access history".
 
-## 削除リスク
+## Deletion risk
 
-`tenants.id` を `onDelete: 'restrict'` にしているのは、テナント削除でデータが
-連鎖削除されないため。テナント解約時は別途 **論理削除 → 30 日後物理削除**
-の手順を runbook 化する (GDPR の削除権対応含む)。
+`tenants.id` is declared `onDelete: 'restrict'` so deleting a tenant does not
+cascade-delete its data. For tenant offboarding, build a separate procedure:
+**logical delete → physical delete after 30 days** documented in a runbook
+(covers GDPR right-to-erasure).
 
-## CI チェック追加
+## CI enforcement
 
-`rules/multi-tenant.md` を作って lane エージェントに守らせ、reviewer が
-「全 repository 関数の第 2 引数が tenantId か」を確認する gate にする。
-さらに静的解析を入れる場合は ESLint のカスタムルールで強制可。
+Create `rules/multi-tenant.md` so lane agents follow it, and have the
+reviewer gate every PR on "is the second argument of every repository
+function `tenantId`?". For stronger enforcement, write a custom ESLint rule.

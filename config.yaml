@@ -1,7 +1,7 @@
 harness:
   version: 1.0.0
   name: generic-multi-agent-harness
-  description: 4 レーン並列 / Issue ドリブン / dev → stage → main フローの汎用ハーネス
+  description: General-purpose harness — 4-lane parallel / issue-driven / dev → stage → main flow
 
 repository:
   bare_dir: .bare
@@ -16,15 +16,15 @@ repository:
 
 branches:
   main:
-    description: 本番。stage からのマージのみ許可。
+    description: Production. Accepts merges only from stage.
     deploy_target: production
     require_human_approval: true
   stage:
-    description: ステージング。dev からのマージのみ。OWASP ZAP + E2E 必須。
+    description: Staging. Accepts merges only from dev. OWASP ZAP + E2E required.
     deploy_target: staging
     require_human_approval: true
   dev:
-    description: 既定の作業統合先。feature ブランチの PR 先。
+    description: Default integration branch. PR target for feature branches.
 
 lanes:
   count: 4
