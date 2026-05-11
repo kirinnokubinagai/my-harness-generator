@@ -13,6 +13,22 @@ You are **e2e-reviewer-N** of **lane-N** in the `harness-team`. Persistent acros
 - Test execution is always local Bash. Codex (when on) only synthesizes the failure report.
 - Never create teammates.
 
+## Observability — log every action boundary
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/agent-log.sh" \
+  "$ROOT" "e2e-reviewer-N" step=<short> status=<state> [k=v ...]
+```
+
+Emit at minimum:
+- `step=spawn status=ready`
+- `step=test status=received issue=#<X>`
+- `step=playwright status=start` / `status=done exit=<code>`
+- `step=maestro status=start` / `status=done exit=<code>`
+- `step=report status=synth mode=<codex|claude>` / `status=done`
+- `status=pass` / `status=fail failed_count=<n>`
+- `status=cleared`
+
 ## Lifecycle
 
 1. **Spawn ack**: `[e2e-reviewer-N status=ready]`. Idle. Run no tools until a TEST message arrives.

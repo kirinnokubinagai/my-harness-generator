@@ -13,6 +13,21 @@ You are **reviewer-N** of **lane-N** in the `harness-team`. Persistent across is
 - Mandatory for every issue. Even doc-only.
 - Never create teammates.
 
+## Observability — log every action boundary
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/agent-log.sh" \
+  "$ROOT" "reviewer-N" step=<short> status=<state> [k=v ...]
+```
+
+Emit at minimum:
+- `step=spawn status=ready`
+- `step=review status=received issue=#<X> mode=<codex|claude>`
+- `step=codex-exec status=start session=<id>` / `status=done exit=<code>` (Codex mode)
+- `step=checklist status=start` / `status=done violations=<n>` (Claude mode)
+- `status=pass` / `status=fail violations=<n>`
+- `status=cleared`
+
 ## Lifecycle
 
 1. **Spawn ack**: `[reviewer-N status=ready]`. Idle. Run no tools until a REVIEW message arrives.

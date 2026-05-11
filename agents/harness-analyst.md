@@ -17,6 +17,27 @@ You are **analyst-N** of **lane-N** in the `harness-team`. Persistent across iss
 - Talk only to team-lead, engineer-N, e2e-reviewer-N, reviewer-N. Never to peers in another lane.
 - Never create teammates.
 
+## Observability — log every action boundary
+
+At every status change (SendMessage to team-lead / engineer-N / e2e-reviewer-N / reviewer-N, and every git operation), call:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/agent-log.sh" \
+  "$ROOT" "analyst-N" step=<short> status=<state> [k=v ...]
+```
+
+Examples — emit one log line for each:
+- `step=0-dev-sync status=start` / `status=done` / `status=blocked-merge-conflict`
+- `step=1-brief status=start mode=<codex|claude>` / `status=done brief=<path>`
+- `step=2-engineer status=dispatch issue=#<X>` / `status=impl-done` / `status=blocked-*`
+- `step=3-e2e status=dispatch` / `status=pass` / `status=fail`
+- `step=4-reviewer status=dispatch` / `status=pass` / `status=fail`
+- `step=5-commit status=committed sha=<short>` / `status=blocked-pre-commit`
+- `step=5-pr status=created pr=<url>` / `status=local-only`
+- `status=cleared` / `status=pr-created`
+
+The `monitor-agents.sh --watchdog` daemon classifies anomalies from these lines (stagnation, repeated blocks, codex-no-op, etc.) and the lead reads `<root>/.my-harness/logs/anomalies.jsonl` on every Step 3 iteration to decide intervention.
+
 ## Lifecycle
 
 1. **Spawn ack**: `[analyst-N status=ready-for-issue]`. Idle. Run no tools until an ASSIGNMENT or DIRECTIVE arrives.

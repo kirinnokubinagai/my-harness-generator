@@ -109,7 +109,43 @@ TEAM_STATE=$(bash "$SKILL_DIR/scripts/check-team-exists.sh")
 
 Empty teams are valid. The team file exists from `TeamCreate`; its members grow as lanes are added in Step 3.
 
+## Observability — run the watchdog in a separate terminal
+
+For visibility, the user opens a second terminal next to this session and runs:
+
+```bash
+bash "$SKILL_DIR/scripts/monitor-agents.sh" "$ROOT"                 # live view
+bash "$SKILL_DIR/scripts/monitor-agents.sh" "$ROOT" --watchdog &    # background watchdog
+```
+
+The watchdog scans `<root>/.my-harness/logs/agents.log` every 30 s (configurable via `--interval`) and appends classified anomalies as JSONL to `<root>/.my-harness/logs/anomalies.jsonl`. You (the lead) read that file at the top of every Step 3 iteration (see Step 3.0 below). The agents themselves write to `agents.log` via `scripts/agent-log.sh` at every status boundary.
+
 ## Step 3 — Parallel dispatch loop
+
+### Step 3.0 — Anomaly check (run BEFORE 3a, every iteration)
+
+```bash
+ANOM="$ROOT/.my-harness/logs/anomalies.jsonl"
+if [ -f "$ANOM" ]; then
+  # Read only new anomalies since the last scan. Persist the byte offset.
+  STATE="$ROOT/.my-harness/logs/anomalies.offset"
+  OFFSET="$(cat "$STATE" 2>/dev/null || echo 0)"
+  NEW="$(tail -c +"$((OFFSET + 1))" "$ANOM" 2>/dev/null)"
+  wc -c < "$ANOM" > "$STATE" 2>/dev/null
+fi
+```
+
+For each new anomaly line `{"ts","kind","agent","detail"}`, decide intervention from this table. Apply it deterministically; do not "interpret" the anomaly with free-form reasoning.
+
+| `kind` | Intervention |
+|---|---|
+| `stagnation` | `SendMessage({to: agent, content: "STATUS_PING: no event for >10 min. Report current status now."})` once. If the same agent stagnates again within the next 10 min, escalate to user as `Lane <N> <agent> is unresponsive (stagnation x2). Suggest: kill the worktree and re-dispatch.` |
+| `repeated-blocked` | The agent has reported the same blocker ≥3 times. Mark the lane `paused-<blocker>`, surface ONE message to the user with the blocker and the recovery steps from the relevant "*-handling" section. Do not auto-retry. |
+| `codex-exec-failure` | 3+ consecutive non-zero exits from `codex exec`. SendMessage to the agent: `FALLBACK: switch to claude mode for this issue. The Codex sandbox or auth is unhealthy.` Set `USE_CODEX_<ROLE>=no` ONLY in-memory for this issue (do NOT modify `.config`). After the issue completes, the next assignment restores normal mode. |
+| `codex-no-op` | `engineer-N` reported `impl-done changed=0`. SendMessage to engineer: `FIX: codex-exec finished but no files were modified. Re-read the brief and explicitly state which files you will modify before running codex-exec again.` |
+| `suffixed-name` | Critical — auto-disambiguation bug. STOP all dispatch immediately. Surface to user: `Suffixed teammate detected (<name>). Delete ~/.claude/teams/harness-team/ and restart Claude Code in dev/.` |
+
+The lead reads anomalies at the top of every 3a / 3c / 3e iteration. The agents continue to make their own decisions; intervention is additive — the lead's intervention messages are received as ordinary inbound `SendMessage` by the affected agent and processed alongside whatever the agent was doing.
 
 In-memory state:
 - `pending_queue` — task ids waiting for a lane

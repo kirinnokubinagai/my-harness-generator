@@ -4,6 +4,27 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.1.0] — 2026-05-11
+
+### Added — observability + auto-intervention
+
+- `scripts/agent-log.sh` — single-line append helper used by every teammate at every status boundary (spawn ack, ASSIGNMENT received, codex start/done, gate results, blocked-*, pr-created, cleared). Writes to `<root>/.my-harness/logs/agents.log` and `<root>/.my-harness/logs/agent-<name>.log`.
+- `scripts/monitor-agents.sh` — two modes:
+  - **View mode** (default): live status table refreshed every N seconds. Run in a second terminal next to `/harness-team-lead`.
+  - **Watchdog mode** (`--watchdog`): scans `agents.log` every 30 s, classifies anomalies (`stagnation`, `repeated-blocked`, `codex-exec-failure`, `codex-no-op`, `suffixed-name`) and appends them as JSONL to `<root>/.my-harness/logs/anomalies.jsonl`.
+- `agents/harness-{analyst,engineer,e2e-reviewer,reviewer}.md` gain an `Observability` section listing the minimum log lines they must emit at each step.
+- `skills/harness-team-lead/SKILL.md` gets a new Step 3.0 "Anomaly check" that runs before every dispatch iteration. The lead reads new anomalies from `anomalies.jsonl` and applies a deterministic intervention table (PING stagnation, escalate repeated blocks, fall back from Codex on consecutive failures, ask engineer to redo on codex-no-op, halt on suffix corruption).
+
+### Usage
+
+```bash
+# In a second terminal next to /harness-team-lead:
+bash <plugin>/scripts/monitor-agents.sh /path/to/project                  # live view
+bash <plugin>/scripts/monitor-agents.sh /path/to/project --watchdog &     # background watchdog
+```
+
+The view shows per-lane status + the last 10 events. The watchdog writes anomalies that the lead consumes automatically.
+
 ## [4.0.0] — 2026-05-11 (BREAKING)
 
 ### Added — true Codex delegation via `codex exec`
