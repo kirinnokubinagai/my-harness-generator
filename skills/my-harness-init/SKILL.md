@@ -1003,16 +1003,20 @@ The prompt body lives at `prompts/codex-page-and-parts.md` — edit it there, no
 
 ### Iterative refinement
 
-When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same Codex session** (don't re-attach `--context`, don't pass `--reset-session`):
+When the user says "the buttons should be more rounded" or "this card needs a shadow", **resume the same Codex session** by passing the same `--session` key that `gen-page-parts.sh` wrote at `$ROOT/.my-harness/codex-session-design-<platform>-<screen-slug>.txt` (format: `design-page-<platform>-<screen-slug>`). Do not re-attach `--context`, do not pass `--reset-session`:
 
 ```bash
+SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-<platform>-<screen-slug>.txt")
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
   --role designer \
+  --session "$SESSION_KEY" \
   --out "$ROOT/.my-harness/codex-page-<platform>-<screen-slug>-r1.md" \
   "Apply this change: <user's edit request>. Regenerate and overwrite the same PNG path."
 ```
 
 Iterate until the user approves. Once approved, proceed to the cropping step below.
+
+**Reliability:** `gen-page-parts.sh` already retries up to 3 times in the same session if Codex returns text without calling `image_gen` (a known intermittent failure). If those retries exhaust, the script exits non-zero. Surface this to the user plainly: "Codex did not produce the PNG after 3 attempts. The Codex session is preserved at `<key>` — want to retry manually, or skip this screen for now?"
 
 ### Slicing the parts grid into individual PNGs
 
