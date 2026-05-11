@@ -4,6 +4,65 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.0.2] — 2026-05-11
+
+Phase 2 (Discovery) の **scope-reduction バグ** を完全削除。実プロジェクト
+(ブログアプリ) でインタビューを試したユーザーから、次の指摘が出た:
+
+> 質問が芯を食っていません。最高のものを作る事以外は考える必要がありません。
+> それ以外はありえないです。質問も私が答えた内容に重複しています。浅慮だと思います。
+
+ご指摘通り、Phase 2 の設計に複数の構造的欠陥があった:
+
+### Fixed — opening prompt が「絞り込む」と宣言していた
+
+- **修正前 (en):** "I'll ask follow-up questions and we'll narrow it down together."
+- **修正前 (ja):** "フォローアップの質問をしながら一緒に絞り込んでいきます。"
+- **修正後 (en):** "Your feature scope is yours to set; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream..."
+- **修正後 (ja):** "機能スコープを削る方向の質問はしません。私が深掘りするのは下流で必要になる制約 (失敗パターン・容量目標・反対しそうな人・半年後の運用) です。機能リストは尊重します。"
+
+### Fixed — 頻度質問が scope-reduction フレーミングだった
+
+scaleBreakpoints の probe が「シンプル版が壊れる地点」を聞いていた。これは
+「シンプル版があり、壊れたら諦める」前提。production-grade では誤り。
+**修正:** 「**ピーク時に**性能劣化なく処理する必要がある規模 = 容量目標」を聞く。
+「ここまで持つように作る」と明示。
+
+### Added — 5 つの NON-NEGOTIABLE rules
+
+Phase 2 冒頭に追加:
+
+1. **Discovery NEVER reduces scope** — production-grade なので user が N
+   features 挙げたら N 全部 in-scope。Frequency / volume 質問は **capacity
+   targets** のみ。"if only 5/month then DB is overkill" の類は禁止。
+2. **Max-scope fast-path** — "全部 / max / フル装備 / all / everything /
+   maximum / 最高のもの / fully equipped" を検出したら `scaleExpectation = max`
+   を即セット、以降の volume 系 probe をスキップ。**同じ質問を別フレーズで
+   再質問するのは bug**。
+3. **最初のメッセージで ≥ 5 features が列挙されていたら**、feature scope は
+   確定。"do you need X" 系を絶対に聞かない。
+4. **同じ質問は二度しない (STRICT)** — 別フレーズの再質問も bug。具体的な
+   ban 例を 3 つ追加 (実トランスクリプトから):
+   - "全部大事" → "月何本書く？" ← ban
+   - "max scale" → "but how many users specifically?" ← ban
+   - "ジャンル横断で" → 同じ趣旨を別言で再質問 ← ban
+5. **Probes describe constraints, not choices** — scope は固定、budget だけ
+   引き出す。
+
+### Added — internal checklist に 2 つの新ステップ
+
+- **Max-scope detector**: 全 reply を見て max-scope signal を検出、検出後は
+  volume / frequency probe を打てなくする。
+- **Feature-list-from-first-message detector**: 最初のメッセージで ≥ 5
+  feature が列挙されていれば `topUserActions` を確定済みにし、feature 系
+  probe をスキップする。
+
+これで「ブログアプリ + AI + リッチエディタ + 予約投稿 + 広告 + 検索 + Skills
+export + 動画埋め込み + X 連携 + SEO + GA + ローカル LLM + RSS + PWA…」と
+列挙したら、harness は機能を削ろうとせず、`scaleExpectation = max` で確定し
+**failure modes / trust / day-2 ops / latency budget** の deep drill にだけ
+集中する。
+
 ## [7.0.1] — 2026-05-11
 
 UX/copy 修正パッチ。インタビューの選択肢ラベルに付いていた **`(Recommended)`

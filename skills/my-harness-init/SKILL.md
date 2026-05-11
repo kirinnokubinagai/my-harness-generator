@@ -530,9 +530,24 @@ After all four are answered, update `init-state.json` with `current_phase: "disc
 
 ## Phase 2 — Open discovery conversation (the centerpiece, deeper drill)
 
-This is the longest and most important phase. **Plan for 15–40 turns** — do not bail early. The new probes (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) typically add 5–10 turns over the older flow.
+This is the longest and most important phase. **Plan for 15–40 turns** — do not bail early. The probes (failure modes, resistance, scale breakpoints, trust, differentiation, day-2 ops) typically add 5–10 turns over a basic flow.
 
 Phase 2 starts with one open question and continues as a free-form, multi-turn conversation until the **exit criteria** below are met. There are no scripted questions here — Claude reads each answer, updates the internal `discoverySheet`, and composes the next question dynamically based on what is still missing or still vague.
+
+### NON-NEGOTIABLE rules for this phase
+
+**1. Discovery NEVER reduces scope.** The harness produces production-grade scaffolds. If the user has listed N features, all N are in scope. Frequency / volume / "how often" questions are **only for capacity targets** (peak RPS, peak concurrent writers, retention horizon) — never to suggest that a feature should be dropped. Phrasings like "if only 5/month then DB is overkill" or "if monthly then static SSG is enough" are **forbidden**. The harness does not scope down. It capacities up.
+
+**2. Treat "全部 / max / フル装備 / all / everything / maximum / unlimited / 最高のもの / fully equipped" answers as a fast-path signal.** When the user gives any of these answers (or any clear "do not reduce scope" statement):
+   - Set `scaleExpectation = "max"` (`users: "1M+"`, `dataSize: "TB"`, `concurrency: "high"`) unless the user provides specifics.
+   - Skip any further volume / frequency / "how big" / "how often" probes.
+   - Do **not** re-ask the same question hoping for a smaller number. Move on to **constraint** discovery (failure / trust / day-2 / privacy / latency budget).
+
+**3. Read the user's first message completely before the first follow-up.** If their first message already enumerates ≥ 5 concrete features (e.g., "AI text, scheduled posts, ads, search, embeds, RSS, PWA, ..."), the feature scope is established. Do not ask "do you really need X". Move directly to architecture / constraint questions.
+
+**4. No question may be asked twice in different phrasing.** If Claude's next planned question is a rewording of a question already asked, the planned question is dropped — pick a different empty `discoverySheet` field instead. The "no-redundancy check" below is **strict** — violating it is a bug.
+
+**5. Probes describe constraints, not choices.** Reframe any "simple vs complex" probe as "what's the upper bound the system must handle". The user's scope is fixed; only the budget is being elicited.
 
 ### Internal `discoverySheet` (the state Claude maintains)
 
@@ -606,8 +621,8 @@ If `projectName` is still empty when (b) hits, ask once before exit:
 
 ### Opening prompt
 
-- **LANG=en:** "Tell me about what you're building. Don't worry about format — start anywhere that feels natural. I'll ask follow-up questions and we'll narrow it down together. Heads up: I'll push you on failure modes, who'd push back on this, and what running it in 6 months looks like — those usually reveal the load-bearing constraints."
-- **LANG=ja:** "作りたいものについて自由に話してください。形式は気にせず、自然に始まる場所から。フォローアップの質問をしながら一緒に絞り込んでいきます。先に伝えておくと、失敗パターン・反対しそうな人・半年後の運用といった重要な制約を引き出すために、結構しつこく深掘りします。"
+- **LANG=en:** "Tell me about what you're building. Don't worry about format — start anywhere that feels natural. Your feature scope is **yours to set**; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream: failure modes, capacity targets, who would object, what running it in 6 months looks like — those drive the architecture, not the feature list."
+- **LANG=ja:** "作りたいものについて自由に話してください。形式は気にせず、自然に始まる場所から。**機能スコープを削る方向の質問はしません**。私が深掘りするのは、下流で必要になる制約（失敗パターン・容量目標・反対しそうな人・半年後の運用）です。それがアーキテクチャを決める材料になります。機能リストは尊重します。"
 
 ### How Claude asks open questions and drills down
 
@@ -615,11 +630,16 @@ After every user reply, run this internal checklist **before composing the next 
 
 1. **Mask** the reply (apply secret-masking rules) and append to `dev/docs/talk/02-discovery.md`.
 2. **Update the discoverySheet.** For every field the reply just touched, fill it in or refine it. Persist.
-3. **Drill check:** "Have I drilled at least one level deep on this?" If the answer is vague (one sentence, no specifics), the next question MUST narrow.
-4. **Probe-coverage check:** "Which of the six new probes (failure / resistance / scale / trust / differentiation / day-2) have I touched, and which still hold a vague or empty value?" Prioritize whichever is empty.
-5. **Coverage check:** "Which discoverySheet fields are still empty or vague?" The next question targets the most consequential one — typically the one that unlocks subsequent decisions (e.g., scale before persistence; offline before sync model; privacy before backend choice; failure modes before architecture).
-6. **No-redundancy check:** "Have I already asked something close to this?" Skip if yes.
-7. **One thing at a time:** ask exactly one question.
+3. **Max-scope detector:** If the latest reply (or any prior reply in this phase) contains "全部 / max / フル装備 / all / everything / maximum / unlimited / 最高のもの / fully equipped", set `scaleExpectation` to max immediately and mark all volume / frequency probes as **already answered**. They must not be asked.
+4. **Feature-list-from-first-message detector:** If the user's first message already listed ≥ 5 concrete features, mark `topUserActions` as derived from that list and do not probe for features again. Do not ask "do you need X" for anything in their first message.
+5. **Drill check:** "Have I drilled at least one level deep on this?" If the answer is vague (one sentence, no specifics), the next question MUST narrow — but the narrowing question is about **constraint** (failure / latency / trust), not about cutting features.
+6. **Probe-coverage check:** "Which of the six probes (failure / resistance / scale / trust / differentiation / day-2) have I touched, and which still hold a vague or empty value?" Prioritize whichever is empty.
+7. **Coverage check:** "Which discoverySheet fields are still empty or vague?" The next question targets the most consequential one — typically the one that unlocks subsequent decisions (e.g., latency budget before architecture; privacy before backend choice; failure modes before persistence).
+8. **No-redundancy check (STRICT):** "Have I already asked something close to this — same field, different wording?" If yes, the planned question is **dropped**. Asking the same question twice in different phrasing is a bug. Examples of the bug to avoid:
+   - User: "全部大事" → "全部だと答えにならないので、月何本書く？"  ← banned: this is a rephrase, not a new question
+   - User: "max scale" → "but specifically how many users?"            ← banned: max was already accepted
+   - User: "ジャンル横断で" → re-state "ジャンル横断" then ask the same  ← banned: redundant echo
+9. **One thing at a time:** ask exactly one question.
 
 ### Drill-down examples
 
@@ -665,9 +685,9 @@ The point is not to accept first answers as final. Examples:
 - Follow-ups: "What's their concrete objection?" "How do you neutralize it — feature, policy, contract, screenshot?"
 
 #### Scale breakpoints (`scaleBreakpoints`)
-- **LANG=en:** "At what point does the simple version stop working? Concrete numbers, not 'a lot'. (e.g. 'above 50 simultaneous editors the merge logic falls over', 'past 10k rows the dashboard takes 5+ seconds', 'after 6 months the inbox is unsearchable without full-text')"
-- **LANG=ja:** "シンプル版が壊れ始めるのは具体的にどの規模ですか？「沢山」じゃなく数字で。（例: 「同時編集が 50 を超えるとマージが崩れる」「1 万行を超えるとダッシュボードが 5 秒超」「半年経つと全文検索なしでは inbox が探せない」）"
-- Follow-ups: "Is that breakpoint in scope for this project, or do we explicitly punt past it?"
+- **LANG=en:** "What's the **peak load** this system needs to handle without degrading? Concrete numbers, not 'a lot'. (e.g. 'peak 50 simultaneous editors', '10k rows in the dashboard with sub-2-second render', '100k articles searchable in <300ms p95'). These are **capacity targets** — not 'when do we cut features'. We will scale to meet them."
+- **LANG=ja:** "このシステムが**ピーク時に**性能劣化なく処理する必要があるのは具体的にどの規模ですか？「沢山」じゃなく数字で。（例: 「同時編集ピーク 50」「ダッシュボード 1 万行 2 秒以内で描画」「10 万記事を p95 300ms 以内で検索」）これは**容量目標**です — 「ここを越えたら機能を諦める」ではなく、ここまで持つように作ります。"
+- Follow-ups: "What's the year-1 vs year-3 expected peak?" "Which target is hardest to meet — write throughput, query latency, or storage?"
 
 #### Trust (`trustModel`)
 - **LANG=en:** "Why would a user trust this with their data? What's the concrete chain — encryption, audit, hosting choice, social proof, an org behind it, the user's own machine?"
