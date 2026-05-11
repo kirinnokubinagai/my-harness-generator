@@ -61,7 +61,17 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 
 **Cardinal rules — applied every turn:**
 
-- **Never ask a question whose answer is already implied by what the user said or by an approved mock.** Before composing any prompt, re-read the discoverySheet and visualMocks; skip questions whose field is already populated.
+- **NEVER leak harness-internal terminology to the user.** The user reads product terms; Claude reads code. The following are **forbidden** in any user-facing message (questions, skip announcements, summaries, error displays, confirmations):
+  - Internal field names: `discoverySheet`, `visualMocks`, `initState`, `init-state.json`, `architectureHints`, `persistenceHints`, `topUserActions`, `scaleExpectation`, `failureModes`, `resistance`, `scaleBreakpoints`, `trustModel`, `differentiation`, `day2Operations`, `decisionsRevealed`, etc.
+  - Internal enum values: `client-server`, `client-serverless`, `p2p-pure`, `p2p-hybrid`, `nextjs`, `tanstack`, `sveltekit`, `swift`, `expo`, `flutter`, `kotlin`, `tauri`, `electron`, `hono`, `gin`, `rust`, `d1`, `postgres`, `mysql`, `sqlite`, `resend`, `pause`, `fail`, `oauth`, `api`. The user sees product names ("Next.js", "Cloudflare D1", "PostgreSQL", "Resend") or plain phrases ("Web app", "P2P app").
+  - Internal status codes (raw): `init-required`, `exceeds-max-lanes`, `corrupt-team`, `partial-lane`, `low-ram`, `swap-pressure`, `compressor-pressure`, `blocked-codex-auth`, `blocked-codex-error`, `subscription-or-quota`, `codex-no-op`, `suffixed-name`. If a status surfaces in chat, translate to plain language (e.g., `low-ram` → "memory is too low to spawn a new lane" / "メモリが足りないので新しいレーンを追加できません").
+  - Internal config keys (as identifiers): `USE_CODEX`, `USE_GLOBAL_CLAUDE`, `USE_GITHUB_ISSUES`, `MAX_LANES`, `ARCHITECTURE`, `WEB_KIND`, `IOS_KIND`, `ANDROID_KIND`, `DESKTOP_KIND`, `BACKEND_KIND`, `DB_KIND`, etc. Show the *concept* ("Codex integration", "max parallel lanes"), never the key.
+  - Internal file/script names (as identifiers): `SKILL.md`, `bootstrap.sh`, `spawn-lane-decision.sh`, `recommend-lanes.sh`, etc. These belong in operator docs, not in a Phase-2 interview question.
+  - Code-like notation: `ARCHITECTURE = client-server`, `<field> = <value>`, etc. The user sees natural sentences.
+
+  When in doubt: "would I show this string to a non-engineer end user?" — if no, it doesn't belong in a user-facing prompt. **Violation is a bug**, regardless of how technically accurate the term is.
+
+- **Never ask a question whose answer is already implied by what the user said or by an approved mock.** Before composing any prompt, re-read the internal notes (without exposing their names to the user) and skip questions whose answer is already on file.
 - **Drill down at least one level — and on hard topics, drill aggressively.** If a user answer is vague ("a chat app"), the immediate next question must narrow the space ("ephemeral or stored history? group or 1:1? media or text only?"). For probes around failure modes / resistance / scale / trust, push for concrete scenarios, not platitudes.
 - **One question per turn.** Batch questions are prohibited.
 - **Discovery before structure, structure before mocks, mocks before tools, tools before data.** Phases must run in order. Do not skip ahead.
@@ -1023,8 +1033,8 @@ After each mock is shown to the user, ask exactly these 3 questions, one per tur
    - **LANG=en:** "Is any element on this screen confusing, redundant, or unnecessary?"
    - **LANG=ja:** "この画面の中で、ユーザーが混乱しそう・冗長・不要、と感じる要素はありますか？"
 3. **Hidden constraint:**
-   - **LANG=en:** "Does this mock surface any constraint that wasn't in our discovery sheet — a new entity, new permission, new external integration, a dependency we hadn't named? If so, I'll log it and we'll adjust later phases."
-   - **LANG=ja:** "このモックを見て、これまでの discoverySheet に書いていない新しい制約（新しいエンティティ・権限・外部連携・依存）が浮かびましたか？あれば記録して、以降のフェーズで反映します。"
+   - **LANG=en:** "Does this mock reveal any constraint we haven't discussed yet — a new entity, new permission, new external integration, a dependency we hadn't named? If so, I'll record it and adjust later questions."
+   - **LANG=ja:** "このモックを見て、まだ会話に出ていない新しい制約（新しいエンティティ・権限・外部連携・依存）が浮かびましたか？あれば記録して、以降の質問に反映します。"
 
 ### Persisting mocks
 
