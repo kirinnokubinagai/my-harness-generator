@@ -75,10 +75,8 @@ Phase 2 had several structural flaws:
 
 ### Fixed — opening prompt declared "we'll narrow it down"
 
-- **Before (en):** "I'll ask follow-up questions and we'll narrow it down together."
-- **Before (ja):** "フォローアップの質問をしながら一緒に絞り込んでいきます。"
-- **After (en):** "Your feature scope is yours to set; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream..."
-- **After (ja):** "機能スコープを削る方向の質問はしません。私が深掘りするのは下流で必要になる制約 (失敗パターン・容量目標・反対しそうな人・半年後の運用) です。機能リストは尊重します。"
+- **Before:** "I'll ask follow-up questions and we'll narrow it down together." (Japanese variant updated to match.)
+- **After:** "Your feature scope is yours to set; I won't try to talk you out of anything. What I will drill into is the constraints we'll need downstream..." (Japanese variant says equivalent: no scope-cutting questions; respect the feature list; drill into downstream constraints only.)
 
 ### Fixed — frequency probe used a scope-reduction framing
 
@@ -94,16 +92,17 @@ scale to meet it" is now stated explicitly.
    listed by the user are all in scope. Frequency / volume questions are
    for capacity targets only. Phrasings like "if only 5/month then DB is
    overkill" are forbidden.
-2. **Max-scope fast-path.** Detect "全部 / max / フル装備 / all / everything /
-   maximum / fully equipped" answers — set `scaleExpectation = max` and skip
+2. **Max-scope fast-path.** Detect max-scope answers in either language
+   (English: "all", "max", "everything", "maximum", "fully equipped";
+   Japanese equivalents covered) — set `scaleExpectation = max` and skip
    all volume probes. Re-asking with different wording is a bug.
 3. **First message ≥ 5 features → feature scope is locked.** Never ask
    "do you need X?" for anything in the first message.
 4. **STRICT no-redundancy.** Rewording an already-asked question is a bug.
    Three explicit ban examples added from the real transcript:
-   - "全部大事" → "月何本書く？" ← banned
-   - "max scale" → "but how many users specifically?" ← banned
-   - "ジャンル横断で" → restate then re-ask ← banned
+   - User answers "everything matters" → harness asks "but how many posts per month?" ← banned (scope-reduction rephrase)
+   - User answers "max scale" → harness asks "but how many users specifically?" ← banned (volume rephrase)
+   - User answers "cross-genre" → harness restates then re-asks the same intent ← banned (echo + redundant)
 5. **Probes describe constraints, not choices.** Scope is fixed; only the
    budget is being elicited.
 
@@ -123,10 +122,10 @@ exclusively on failure modes / trust / day-2 ops / latency budget.
 
 ## [7.0.1] — 2026-05-11
 
-UX/copy patch. Removed all **`(Recommended)` / `（推奨）`** labels from
-interview choices and all `MVP` wording from user-facing surfaces. The
-interview is the user's decision space; the harness must not steer it with
-unjustified opinions.
+UX/copy patch. Removed every `(Recommended)` label (and its Japanese
+equivalent) from interview choices, plus all `MVP` wording from
+user-facing surfaces. The interview is the user's decision space; the
+harness must not steer it with unjustified opinions.
 
 ### Fixed — all steering language removed from interview (`skills/my-harness-init/SKILL.md`)
 
@@ -140,8 +139,8 @@ unjustified opinions.
 ### Changed — Recommendation policy hardened to strict
 
 The SKILL.md trailing policy was upgraded from "Recommended is OK if
-justified" to **"Never add `(Recommended)` / `(推奨)` / `Default` /
-`デフォルト` to any choice label or description"**. If a real
+justified" to **"Never add `Recommended`, `Default`, or their Japanese
+equivalents to any choice label or description"**. If a real
 user-derived justification exists, surface it as a separate sentence before
 the question — never as a label on a choice.
 
@@ -156,7 +155,7 @@ the question — never as a label on a choice.
 - `docs/PRODUCTION.md`: "not just MVPs" → "with full controls"
 - `README.md`: "no longer scaffolds an MVP" → "scaffolds projects with production controls wired in"
 - `README.ja.md`: same direction in Japanese
-- `docs/MULTI_TENANT.md`: "POC / MVP 段階" → "個人プロジェクト / 検証段階"
+- `docs/MULTI_TENANT.md`: "POC / MVP stage" → "personal project / validation stage" (in Japanese in the file itself)
 - `CHANGELOG.md` 5.0.0 / 7.0.0 entries' MVP mentions rewritten to neutral phrasing
 
 ### Fixed — asymmetric `USE_CODEX_E2E_REVIEWER` default
