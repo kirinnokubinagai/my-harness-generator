@@ -8,367 +8,200 @@
 
 [日本語版はこちら / Japanese version](./README.ja.md)
 
----
-
 ## What it does
 
-Most starter kits give you boilerplate but leave the hard parts — requirements discovery, architecture decisions, lane assignment, security discipline — entirely to you. This plugin runs a structured interview with you, optionally consults OpenAI Codex for second opinions, generates branding (logo + UI mocks), settles the tech stack, and produces a fully wired-up monorepo with branch protection, CI, git hooks, and 4-lane parallel-development conventions — all from a single slash command.
+Runs a structured interview, optionally consults Codex for second opinions, generates logo + UI mocks, settles the stack, and produces a fully wired-up **production-grade** monorepo with branch protection, CI, git hooks, security middleware, runbooks, and parallel-lane conventions — from one slash command. First commit is green, `main`/`stage`/`dev` are protected, every conversation auto-logs to `dev/docs/talk/` with secrets masked.
 
-The result on disk is a project where:
+## Production-grade by default (5.0+)
 
-- The first commit is already green (CI, tests, lints all pass).
-- Branch protection is applied to `main` / `stage` / `dev` and direct push is impossible.
-- Every conversation you have with Claude is auto-logged (with secrets masked) into `dev/docs/talk/`.
-- The next step is always documented — you never have to wonder "what now?".
+The harness no longer scaffolds an MVP that you have to harden later. Everything that's hard to retrofit is wired in at bootstrap:
+
+- **Hono middleware suite** — security headers (CSP/HSTS/COOP/CORP/Permissions-Policy), KV-backed rate limiting, structured logging (pino + `x-request-id`), idempotency (`Idempotency-Key`), strict CORS allowlist
+- **Health endpoints** — `/healthz` / `/readyz` (DB ping + smoke checks) / `/livez`
+- **Observability + supply chain** — Sentry init, audit-log helper, feature-flag helper (with stable-hash % rollout), CodeQL, CycloneDX SBOM, license audit, k6 smoke, Lighthouse CI, Renovate, Dependabot
+- **Six runbook templates** — `incident-response.md` / `deploy.md` / `rollback.md` / `dr-plan.md` / `oncall.md` / `postmortem.md` (blameless 5-whys)
+- **Pre-launch checklist** in `rules/production.md` — backup-restore drill, ZAP full scan, load test, CSP enforcement, chaos drill, on-call rotation
+- **OS-aware `MAX_LANES` recommendation** that accounts for macOS memory compression + live `memory_pressure` (a 16 GB Mac in green pressure correctly recommends 4 lanes — the runtime gate is the safety net)
+
+See [`docs/PRODUCTION.md`](./docs/PRODUCTION.md) for the file-by-file map.
 
 ## Highlights
 
-- **`/my-harness-init`** — guided interview that produces spec markdowns and runs the bootstrap automatically.
-- **Codex CLI integration (optional)** — multi-turn dialogue with session resume; logo and UI-mock generation via `gpt-image-2`. Optionally delegate `engineer` / `e2e-reviewer` / `reviewer` subagent roles to Codex per role (independent toggles, master switch via `USE_CODEX`).
-- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions workflows + Drizzle + Resend + Playwright + Maestro.
-- **Per-platform framework choice** — Web (`nextjs` or `tanstack`), iOS (`swift` / `expo` / `flutter`), Android (`kotlin` / `expo` / `flutter`), Desktop (`tauri` or `electron` + macOS/Windows/Linux), Backend (`hono` / `gin` / `rust`), DB (`d1` / `postgres` / `mysql` / `sqlite`). Each platform's framework choice is independent.
-- **4-lane parallel development via Agent Teams** — `/harness-team-lead` creates a Claude Code Agent Teams team with **16 persistent teammates** (4 lanes × 4 roles: `analyst-N`, `engineer-N`, `e2e-reviewer-N`, `reviewer-N` for N=1..4). team-lead dispatches each pending issue to the analyst of an idle lane; that analyst orchestrates engineer-N → e2e-reviewer-N → reviewer-N via `SendMessage` and runs `git commit` + `gh pr create` itself. After each issue's PR, team-lead sends `/clear` to all 4 teammates of that lane (fresh-agent-per-issue), then dispatches the next issue. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
+- **`/my-harness-init`** — guided interview → spec markdowns → `bootstrap.sh` automatically.
+- **Codex CLI (optional)** — multi-turn dialogue, `gpt-image-2` logo / UI mocks. `engineer` / `e2e-reviewer` / `reviewer` independently delegable to Codex (`USE_CODEX_<ROLE>`).
+- **One-command bootstrap** — bare git + `dev`/`stage`/`main` worktrees + Husky + Biome + Nix flake + 9 GitHub Actions + Drizzle + Resend + Playwright + Maestro.
+- **Per-platform framework choice** — Web (`nextjs`/`tanstack`), iOS (`swift`/`expo`/`flutter`), Android (`kotlin`/`expo`/`flutter`), Desktop (`tauri`/`electron` × macOS/Windows/Linux), Backend (`hono`/`gin`/`rust`), DB (`d1`/`postgres`/`mysql`/`sqlite`). Independent choices.
+- **Parallel lanes via Agent Teams** — `/harness-team-lead` runs up to `MAX_LANES` (1..4, default 4) lanes × 4 roles. Lanes added one at a time after a per-lane RAM/swap/compressor check (`spawn-lane-decision.sh`). After each PR the lane's four teammates `/clear`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 - **Automatic secret masking** — `UserPromptSubmit` hook runs every prompt through `mask-secrets.sh` (9 patterns) before writing to `dev/docs/talk/<date>.md`.
-- **21 skills, lazy-loaded** — TDD, Hono Clean Architecture, Drizzle migrate-only, Nix-pure execution, design discipline, JSDoc, git discipline, hardcoded-secret prevention, and more.
-- **GitHub-Issue mode toggle** — choose between `gh issue create` and local `dev/docs/task/*.md` files at init time.
+- **5 lazy-loaded skills, one rule set** — TDD / Hono Clean Arch / Drizzle migrate-only / Nix-pure / design / JSDoc / no-hardcoded-secrets, all in `rules/*.md` and shared verbatim across Claude / Codex / Cursor / Aider.
 
 ## Installation
 
-### Prerequisites
+Prerequisites — Claude Code (latest), and **either** (a) Nix installed (recommended; `nix develop` / `direnv allow` provides `codex`, `rtk`, `python+SDK`, `jq`, `bash`, `git`), **or** (b) `git` / `bash` / `jq` / `direnv` / `python3.12+` plus `codex` (`npm install -g @openai/codex`) and `rtk` (`brew install rtk`) installed yourself. Either way, one-time `codex login` is required (ChatGPT subscription).
 
-- Claude Code (latest)
-- One of:
-  - **Recommended — Nix only.** A fresh machine with Nix installed gives you the entire harness runtime (`codex` CLI, `rtk`, Python with `codex-app-server-sdk`, `jq`, `bash`, `git`, etc.) via `nix develop` or `direnv allow`. No `brew install`, no `npm -g`, no `pip --user`. See [Fresh machine setup](#fresh-machine-setup-nix-only) below.
-  - Or, if not using Nix: `git`, `bash`, `jq`, `direnv`, `python3.12+`, plus `codex` CLI (`npm install -g @openai/codex`) and `rtk` (`brew install rtk`) installed manually.
-- Codex CLI authentication (one-time): `codex login` (requires a ChatGPT subscription). Required regardless of which install method above.
-
-### Fresh machine setup (Nix only)
-
-Goal: a brand-new Mac, Linux box, or WSL2 environment goes from zero to a working harness in two manual steps.
+Fresh-machine setup with Nix:
 
 ```bash
-# 1. Install Nix (Determinate Systems installer is the simplest)
 curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-
-# 2. Clone the harness, enter the dev shell
 git clone https://github.com/kirinnokubinagai/my-harness-generator
 cd my-harness-generator
-direnv allow                        # auto-activates `nix develop` on cd
-# (or `nix develop` manually if you don't use direnv)
-
-# 3. One-time Codex authentication (opens a browser)
+direnv allow                 # or `nix develop`
 codex login
 ```
 
-That's it — `codex`, `rtk`, `python` (with the SDK), and every other tool the harness scripts need are now on `$PATH`, all version-pinned through `flake.lock`.
+Platforms: macOS (arm64/x86_64), Linux (x86_64/aarch64), Windows via WSL2. First `nix develop` on macOS arm64 may compile `codex` from source (~20–60 min); subsequent enters are instant. The harness routes lane Codex calls through a shared `codex app-server` daemon (`harness-codex-daemon` skill).
 
-**Platform support:**
-- ✅ **macOS** (Apple Silicon / Intel) — direct
-- ✅ **Linux** (x86_64 / aarch64) — direct, fastest first-run (binary cache)
-- ✅ **Windows** — via **WSL2** (Ubuntu recommended); Nix doesn't run natively on Windows but works perfectly inside WSL2
-
-**First-run note:** on macOS arm64 the `codex` package may have to be compiled from source (~20–60 min) the first time you enter the shell, since not every nixpkgs `aarch64-darwin` build is in the public cache. After that initial build, subsequent `nix develop` invocations are instant. On Linux x86_64 the cache hit rate is much higher and the first run is typically under five minutes.
-
-**Shared Codex daemon:** when `harness-team-lead` runs lanes in parallel, the harness routes every lane through one shared `codex app-server` daemon (WebSocket transport) instead of spawning a fresh process per call. The daemon is started / stopped by the `harness-codex-daemon` skill at the boundaries of a `/harness-team-lead` session.
-
-### Install the plugin
-
-In Claude Code:
+Then in Claude Code:
 
 ```
 /plugin marketplace add https://github.com/kirinnokubinagai/my-harness-generator
 /plugin install my-harness@my-harness-generator
 ```
 
-Then **fully restart Claude Code** (or run `/clear`) so the new skills and hooks load.
-
-### Verify
-
-```
-/my-harness-init
-```
-
-The interview should start. If the first question appears, the plugin is installed correctly. Press `Esc` (or close the conversation) to abort the interview without creating anything.
+Restart Claude Code (or `/clear`) so the new skills and hooks load. Verify with `/my-harness-init` — if the first question appears, the install is good. `Esc` aborts without creating anything.
 
 ## Quick start
 
-The first question of `/my-harness-init` asks whether to use English or Japanese; everything generated afterward follows that choice.
-
-`/my-harness-init` is the only command you need to start a new project. It walks through the following 9 phases — one question per turn, with masked Q&A automatically saved to `dev/docs/spec/` and `dev/docs/talk/`. The order is deliberate: deep discovery → structural shape → features → **mocks before tools** (so we pick the framework / DB / package manager from what the screens actually need) → data model:
+`/my-harness-init` is the only command you need to start a new project. The first question chooses English or Japanese; everything generated afterward follows. The interview is one question per turn, with masked Q&A auto-saved to `dev/docs/spec/` and `dev/docs/talk/`. Order is deliberate: deep discovery → structural shape → features → **mocks before tools** → data model.
 
 | # | Phase | What you decide |
-|---|-------|-----------------|
-| 0 | **Language** | English or Japanese for the rest of the interview |
-| 1 | **Setup** | Project root path, choice of AI helpers (Claude only / Claude + Codex), global CLAUDE.md handling (inherit / isolate), task tracking (Local markdown / GitHub Issues) — all asked as labeled named choices, not y/n |
-| 2 | **Discovery** | Open multi-turn conversation that drills into failure modes, who'd push back, scale breakpoints, trust model, differentiation, day-2 ops — the load-bearing constraints |
-| 3 | **Structure** | Just architecture (client-server / serverless / pure P2P / hybrid P2P) and platform multi-select (web / desktop / mobile + iOS-or-Android) |
-| 4 | **Features** | Complete feature list for the whole project — everything needed before you'd call it done — drilled per feature on access path / failure / observability / onboarding / power-user / empty / failure-recovery / latency budget |
-| 5 | **Visual** | Logo (3 variants) plus 3–5 UI mocks per chosen platform via Codex `gpt-image-2`; after each mock, drill on missing elements / confusing elements / hidden constraints. Mocks become source of truth |
-| 6 | **Tools** | Framework (per platform), backend, DB, package manager, email, E2E, Claude Code Action — every prompt references the approved mocks ("your dashboard mock needs realtime, so …") |
-| 7 | **Data model** | Entities, relationships, PII handling (mermaid ER diagram) — drilled per entity on lifecycle / GDPR / permissions / cardinality / migration |
-| 8 | **Bootstrap** | Cross-check the spec, run `bootstrap.sh`, generate initial issues / task files (one per lane) |
+|---|---|---|
+| 0 | Language | EN or JA for the rest of the interview |
+| 1 | Setup | Project root, AI helpers (Claude / Claude + Codex), global CLAUDE.md handling, task tracking (markdown / GitHub Issues), `MAX_LANES` (1..4) |
+| 2 | Discovery | Open conversation — failure modes, pushback, scale, trust, differentiation, day-2 ops |
+| 3 | Structure | Architecture (client-server / serverless / pure P2P / hybrid P2P) + platforms |
+| 4 | Features | Whole-project feature list drilled per feature (access / failure / observability / latency budget / etc) |
+| 5 | Visual | Logo (3) + 3–5 UI mocks per platform via Codex `gpt-image-2`; drill after each |
+| 6 | Tools | Framework / backend / DB / package manager / email / E2E / Claude Code Action — referencing the approved mocks |
+| 7 | Data model | Entities + relationships + PII (mermaid ER); drilled per entity |
+| 8 | Bootstrap | Cross-check, run `bootstrap.sh`, generate initial issues / task files |
 
-After bootstrap completes, **exit the current Claude session and restart inside `dev/`** — Claude Code has no documented way to change the working directory and reload `CLAUDE.md` / `settings.json` mid-session.
+After bootstrap, **exit and restart Claude inside `dev/`** (no documented way to reload CLAUDE.md / settings mid-session):
 
 ```bash
-# Step 1: exit the current Claude session (Ctrl+D or /exit)
-# Step 2: in your terminal:
+# Ctrl+D or /exit, then:
 cd ~/<project>/dev && claude
-```
-
-Then inside the new session:
-
-```bash
 direnv allow
 nix develop --command pnpm install
 nix develop --command pnpm exec husky
-nix develop --command pnpm exec vitest run    # health.test.ts should be green
-```
+nix develop --command pnpm exec vitest run    # health.test.ts green
 
-Push to GitHub:
-
-```bash
 git remote add origin git@github.com:<owner>/<repo>.git
 git push --all origin
 bash .my-harness/scripts/setup-branch-protection.sh <owner>/<repo>
 bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
-## Project lifecycle
+## Lifecycle & daily commands
 
-The plugin enforces a 6-phase flow from idea to production. The first three phases all live inside `/my-harness-init`; phases four through six each have their own command.
+| Phase | Activity | Command |
+|---|---|---|
+| Spec → Design → Tasks | Interview → mocks → tool selection → bootstrap | `/my-harness-init` |
+| Switch session | Restart in `<root>/dev/` so project-scope CLAUDE.md / settings load | `cd <root>/dev && claude` |
+| Implementation | Parallel lanes — issues dispatched to idle lanes by file ownership | `/harness-team-lead` |
+| Deploy | First run generates Alchemy v2 infra + Secrets; subsequent runs stage dev → stage → main (ZAP / Playwright / Maestro / canary 10% → 100%) | `/harness-deploy` |
+| Adopt existing repo / refresh after plugin update | Idempotent — auto-detects `.bare/` | `/my-harness-adopt` |
+| Live lane view | Separate terminal | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
+| Watchdog mode | Lead consumes in Step 3.0 | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
 
-| Phase | Activity | Primary command |
-|-------|----------|-----------------|
-| 1. Spec | Discovery + features + data model | `/my-harness-init` (Discovery → Features phases; data model lands after mocks) |
-| 2. Design | Logo + per-platform UI mocks + spec iteration; mocks then drive tool selection | `/my-harness-init` (Visual phase, then Tools phase) |
-| 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Bootstrap phase) |
-| 3.5. Switch session | Restart Claude Code inside `<root>/dev/` so project-scope CLAUDE.md and settings load | `cd <root>/dev && claude` |
-| 4. Implementation | 4-lane parallel work — each issue dispatched to an idle lane, file-ownership-checked, Codex-or-Claude per role | `/harness-team-lead` |
-| 5. Deploy setup | Alchemy v2 (Effect.ts) infra script (`alchemy.run.ts`) for Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel, wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
-| 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |
+Hotfixes by hand: branch `hotfix/<short>` from `main`, PR to `main`, merge-commit back to `stage`/`dev`. See `docs/HOTFIX.md`.
 
-Hotfixes are handled by hand: branch `hotfix/<short>` from `main`, PR to `main`, merge-commit back to `stage` and `dev`. See `docs/HOTFIX.md`.
+## Conventions (single source of truth)
 
-## Daily commands
+All harness conventions live in `rules/*.md` and are loaded automatically by every entry point — embedded in `dev/CLAUDE.md` + `dev/AGENTS.md` (Claude / Codex / Cursor / Aider read these natively), and auto-attached to Codex via `codex-ask.sh --role`. No per-rule slash command — the rules are always in scope.
 
-After init, these are the slash commands you'll reach for most often:
-
-| What you want | Command |
+| File | Enforces |
 |---|---|
-| Drive all pending issues in parallel | `/harness-team-lead` |
-| Adopt an existing git repo OR refresh an adopted project after a plugin upgrade | `/my-harness-adopt` (idempotent — auto-detects `.bare/`) |
-| Generate Alchemy v2 deploy infrastructure (`alchemy.run.ts`) | `/harness-deploy-setup` |
-| Run a staged production deploy | `/harness-deploy-execute` |
-| Live view of all lane agents (separate terminal) | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
-| Watchdog mode (lead consumes via Step 3.0) | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
-
-## Conventions (single source of truth: `rules/*.md`)
-
-All harness conventions live in `rules/*.md` and are loaded automatically by every entry point:
-
-| Rule file | Enforces |
-|---|---|
-| `rules/tdd.md` | Red / Green / Refactor cycle; AAA pattern; `$LANG` test names |
+| `rules/tdd.md` | Red / Green / Refactor; AAA; `$LANG` test names |
 | `rules/hono-clean-arch.md` | 4-layer Clean Architecture; strict dependency direction |
 | `rules/drizzle.md` | Drizzle migrate-only; `drizzle-kit push` prohibited |
-| `rules/nix-pure.md` | Every tool invocation via the per-worktree devshell wrapper; no `brew install` |
+| `rules/nix-pure.md` | Tool invocations via the per-worktree devshell; `brew install` forbidden |
 | `rules/design.md` | Lucide Icons only; no AI-style gradients; WCAG AA |
-| `rules/jsdoc.md` | TSDoc on every export; no inline comments inside function bodies |
+| `rules/jsdoc.md` | TSDoc on every export; no inline comments inside functions |
 | `rules/no-hardcoded-secrets.md` | env vars / SOPS only; gitleaks at pre-commit |
-
-These files are mirrored to `<root>/dev/.my-harness/rules/` by bootstrap, embedded in `dev/CLAUDE.md` + `dev/AGENTS.md` (Claude Code / Codex CLI / Cursor / Aider all read them automatically), and auto-attached to Codex via `codex-ask.sh --role engineer` / `--role harness-reviewer` / `--role harness-analyst`. There is no per-rule slash command — the rules are always in scope.
 
 ## Slash commands
 
-**Three slash commands you'll use directly:**
+- `/my-harness-init` — start a new project (one-time per project; resumes from `.my-harness/init-state.json`).
+- `/my-harness-adopt` — idempotent. First run converts an existing git repo (history preserved); subsequent runs refresh `dev/.my-harness/` and regenerate `dev/CLAUDE.md` / `dev/AGENTS.md`. Non-destructive on the refresh path.
+- `/harness-team-lead` — parallel-lane orchestration.
+- `/harness-deploy` — idempotent; setup on first run, staged release after.
+- `/harness-codex-daemon` — start/stop the shared `codex app-server` daemon.
 
-- `/my-harness-init` — start a new project from an empty directory (one-time, per project). Detects existing `.my-harness/init-state.json` and resumes from the saved phase.
-- `/my-harness-adopt` — idempotent. On first run (no `.bare/` yet) converts an existing git repo into the harness layout while preserving history. On subsequent runs (`.bare/` already present) refreshes `dev/.my-harness/` with the latest plugin assets and regenerates `dev/CLAUDE.md` / `dev/AGENTS.md`. Non-destructive on the refresh path.
-- `/harness-team-lead` — coordinate ongoing 4-lane parallel implementation.
-
-## Architecture
-
-```
-[user input]
-    ↓
-[UserPromptSubmit hook] → mask-secrets.sh → dev/docs/talk/<date>.md
-    ↓
-[Claude]
-    ↓ lazy-load
-[harness-* skill]  (auto-selected from 21)
-    ↓
-[shell script]
-    ↓
-[implementation]
-    ↓
-[Stop hook] → extract assistant response → mask → dev/docs/talk/
-    ↓
-[git pre-commit] → gitleaks + check-forbidden-patterns (double defense)
-    ↓
-[push]
-```
-
-## Generated project structure
+## Generated layout
 
 ```
 <project>/
-├── .bare/                              bare git repo
-├── .git → .bare                        gitfile pointing to .bare
-├── .my-harness/.config                 selected options (team-shared, in git)
+├── .bare/                              bare git
+├── .git → .bare
+├── .my-harness/.config                 selected options (committed)
 ├── .my-harness/codex-sessions/         Codex session IDs (gitignored)
-├── dev/   stage/   main/               worktrees (you only work in dev)
-├── lanes/feat-<n>-<slug>/              feature worktrees (up to 4 in parallel)
-└── lanes/hotfix-<n>-<slug>/            main-based hotfix worktrees
-    ├── .claude/CLAUDE.md               always written; project conventions go here.
-    ├── dev/.claude/                    only when USE_GLOBAL_CLAUDE=no (writes settings.json with claudeMdExcludes for ~/.claude/CLAUDE.md)
+├── dev/   stage/   main/               worktrees (work in dev)
+├── lanes/feat-<n>-<slug>/              feature worktrees (≤ MAX_LANES)
+└── lanes/hotfix-<n>-<slug>/            hotfix worktrees
+    ├── .claude/CLAUDE.md               project conventions
+    ├── dev/.claude/                    when USE_GLOBAL_CLAUDE=no (claudeMdExcludes)
     ├── docs/{spec,design,talk,task}/   spec / mocks / Q&A logs / tasks
-    ├── .my-harness/                    plugin runtime files (copied)
+    ├── .my-harness/                    plugin runtime (rsynced)
     ├── flake.nix .envrc                Nix-pure environment
     ├── biome.json package.json         dev tooling
     ├── .husky/                         pre-commit / pre-push / commit-msg
-    └── .github/
-        ├── workflows/                  9 CI workflows
-        └── scripts/maybe-create-issue.js   GitHub-Issue branching helper
+    └── .github/workflows/              9 CI workflows
 ```
 
 ## Branch policy
 
 | from → to | requirement |
-|-----------|-------------|
+|---|---|
 | `feat/*` → `dev` | PR + format / lint / test / typecheck pass |
-| `dev` → `stage` | Human approval + OWASP ZAP + Playwright + Maestro + Semgrep + Trivy pass |
-| `stage` → `main` | Human approval + all gates green + canary 10% → 100% |
-| `hotfix/*` → `main` | Emergency approval + minimal test/lint/format (post-merge ZAP / E2E runs immediately) |
+| `dev` → `stage` | Human approval + OWASP ZAP + Playwright + Maestro + Semgrep + Trivy |
+| `stage` → `main` | Human approval + all gates + canary 10% → 100% |
+| `hotfix/*` → `main` | Emergency approval + minimal gates (post-merge ZAP / E2E) |
 
-Direct pushes to `main` and `stage` are blocked twice: by the local pre-push hook and by GitHub branch protection. The plugin no longer ships a slash command for the latter — apply it manually once with `bash scripts/setup-branch-protection.sh <owner>/<repo>` (or directly via `gh api ...`).
-
-## Conventions enforced
-
-- **TDD strict** — Red-Green-Refactor cycle. Production code written without a failing test first must be deleted and rewritten.
-- **Hono Clean Architecture** — `domain ← application ← infrastructure / interfaces`, dependency direction enforced.
-- **Drizzle migrate-only** — `drizzle-kit push` is forbidden (no migration history, no rollback).
-- **Nix pure** — all tooling via `nix develop --command`. `brew install` is forbidden.
-- **No AI-look design** — Lucide Icons only; no gradients, neon, or emoji; WCAG AA; the 10 essential UX-psychology principles required.
-- **JSDoc / TSDoc required** — on every export; no inline comments inside functions; descriptions in Japanese (project default).
-- **Git discipline** — no `rebase`, `reset --hard`, or `push --force`. Conflicts are resolved with merge commits.
-
-## Fresh-agent-per-issue principle
-
-Every issue runs inside a freshly-cleared set of 4 teammates (one lane). The `/harness-team-lead` skill keeps the same 16 teammates (4 lanes × 4 roles) alive for the whole session, but after each issue's PR completes it sends `DIRECTIVE: clear_context` to all 4 teammates of that lane (analyst-N, engineer-N, e2e-reviewer-N, reviewer-N), each of whom invokes `/clear` in its own session before the next assignment. This guarantees:
-
-- No bleed-over of decisions or naming choices from previous issues.
-- No accumulating context cost as the project grows.
-- Each lane stays truly independent — what happens in lane 2 cannot influence lane 3.
-
-When the orchestrating session itself becomes heavy (after 5–10 issues), `harness-team-lead` saves progress to `.my-harness/team-state.json` and asks you to `/clear` and resume from that file.
+Direct push to `main` / `stage` is blocked locally (pre-push) and remotely (branch protection). Apply protection once: `bash scripts/setup-branch-protection.sh <owner>/<repo>`.
 
 ## Configuration
 
-The interview produces `<root>/.my-harness/.config`:
-
-```bash
-LANG=en
-PROJECT_NAME=todo-app
-USE_WEB=yes
-WEB_KIND=nextjs               # only when USE_WEB=yes (nextjs | tanstack)
-USE_IOS=no
-IOS_KIND=swift                # only when USE_IOS=yes (swift | expo | flutter)
-USE_ANDROID=no
-ANDROID_KIND=kotlin           # only when USE_ANDROID=yes (kotlin | expo | flutter)
-USE_DESKTOP=no
-DESKTOP_KIND=tauri            # only when USE_DESKTOP=yes (tauri | electron)
-DESKTOP_OS=macos,windows,linux  # only when USE_DESKTOP=yes
-USE_BACKEND=yes
-BACKEND_KIND=hono             # only when USE_BACKEND=yes (hono | gin | rust)
-USE_DB=yes
-DB_KIND=d1                    # only when USE_DB=yes (d1 | postgres | mysql | sqlite)
-USE_EMAIL=yes                 # Resend + password-reset flow
-USE_PLAYWRIGHT=yes
-USE_MAESTRO=no
-USE_CLAUDE_ACTION=yes         # PR review via Claude Code Action
-CLAUDE_AUTH=oauth             # or "api"
-USE_GITHUB_ISSUES=yes         # or "no" → docs/task/*.md
-USE_GLOBAL_CLAUDE=yes         # or "no" → writes dev/.claude/settings.json with claudeMdExcludes for ~/.claude/CLAUDE.md
-CODEX_SESSION=my-harness-init
-USE_CODEX_ENGINEER=yes        # delegate engineer subagent work to Codex (only when USE_CODEX=yes)
-USE_CODEX_E2E_REVIEWER=no     # delegate E2E test report synthesis to Codex (default: no — Claude runs locally)
-USE_CODEX_REVIEWER=yes        # delegate convention review to Codex
-ON_CODEX_AUTH_FAIL=pause      # default: pause + user notify + resume after re-login. "fail" → immediate fail
-PACKAGE_MANAGER=pnpm          # pnpm | bun | npm | yarn — drives install/exec lines, flake.nix, husky, CI
-ARCHITECTURE=client-server    # client-server | client-serverless | p2p-pure | p2p-hybrid
-                              # p2p-pure skips backend bootstrap; p2p-hybrid keeps a lightweight coordinator
-```
-
-You can re-run bootstrap non-interactively:
-
-```bash
-bash bootstrap.sh <root> --config <root>/.my-harness/.config
-```
+The interview writes `<root>/.my-harness/.config`. Re-run non-interactively with `bash bootstrap.sh <root> --config <root>/.my-harness/.config`. Relevant keys: `LANG`, `PROJECT_NAME`, `USE_<PLATFORM>`/`<PLATFORM>_KIND` per platform, `USE_BACKEND`/`BACKEND_KIND`, `USE_DB`/`DB_KIND`, `USE_EMAIL`, `USE_PLAYWRIGHT`, `USE_MAESTRO`, `USE_CLAUDE_ACTION`, `CLAUDE_AUTH`, `USE_GITHUB_ISSUES`, `USE_GLOBAL_CLAUDE`, `USE_CODEX_*` (per role), `ON_CODEX_AUTH_FAIL` (`pause`/`fail`), `PACKAGE_MANAGER`, `ARCHITECTURE`, `MAX_LANES` (1..4), `HARNESS_LANE_RAM_MB` / `HARNESS_LANE_SWAP_MAX_MB` / `HARNESS_LANE_COMP_MAX_MB` (per-lane gate thresholds).
 
 ## Troubleshooting
 
 | Symptom | Fix |
-|---------|-----|
+|---|---|
 | Skill doesn't fire | Restart Claude Code or `/clear` |
-| Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` and `Stop` hooks; run `/doctor` to validate the schema |
-| Codex returns auth error | `codex login` (the harness-team-lead Codex-auth handling section walks you through the resume protocol) |
-| Codex subagent paused with `blocked-codex-auth` (login expired mid-flight) | Run `codex login`, then tell team-lead "resume". The same Codex session is preserved on the server. |
-| Codex subagent paused with `subscription-or-quota` reason | Renew your ChatGPT subscription, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
-| Conflict during hotfix back-merge | Resolve by hand with `git merge --no-ff`; never `rebase` / `reset --hard` / `push --force`. |
-| Accidentally ran `drizzle-kit push` | Revert, then `drizzle-kit generate --name <descriptive>` followed by `wrangler d1 migrations apply` |
-| Update plugin | `/plugin marketplace update`, then `/plugin install my-harness@my-harness-generator` |
-| Stale worktree refs | `git worktree prune` (bootstrap does this for you) |
-| `direnv: error Path 'flake.nix' is not tracked by Git` | `git add flake.nix && git commit` (bootstrap does this for you) |
+| Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` + `Stop` hooks; `/doctor` |
+| Codex auth error | `codex login` |
+| Lane paused with `blocked-codex-auth` | `codex login` then say "resume" — same session preserved server-side |
+| `subscription-or-quota` | Renew ChatGPT, or set `USE_CODEX_<ROLE>=no` in `.my-harness/.config`, then "resume" |
+| Hotfix back-merge conflict | `git merge --no-ff`; never `rebase` / `reset --hard` / `push --force` |
+| Accidentally ran `drizzle-kit push` | revert → `drizzle-kit generate --name <descriptive>` → `wrangler d1 migrations apply` |
+| Update plugin | `/plugin marketplace update` → `/plugin install my-harness@my-harness-generator` |
 
 ## FAQ
 
-**Can I add this to an existing project?**
-Possible but not recommended. `/my-harness-init` assumes a fresh start. To retrofit, you'd write `.my-harness/.config` by hand and run `bootstrap.sh --config`, but the bare-git swap is destructive.
+**Add to an existing project?** Use `/my-harness-adopt`. It handles the bare-git swap when there's no `.bare/` yet (destructive on the worktree layout, history preserved).
 
-**Is Codex CLI required?**
-No. Pick `n` at the Setup phase and Claude will run all phases solo (only image generation is skipped).
+**Is Codex required?** No — pick `n` at Setup and Claude runs everything solo (only image generation is skipped).
 
-**What does "4-lane parallel" actually do?**
-`harness-team-lead` partitions issues across `lane/1` through `lane/4` based on file ownership (no two lanes touch the same files). Each lane runs analyst → engineer → e2e-reviewer → reviewer in its own worktree. See [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
+**What does "parallel lanes" actually do?** `harness-team-lead` partitions issues across lanes by file ownership (no two lanes touch the same files). Each lane runs analyst → engineer → e2e-reviewer → reviewer in its own worktree. See [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
 
-**Will `dev/docs/talk/` end up in my repo?**
-Yes (private repo recommended). `mask-secrets.sh` redacts secrets, but the conversational content itself is committed. Add `dev/docs/talk/` to `.gitignore` if you'd rather not.
+**Will `dev/docs/talk/` end up in my repo?** Yes (private repo recommended). `mask-secrets.sh` redacts secrets; add `dev/docs/talk/` to `.gitignore` if you'd rather not commit conversational content.
 
-**Can I isolate this project from my personal `~/.claude/CLAUDE.md`?**
-
-Yes. Pick `USE_GLOBAL_CLAUDE=no` at Setup. The plugin writes `dev/.claude/settings.json` with `claudeMdExcludes` listing your absolute `~/.claude/CLAUDE.md` path. Claude Code respects this natively — your global instructions are skipped for sessions started in `dev/`. Note: managed-policy CLAUDE.md (org-deployed at `/Library/Application Support/ClaudeCode/CLAUDE.md` etc.) cannot be excluded by individual project settings.
-
-**How do I update the plugin?**
-`/plugin marketplace update` then `/plugin install my-harness@my-harness-generator`. Don't `git pull` inside the plugin cache directory.
+**Isolate from `~/.claude/CLAUDE.md`?** Pick `USE_GLOBAL_CLAUDE=no` at Setup — the plugin writes `dev/.claude/settings.json` with `claudeMdExcludes` listing your absolute global CLAUDE.md path. Managed-policy CLAUDE.md (org-deployed) cannot be excluded by project settings.
 
 ## Detailed docs
 
+- Production guide: [`docs/PRODUCTION.md`](./docs/PRODUCTION.md)
 - Workflow: [`docs/WORKFLOW.md`](./docs/WORKFLOW.md)
-- Hotfix procedure: [`docs/HOTFIX.md`](./docs/HOTFIX.md)
-- Security: [`docs/SECURITY.md`](./docs/SECURITY.md)
+- Hotfix: [`docs/HOTFIX.md`](./docs/HOTFIX.md)
+- Setup + Security: [`docs/SETUP.md`](./docs/SETUP.md)
 - Infrastructure: [`docs/INFRA.md`](./docs/INFRA.md)
 - iOS DAST: [`docs/IOS_DAST.md`](./docs/IOS_DAST.md)
-- Engineering standards: [`docs/ENGINEER_STANDARDS.md`](./docs/ENGINEER_STANDARDS.md)
-- Setup details: [`docs/SETUP.md`](./docs/SETUP.md)
+- Engineering conventions: `rules/*.md` (including `rules/production.md`)
 
 ## Contributing
 
-PRs welcome. **Do not `git clone` this repo to use the plugin** — installation is via `/plugin marketplace add <github-url>` so updates flow through `/plugin marketplace update`. Cloning freezes you to that revision.
-
-To contribute changes:
-
-1. Fork on GitHub.
-2. Add your fork as a local marketplace from inside Claude Code: `/plugin marketplace add https://github.com/<your-user>/my-harness-generator` and `/plugin install my-harness@my-harness-generator`.
-3. Edit your fork directly on GitHub (or via your usual workflow), push, then `/plugin marketplace update` in Claude Code to test.
-4. Open a PR back to this repo.
-
-Conventions enforced on the plugin's own code:
-
-- All shell scripts must pass `bash -n` (syntax check).
-- Every `SKILL.md` requires a front-matter `name` and `description`.
-- Commits follow Conventional Commits with a Japanese body.
-- Lane workflow described in [`docs/WORKFLOW.md`](./docs/WORKFLOW.md).
+PRs welcome. **Do not `git clone` this repo to use the plugin** — install via `/plugin marketplace add <github-url>` so updates flow through `/plugin marketplace update`. To contribute: fork → add your fork as a local marketplace → edit / push → `/plugin marketplace update` to test → PR back. All shell scripts must pass `bash -n`; every `SKILL.md` requires front-matter `name` + `description`; commits follow Conventional Commits with a Japanese body.
 
 ## License
 

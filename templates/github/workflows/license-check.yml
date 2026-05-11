@@ -1,0 +1,38 @@
+# Fail releases that pull in copyleft licences (GPL / AGPL / SSPL) unless
+# explicitly allow-listed in package.json `licenseAllowlist`.
+
+name: License Check
+
+on:
+  pull_request:
+    branches: [main, stage]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: License audit
+        run: |
+          pnpm dlx license-checker \
+            --production \
+            --excludePrivatePackages \
+            --failOn "GPL;AGPL;SSPL;CC-BY-NC;BUSL" \
+            --summary

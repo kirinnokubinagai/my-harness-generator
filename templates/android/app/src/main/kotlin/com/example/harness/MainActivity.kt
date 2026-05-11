@@ -1,6 +1,6 @@
 // 概要: Android アプリのエントリポイント。
 //       Jetpack Compose を用いて最小限の画面を描画する。
-//       UI / UX 規約は .harness/docs/ENGINEER_STANDARDS.md を参照（shokasonjuku UX 心理学 47 原則）。
+//       UI / UX 規約は .my-harness/rules/design.md を参照（shokasonjuku UX 心理学 47 原則）。
 
 package com.example.harness
 

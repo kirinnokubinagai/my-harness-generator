@@ -4,115 +4,146 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
-## [4.6.0] — 2026-05-11
+## [5.0.0] — 2026-05-11
 
-### Removed — 4 auxiliary slash commands replaceable by one-line manual ops
+**Production-grade rebuild.** The harness now scaffolds projects that can ship
+to production, not just MVPs. Every concern that's hard to retrofit (security
+headers, rate limiting, structured logging with request-id propagation,
+idempotency, health endpoints, Sentry, audit log, feature flags, CodeQL,
+SBOM, license audit, k6, Lighthouse, Renovate, Dependabot, six runbooks)
+is wired in at `bootstrap.sh` time and enforced by `rules/production.md`.
 
-- `/harness-branch-protection` — one-time setup, replaceable by `bash scripts/setup-branch-protection.sh <owner>/<repo>` or a single `gh api repos/<o>/<r>/branches/main/protection -X PUT ...` call.
-- `/harness-check-codex-auth` — replaceable by running `codex` (auth state is immediately visible). The internal `scripts/check-codex-auth.sh` is kept — `harness-team-lead`'s Codex-auth-handling section still calls it.
-- `/harness-check-secrets` — pre-commit's gitleaks + CI scans already cover this. The internal `scripts/check-forbidden-patterns.sh` is kept.
-- `/harness-setup-secrets` — one-time setup, replaceable by `bash scripts/setup-secrets.sh <owner>/<repo>` or by reading the GitHub Secrets / SOPS recipe in `docs/SETUP.md`.
+### Added — production scaffold
 
-Slash-command surface: 10 → 6 (`/my-harness-init`, `/my-harness-adopt`, `/harness-team-lead`, `/harness-codex-daemon`, `/harness-deploy-setup`, `/harness-deploy-execute`).
+- **Hono middleware suite** in `templates/backend/hono/`:
+  `security-headers.ts` (CSP/HSTS/XFO/COOP/CORP/Permissions-Policy),
+  `rate-limit.ts` (KV-backed token-bucket per-bucket: login / password-reset / api),
+  `logger.ts` (pino + `x-request-id` propagation, redacts authorization / cookie / password),
+  `idempotency.ts` (`Idempotency-Key` 24 h KV cache),
+  `cors.ts` (allowlist from `ALLOWED_ORIGINS`, no `*`).
+- **Health endpoints** (`templates/backend/hono/routes/health.ts`):
+  `/healthz` / `/readyz` (DB ping + smoke checks) / `/livez`.
+- **Lib helpers**: `sentry.ts` (`@sentry/cloudflare` Workers init),
+  `audit-log.ts` (append-only `audit_log` table), `feature-flag.ts`
+  (env-var driven with stable-hash % rollout).
+- **CI workflows**: `codeql.yml` (PR + weekly), `sbom.yml` (CycloneDX on
+  release), `license-check.yml` (fail on GPL/AGPL/SSPL/SSPL),
+  `k6-smoke.yml` (PR → stage), `lighthouse.yml` (PR → main/stage).
+- **Dependency automation**: `renovate.json` (grouped minor/patch,
+  manual majors, beta-pin) + `dependabot.yml` (GH Actions ecosystem).
+- **Runbooks** (`templates/docs/runbooks/`): `incident-response.md`,
+  `deploy.md`, `rollback.md`, `dr-plan.md`, `oncall.md`,
+  `postmortem.md` — required by `rules/production.md`'s pre-launch
+  checklist.
+- **`rules/production.md`** — single source of truth for production
+  expectations (observability / security headers / rate limits / CORS /
+  idempotency / health / audit log / backups / DR / dependencies /
+  SAST/DAST / supply chain / runbooks / pre-launch checklist).
+- **`docs/PRODUCTION.md`** — guide that maps each concern to its file
+  in the generated project.
 
-### Refactor — compress remaining skill SKILL.md
+### Changed — OS-aware MAX_LANES recommendation
 
-| File | Before | After | Δ |
-|---|---:|---:|---:|
-| `skills/harness-codex-daemon/SKILL.md` | 105 | 44 | -61 |
-| `skills/harness-deploy-setup/SKILL.md` | 234 | 172 | -62 |
-| `skills/harness-deploy-execute/SKILL.md` | 134 | 111 | -23 |
+- New `scripts/lib/recommend-lanes.sh` accounts for **macOS memory
+  compression** (+33 % effective RAM via `vm.compressor`) and live
+  `memory_pressure -Q` (green/yellow/red), and Linux swap. The naive
+  "TOTAL_RAM >= 24 GB → 4 lanes" rule was wrong: a 16 GB Mac in
+  green pressure now correctly recommends 4 lanes.
+- `bootstrap.sh` and `scripts/doctor.sh` both use the new lib.
 
-No behaviour change.
+### Added — harness operations
 
-## [4.5.0] — 2026-05-11
+- `scripts/doctor.sh` — pre-flight diagnostics
+  (bare repo / .config / MAX_LANES vs recommendation / required tools /
+  Codex CLI auth / Codex daemon liveness / spawn-lane-decision dry-run /
+  `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`).
+  `--json` for machine-readable output.
+- `scripts/prune-lanes.sh` — remove teammates whose lane number exceeds
+  the current `MAX_LANES` from the team config (`--max <n>`,
+  `--dry-run`). Resolves the "stale teammates after lowering MAX_LANES"
+  pitfall.
+- `scripts/lib/rsync-excludes.sh` — single source of truth for
+  `dev/.my-harness/` rsync rules. Sourced by bootstrap and adopt-refresh.
+- `tests/spawn-lane-decision.sh` — pure-bash smoke test (11 cases,
+  no bats dependency) covering every REFUSE / SKIP / SPAWN path.
 
-### Refactor — semantic-preserving prose compression
+### Changed — `spawn-lane-decision.sh` cleanup
 
-Rewrote the high-context-frequency files (agents/* loaded as system prompt every spawn, SKILL.md held in lead context for the whole session, rules/* re-read per ASSIGNMENT) to cut prose redundancy while keeping every rule, example, command, and status value. Token footprint per harness session drops noticeably.
+- Removed redundant hard-coded `1..4` validation (MAX_LANES is the
+  ceiling). Invalid input is now caught generically (positive integer).
+- `exceeds-max-lanes` reason now suggests `prune-lanes.sh` explicitly.
 
-Line counts (high-priority files only):
+### Added — bootstrap distributes production templates
 
-| File | Before | After | Δ |
-|---|---:|---:|---:|
-| `agents/harness-analyst.md` | 306 | 247 | -59 |
-| `agents/harness-engineer.md` | 156 | 103 | -53 |
-| `agents/harness-reviewer.md` | 186 | 144 | -42 |
-| `agents/harness-e2e-reviewer.md` | 109 | 93 | -16 |
-| `skills/harness-team-lead/SKILL.md` | 305 | 271 | -34 |
-| `rules/jsdoc.md` | 87 | 65 | -22 |
-| `rules/drizzle.md` | 83 | 64 | -19 |
-| `rules/no-hardcoded-secrets.md` | 83 | 65 | -18 |
-| `rules/design.md` | 69 | 46 | -23 |
-| **Total** | **1560** | **1274** | **-286 (-18%)** |
+`bootstrap.sh` now copies, when applicable:
 
-No rule body changed. No status enum changed. No bash command changed.
+- `templates/docs/runbooks/*.md` → `dev/docs/runbooks/`
+- `templates/github/workflows/{codeql,sbom,license-check,k6-smoke,lighthouse}.yml` → `dev/.github/workflows/`
+- `templates/github/renovate.json` → `dev/renovate.json`
+- `templates/github/dependabot.yml` → `dev/.github/dependabot.yml`
+- `templates/backend/hono/{middleware,routes,lib}/*.ts` → `dev/src/{middleware,routes,lib}/`
+  (only when `USE_BACKEND=yes` and `BACKEND_KIND=hono`)
 
-## [4.4.0] — 2026-05-11
+All copies are non-destructive: existing files are kept.
 
-### Unified `/my-harness-adopt` and dropped 8 thin-wrapper rule skills
+### BREAKING
 
-- `/my-harness-update` is folded into `/my-harness-adopt`. The adopt skill now branches on whether `.bare/` already exists: first-run does the destructive conversion, subsequent runs are non-destructive refreshes (rsync `dev/.my-harness/` from the latest plugin, regenerate `dev/CLAUDE.md` / `dev/AGENTS.md`, append new config flags with safe defaults). One command, two paths.
-- Removed 8 thin-wrapper rule skills: `harness-tdd`, `harness-jsdoc`, `harness-hono-clean-arch`, `harness-drizzle-rules`, `harness-design-rules`, `harness-nix-pure`, `harness-no-hardcoded-secrets`, `harness-git-discipline`. The actual rule bodies live in `rules/*.md` (Single Source of Truth) and are loaded by four existing paths anyway: `dev/CLAUDE.md` (Claude Code), `dev/AGENTS.md` (Codex / Cursor / Aider), the agents' Conventions sections (Read directly), and `codex-ask.sh --role` (`--context` auto-attach). The wrapper skills were a fifth path that nobody invoked.
+- Generated projects now expect `RATE_LIMIT_KV` and `IDEMPOTENCY_KV` KV
+  bindings in `wrangler.jsonc` and `alchemy.run.ts`. Adopt these by
+  rerunning `/harness-deploy` (setup mode adds the missing bindings).
+- `dev/src/middleware/`, `dev/src/routes/health.ts`, `dev/src/lib/{sentry,audit-log,feature-flag}.ts`
+  are now reserved paths owned by the harness; user code must not
+  overwrite them. Rename your files if you previously claimed these
+  paths.
+- Adopted projects upgrading from 4.x: rerun `/my-harness-adopt` to
+  receive the new templates and runbooks (refresh path is non-destructive
+  on existing files).
 
-### Why
+## [4.7.0] — 2026-05-11
 
-Skill surface is part of the API: every wrapper is a name users have to remember and we have to maintain. 4.3.0 already showed how much could be removed by deleting unused helpers; 4.4.0 follows the same logic on slash commands and rule skills.
+Comprehensive surface reduction and observability tighten-up.
 
-## [4.3.0] — 2026-05-11
+### Configurable lane cap
 
-### Refactor — drop unused scripts / skills / templates and tighten docs
+- `MAX_LANES` (1..4, default 4) is now a first-class option in `.my-harness/.config`. `bootstrap.sh` asks for it at Setup; `spawn-lane-decision.sh` refuses lanes > MAX_LANES with reason `exceeds-max-lanes`. Lower this on tight machines without touching code.
 
-Removed (none of these had a live caller in the dispatch path):
+### Skill / slash-command consolidation
 
-- `scripts/anonymize-pii.sh`, `scripts/anonymize-pii-d1.sh`, `scripts/init-project.sh`, `scripts/install-rtk.sh`, `scripts/migrate-after-restore.sh`, `scripts/new-feature.sh`, `scripts/new-hotfix.sh`, `scripts/resolve-conflict.sh`, `scripts/sync-features-with-dev.sh`, `scripts/check-migration-conflict.sh`.
-- `skills/harness-new-feature`, `skills/harness-new-hotfix`, `skills/harness-sync-features`, `skills/harness-resolve-conflict`, `skills/harness-codex-consult`, `skills/harness-mask` (all thin wrappers around the deleted scripts or features already covered by `harness-team-lead` / `codex-ask.sh` / `codex-exec.sh`).
-- `templates/github/workflows/scheduled-db-backup.yml` (niche backup workflow that didn't justify maintenance).
+- `/harness-deploy-setup` + `/harness-deploy-execute` collapsed into a single idempotent `/harness-deploy` (auto-detects mode from `dev/alchemy.run.ts` presence). Slash-command surface: 6 → 5 (`/my-harness-init`, `/my-harness-adopt`, `/harness-team-lead`, `/harness-deploy`, `/harness-codex-daemon`). Skill count: 6 → 5.
 
-Also stripped all `# >>> TEST-LOG (REMOVE AFTER DEBUGGING)` blocks from 6 files — the temporary TEST-LOG mechanism was superseded by 4.1.0's `agent-log.sh` + `monitor-agents.sh`. `.pnpm-store/` added to `.gitignore`. CHANGELOG collapsed (pre-4.0 history now a one-line summary table). README and `plugin.json` / `marketplace.json` `description` rewritten to reflect the 4.x architecture.
+### Documentation consolidation
 
-## [4.2.0] — 2026-05-11
+- Deleted `docs/SECURITY.md` — security policy merged into `docs/SETUP.md` (one place to look for "what do I configure once after creating the repo").
+- Deleted `docs/ENGINEER_STANDARDS.md` — content was already mirrored by `rules/*.md` (the single source of truth).
+- Deleted `templates/prs/` — zero references in the dispatch path.
 
-`/my-harness-update` skill — refresh an already-adopted project with the latest plugin assets. Idempotent counterpart to `/my-harness-adopt` (one-shot). Re-runs `bootstrap.sh --config` against the existing `.my-harness/.config`; rsync-overwrites `dev/.my-harness/` from the plugin's current contents; regenerates `dev/CLAUDE.md` / `dev/AGENTS.md`; appends new config flags with safe defaults. `.bare/` / worktrees / commit history / code are NOT touched.
+### Prose compression
 
-## [4.1.0] — 2026-05-11
+- `README.md`: 372 → ~190 lines (-49 %). Same content, less repetition.
+- `README.ja.md`: 341 → ~180 lines (-47 %).
+- `CHANGELOG.md`: pre-4.7 history collapsed to a one-line-per-version summary table.
 
-Observability + auto-intervention:
+### Misc
 
-- `scripts/agent-log.sh` — every teammate writes one line per status boundary to `<root>/.my-harness/logs/agents.log` and `agent-<name>.log`.
-- `scripts/monitor-agents.sh` — view mode (live table) + `--watchdog` mode (classifies anomalies and appends JSONL to `anomalies.jsonl`).
-- Anomaly kinds: `stagnation`, `repeated-blocked`, `codex-exec-failure`, `codex-no-op`, `suffixed-name`.
-- `SKILL.md` Step 3.0 — the lead reads new anomalies at the top of every dispatch iteration and applies a deterministic intervention table (PING / escalate / fall back from Codex / redo / halt).
+- `dev/.my-harness/` rsync now excludes `.git`, `node_modules`, `*.test.ts`, internal CHANGELOG / docs / README — only runtime assets ship to user projects.
+- Stale `.harness/docs/ENGINEER_STANDARDS.md` reference in `templates/android/.../MainActivity.kt` updated to `.my-harness/rules/design.md`.
 
-Also fixed: BSD `date -j -f` was parsing ISO-8601 in the local TZ silently — switched to `-ujf` for UTC parse, and the awk window-filter now compares ISO-8601 strings lexicographically.
+No behaviour change beyond the cap.
 
-## [4.0.0] — 2026-05-11 (BREAKING)
-
-True Codex delegation. All four lane roles can individually delegate to Codex:
-
-- `scripts/codex-exec.sh` (new) wraps `codex exec --cd <worktree> --sandbox <mode> --ask-for-approval never` so Codex performs real file edits (engineer: `workspace-write`) or reads the worktree freely for review (reviewer: `read-only`). engineer-N / reviewer-N (Claude) become monitors.
-- `analyst` gains `USE_CODEX_ANALYST` (new flag in `bootstrap.sh`). When set, brief / commit message / PR body text generation goes through `codex-ask.sh --role harness-analyst`. git operations stay on Claude.
-- `codex-ask.sh` gets a `harness-analyst` role (same rule auto-attach as engineer / harness-reviewer).
-- New status values: `blocked-codex-error` (non-auth failures from `codex exec`).
-
-BREAKING: engineer / reviewer Codex flows no longer return ready-to-paste text. Codex now edits the worktree directly; consumers that read `codex-eng-<#>.md` for code text should inspect the worktree diff instead.
-
-## Pre-4.0 history (summary)
+## Pre-4.7 history (summary)
 
 | Version | Highlight |
 |---|---|
-| 3.10.0 | `rules/` became the single source of truth shared across Claude and Codex; bootstrap generates `dev/CLAUDE.md` and `dev/AGENTS.md` (regular file copy, no symlink) pointing at `rules/*.md`; `codex-ask.sh` auto-attaches the same rule files via `--context`. |
-| 3.9.4 | `codex-ask.sh` path absolutised in all 3 agents — relative path was unreachable inside lane worktrees. |
-| 3.9.3 | `owned_files` clarified as a dispatch-time hint, NOT an in-lane whitelist. |
-| 3.9.2 | engineer hard rules: run `pnpm install` exactly as shown; new `blocked-workspace-not-ready` status. |
-| 3.9.1 | Drop generated `start-dev.sh` launcher; completion banners print `cd <root>/dev && claude` directly. |
-| 3.9.0 | `/my-harness-adopt` — convert an existing git repo into the harness layout while preserving history. |
-| 3.8.5 | analyst commit gate (Step 5 locked behind e2e+reviewer pass); engineer no-git hard rule restated; already-running teammate phrasing. |
-| 3.8.4 | Propagate `root` from analyst → engineer / e2e-reviewer / reviewer so `USE_CODEX_*` resolves. |
-| 3.8.3 | Parallel dispatch: spawn sequential, `ASSIGNMENT` non-blocking, refill freed lanes immediately. |
-| 3.8.2 | Drop project-root devshell warmup; new "Output discipline" rule (no narration / no cat). |
-| 3.8.1 | Resolve `ROOT` to project root from any cwd (`__resolve_project_root` in every script). |
-| 3.8.0 | Lane-by-lane spawn gate (`spawn-lane-decision.sh`) + name-collision guard + vendor-neutral cleanup (dropped vendor-specific env-var wrangling and third-party MCP enumeration). |
-| 3.0 – 3.7 | Iterative work on the kernel-panic-prevention path (preflight gate, lane-lock, devshell wrapper, content-hash cache, task lifecycle, worktree management). Largely subsumed by 3.8+ rewrites. |
-| 2.x | Switched to Agent Teams architecture (16 persistent teammates); shared Codex daemon; Cloudflare IaC moved from OpenTofu to Alchemy v2. |
+| 4.6.0 | Removed 4 auxiliary slash commands replaceable by one-line manual ops (`/harness-branch-protection`, `/harness-check-codex-auth`, `/harness-check-secrets`, `/harness-setup-secrets`). Skill SKILL.md compression (`harness-codex-daemon`/`harness-deploy-setup`/`harness-deploy-execute` shrunk a combined 146 lines). |
+| 4.5.0 | Semantic-preserving prose compression on the high-context-frequency files (agents/*, SKILL.md, rules/*) — 1560 → 1274 lines (-18 %). No rule body / status enum / bash command changed. |
+| 4.4.0 | `/my-harness-update` folded into `/my-harness-adopt` (branches on `.bare/` presence). Removed 8 thin-wrapper rule skills — bodies live in `rules/*.md` and are loaded by `dev/CLAUDE.md` / `dev/AGENTS.md` / agents / `codex-ask.sh --role`. |
+| 4.3.0 | Dropped 10 unused scripts, 6 thin-wrapper skills, 1 niche workflow template. Stripped all TEST-LOG debug blocks (superseded by 4.1.0 logging). CHANGELOG / README / plugin descriptions rewritten for the 4.x architecture. |
+| 4.2.0 | `/my-harness-update` skill — idempotent counterpart of `/my-harness-adopt` for plugin upgrades. (Folded into adopt in 4.4.0.) |
+| 4.1.0 | Observability + auto-intervention: per-teammate `agent-log.sh`, `monitor-agents.sh` view + `--watchdog` mode, anomaly classification (stagnation / repeated-blocked / codex-exec-failure / codex-no-op / suffixed-name), lead Step 3.0 deterministic intervention. Fixed BSD `date -j -f` timezone bug (`-ujf`). |
+| 4.0.0 (BREAKING) | True Codex delegation. `codex-exec.sh` performs real file edits inside lane worktrees; engineer / reviewer Claude become monitors. `analyst` gains `USE_CODEX_ANALYST`. New status `blocked-codex-error`. |
+| 3.10.0 | `rules/` became the single source of truth shared across Claude and Codex; `dev/CLAUDE.md` + `dev/AGENTS.md` reference `rules/*.md`; `codex-ask.sh` auto-attaches the same files via `--context`. |
+| 3.9.x | `codex-ask.sh` absolute path; `owned_files` as dispatch hint; engineer hard rules + `blocked-workspace-not-ready`; drop `start-dev.sh` launcher; `/my-harness-adopt` for existing-repo conversion. |
+| 3.8.x | Parallel dispatch with sequential spawn; root-resolution from any cwd; vendor-neutral cleanup; lane-by-lane spawn gate + name-collision guard. |
+| 3.0 – 3.7 | Iterative kernel-panic-prevention path (preflight gate, lane-lock, devshell wrapper, content-hash cache, task lifecycle, worktree management). Largely subsumed by 3.8+. |
+| 2.x | Agent Teams architecture (4 lanes × 4 roles persistent teammates); shared Codex daemon; Cloudflare IaC moved from OpenTofu to Alchemy v2. |
 | 1.0.0 | Initial plugin release: skills + agents + hooks + secret masking. |

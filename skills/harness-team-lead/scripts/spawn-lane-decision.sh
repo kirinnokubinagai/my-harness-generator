@@ -61,15 +61,26 @@ emit() {
   exit 0
 }
 
-# 0) lane number must be 1..4
+# 0) N must be a positive integer
 case "$N" in
-  1|2|3|4) : ;;
-  *) emit REFUSE "invalid-lane: '$N' (must be 1..4)" ;;
+  ''|*[!0-9]*|0) emit REFUSE "invalid-lane: '$N' (must be a positive integer)" ;;
 esac
 
 # 1) project initialized
 if [ ! -f "$ROOT/.my-harness/.config" ]; then
   emit REFUSE "init-required: $ROOT/.my-harness/.config not found — run /my-harness-init"
+fi
+
+# 1a) MAX_LANES gate. Hard-cap at 4 (Agent Teams beyond that hits diminishing
+# returns and Codex daemon back-pressure). Default 4 if absent or invalid.
+MAX_LANES=$(awk -F= '$1=="MAX_LANES"{gsub(/"/,"",$2); print $2; exit}' "$ROOT/.my-harness/.config" 2>/dev/null)
+MAX_LANES=${MAX_LANES:-4}
+case "$MAX_LANES" in
+  1|2|3|4) : ;;
+  *) MAX_LANES=4 ;;
+esac
+if [ "$N" -gt "$MAX_LANES" ]; then
+  emit REFUSE "exceeds-max-lanes: lane-$N > MAX_LANES=$MAX_LANES (set in .my-harness/.config). Either run scripts/prune-lanes.sh to reclaim slots or raise MAX_LANES (cap 4)."
 fi
 
 # 2 + 3) inspect team config for corruption and existing membership
