@@ -1,26 +1,16 @@
 #!/usr/bin/env bash
-# gen-page-parts.sh — fully-automated page mock + PNG assets grid generation.
+# gen-page-parts.sh — fully-automated page mock + (zero, one, or many) parts-grid
+# PNGs. Single Codex call. Codex emits:
+#   1. dev/docs/design/page-<platform>-<screen-slug>.png            (always)
+#   2. dev/docs/design/parts-grid-<platform>-<screen-slug>-<N>.png  (0..image_count-1)
+#   3. JSON manifest in its text response (image_count, rows_per_image[], cells[])
 #
-# One Codex call. Codex produces:
-#   1. dev/docs/design/page-<platform>-<screen-slug>.png       (full page mock)
-#   2. dev/docs/design/parts-grid-<platform>-<screen-slug>.png (256×256 cells, 4 cols × N rows)
-#   3. JSON manifest in its text response (cell positions + kebab-case names)
+# Cell size is 256×256, 4 columns, up to 7 rows per grid image (gpt-image-2
+# size cap). If a screen needs more than 28 non-HTML assets, Codex paginates
+# into multiple grid images automatically.
 #
-# This script:
-#   - Pins a deterministic --session per (platform, screen-slug). Refinement + retries
-#     reuse it.
-#   - Calls codex-ask.sh once, captures the response text.
-#   - Verifies both PNGs exist and are real PNGs (file(1) check).
-#   - Extracts the manifest JSON from the response and saves to
-#     dev/public/design/parts/<platform>/<screen-slug>/manifest.json
-#   - On failure, retries in the same session with explicit follow-up nudges
-#     (up to MAX_RETRY = 3, override via HARNESS_GEN_RETRY).
-#
-# Caller (my-harness-init Phase 5) must already have asked the user
-# "Codex でこのページのデザインを作りますか?" and received yes.
-#
-# Usage:
-#   bash scripts/gen-page-parts.sh <root> <platform> <screen-name> <project-name>
+# Retries (3× by default) in the same Codex session if any expected output
+# is missing.
 
 set -u
 
@@ -33,7 +23,6 @@ HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROMPT_TMPL="$HARNESS_DIR/prompts/codex-page-and-parts.md"
 [ -f "$PROMPT_TMPL" ] || { echo "::error:: $PROMPT_TMPL not found" >&2; exit 1; }
 
-# slug from screen name
 SCREEN_SLUG=$(printf '%s' "$SCREEN_NAME" \
   | tr '[:upper:]' '[:lower:]' \
   | tr ' /' '--' \
@@ -44,14 +33,12 @@ mkdir -p "$ROOT/dev/docs/design" \
          "$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
 
 OUT_PAGE="$ROOT/dev/docs/design/page-${PLATFORM}-${SCREEN_SLUG}.png"
-OUT_GRID="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}.png"
 OUT_MANIFEST="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}/manifest.json"
+GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 
-# Deterministic session key
 SESSION_KEY="design-page-${PLATFORM}-${SCREEN_SLUG}"
 echo "$SESSION_KEY" > "$ROOT/.my-harness/codex-session-design-${PLATFORM}-${SCREEN_SLUG}.txt"
 
-# Fill placeholders in prompt
 PROMPT=$(sed \
   -e "s|<PROJECT_NAME>|$PROJECT_NAME|g" \
   -e "s|<PLATFORM>|$PLATFORM|g" \
@@ -60,8 +47,6 @@ PROMPT=$(sed \
   -e "s|<root>|$ROOT|g" \
   "$PROMPT_TMPL")
 
-# Extract a JSON object from a markdown text. Returns the first valid
-# {"rows": ..., "cells": [...]} block; empty on failure.
 extract_manifest() {
   local file="$1"
   [ -f "$file" ] || return 1
@@ -69,20 +54,18 @@ extract_manifest() {
 import json, re, sys
 with open(sys.argv[1], 'r', encoding='utf-8') as f:
     body = f.read()
-# Try fenced json blocks first
 for m in re.finditer(r'```json\s*(\{.*?\})\s*```', body, re.DOTALL):
     try:
         obj = json.loads(m.group(1))
-        if isinstance(obj, dict) and 'rows' in obj and 'cells' in obj:
+        if isinstance(obj, dict) and 'image_count' in obj and 'cells' in obj:
             print(json.dumps(obj, ensure_ascii=False))
             sys.exit(0)
     except json.JSONDecodeError:
         continue
-# Fallback: any standalone JSON object with rows + cells
-for m in re.finditer(r'\{[^{}]*"rows"\s*:[^{}]*"cells"\s*:.*?\}', body, re.DOTALL):
+for m in re.finditer(r'\{[^{}]*"image_count"\s*:[^{}]*"cells"\s*:.*?\}', body, re.DOTALL):
     try:
         obj = json.loads(m.group(0))
-        if 'rows' in obj and 'cells' in obj:
+        if 'image_count' in obj and 'cells' in obj:
             print(json.dumps(obj, ensure_ascii=False))
             sys.exit(0)
     except json.JSONDecodeError:
@@ -91,9 +74,7 @@ sys.exit(1)
 PY
 }
 
-is_png() {
-  [ -f "$1" ] && file "$1" 2>/dev/null | grep -q "PNG image"
-}
+is_png() { [ -f "$1" ] && file "$1" 2>/dev/null | grep -q "PNG image"; }
 
 INITIAL_RESPONSE="$ROOT/.my-harness/codex-page-${PLATFORM}-${SCREEN_SLUG}.md"
 
@@ -107,44 +88,51 @@ bash "$HARNESS_DIR/scripts/codex-ask.sh" \
 MAX_RETRY=${HARNESS_GEN_RETRY:-3}
 RETRY=0
 
-# Loop until: page PNG ok AND (grid PNG ok OR manifest says rows=0)
 while : ; do
   PAGE_OK=0
-  GRID_OK=0
-  MANIFEST_JSON=""
-
   is_png "$OUT_PAGE" && PAGE_OK=1
-  is_png "$OUT_GRID" && GRID_OK=1
 
-  if MANIFEST_JSON=$(extract_manifest "$INITIAL_RESPONSE"); then
-    ROWS=$(printf '%s' "$MANIFEST_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("rows",0))')
-  else
-    ROWS=""
+  MANIFEST_JSON=""
+  MANIFEST_JSON=$(extract_manifest "$INITIAL_RESPONSE" 2>/dev/null) || MANIFEST_JSON=""
+
+  IMG_COUNT=""
+  MISSING_GRIDS=""
+  if [ -n "$MANIFEST_JSON" ]; then
+    IMG_COUNT=$(printf '%s' "$MANIFEST_JSON" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("image_count", 0))')
+    case "$IMG_COUNT" in
+      ''|*[!0-9]*) IMG_COUNT="" ;;
+    esac
   fi
 
-  # Success conditions:
-  #   - page exists
-  #   - manifest extracted
-  #   - if rows > 0, grid must also exist
-  if [ "$PAGE_OK" -eq 1 ] && [ -n "$ROWS" ]; then
-    if [ "$ROWS" = "0" ] || [ "$GRID_OK" -eq 1 ]; then
-      break
-    fi
+  if [ -n "$IMG_COUNT" ] && [ "$IMG_COUNT" -gt 0 ]; then
+    for ((i=0; i<IMG_COUNT; i++)); do
+      P="${GRID_PREFIX}-${i}.png"
+      if ! is_png "$P"; then
+        MISSING_GRIDS="${MISSING_GRIDS}${P} "
+      fi
+    done
+  fi
+
+  # Success: page PNG ok, manifest parsed, every declared grid image present.
+  if [ "$PAGE_OK" -eq 1 ] && [ -n "$IMG_COUNT" ] && [ -z "$MISSING_GRIDS" ]; then
+    break
   fi
 
   RETRY=$(( RETRY + 1 ))
   if [ "$RETRY" -gt "$MAX_RETRY" ]; then
     echo "::error:: Failed after $MAX_RETRY retries. Session '$SESSION_KEY' preserved." >&2
-    echo "::error::   page PNG ok: $PAGE_OK  grid PNG ok: $GRID_OK  manifest rows: '${ROWS:-<missing>}'" >&2
+    echo "::error::   page PNG ok: $PAGE_OK  image_count: '${IMG_COUNT:-<missing>}'  missing grids: '${MISSING_GRIDS:-none}'" >&2
     exit 2
   fi
 
   NUDGE=""
   [ "$PAGE_OK" -eq 0 ] && NUDGE="$NUDGE Page PNG missing at $OUT_PAGE. Call image_gen and save it now.  "
-  [ -n "$ROWS" ] && [ "$ROWS" != "0" ] && [ "$GRID_OK" -eq 0 ] && \
-    NUDGE="$NUDGE Parts-grid PNG missing at $OUT_GRID. Call image_gen and save it now (4 columns × $ROWS rows × 256×256 cells, white background).  "
-  [ -z "$ROWS" ] && \
-    NUDGE="$NUDGE Manifest JSON missing or unparseable. Output a single fenced \`\`\`json ... \`\`\` block with { rows, cells: [{row, col, name}] }.  "
+  [ -z "$IMG_COUNT" ] && \
+    NUDGE="$NUDGE Manifest JSON missing or unparseable. Output exactly one fenced \`\`\`json block with {image_count, rows_per_image, cells:[{image,row,col,name}]}.  "
+  if [ -n "$MISSING_GRIDS" ]; then
+    NUDGE="$NUDGE Missing grid image(s): $MISSING_GRIDS — call image_gen for each one (4 cols, 256×256 cells, ≤7 rows per image, white background).  "
+  fi
 
   echo "::warning:: attempt $RETRY/$MAX_RETRY failed; following up: $NUDGE" >&2
 
@@ -156,10 +144,15 @@ while : ; do
     "$NUDGE"
 done
 
-# Save manifest
 printf '%s\n' "$MANIFEST_JSON" > "$OUT_MANIFEST"
 echo
 echo "page:     $OUT_PAGE"
-echo "grid:     $OUT_GRID"
-echo "manifest: $OUT_MANIFEST  (rows=$ROWS)"
+if [ "$IMG_COUNT" -gt 0 ]; then
+  for ((i=0; i<IMG_COUNT; i++)); do
+    echo "grid[$i]:  ${GRID_PREFIX}-${i}.png"
+  done
+else
+  echo "grids:    none (no non-HTML assets on this screen)"
+fi
+echo "manifest: $OUT_MANIFEST"
 echo "session:  $SESSION_KEY"

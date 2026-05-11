@@ -1,25 +1,17 @@
 #!/usr/bin/env bash
-# crop-parts.sh — slice the parts-grid PNG into transparent-background per-part
-# PNGs using ImageMagick. Cell size is FIXED at 256×256 (override via env
-# CELL_SIZE), so cropping is fully deterministic — no Claude Vision required.
+# crop-parts.sh — slice every parts-grid PNG into transparent-background
+# per-part PNGs. Supports manifests that span MULTIPLE grid images:
+# each cell has an `image` index pointing at the right
+# parts-grid-<platform>-<screen-slug>-<image>.png to source from.
 #
-# The parts-grid image (produced by gen-page-parts.sh) has known dimensions:
-#   width  = 1024
-#   height = manifest.rows × 256
-# Columns are 4. Each cell is 256×256 (or CELL_SIZE).
+# Cell size is FIXED at 256×256 (override via env CELL_SIZE). Cropping is
+# fully deterministic from manifest indices — no Vision required.
 #
 # Outputs:
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png         transparent PNG asset
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/manifest.json      (already there from gen-page-parts.sh)
-#   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts         TS import map
+#   <root>/dev/public/design/parts/<platform>/<screen-slug>/<name>.png      transparent PNG asset
+#   <root>/dev/src/components/design/<platform>/<screen-slug>/parts.ts      TS import map
 #
 # Requires: ImageMagick (magick or convert) + jq.
-#
-# Usage:
-#   bash scripts/crop-parts.sh <root> <platform> <screen-slug>
-#
-# Manifest path is inferred:
-#   <root>/dev/public/design/parts/<platform>/<screen-slug>/manifest.json
 
 set -u
 
@@ -28,7 +20,7 @@ PLATFORM="${2:?platform required}"
 SCREEN_SLUG="${3:?screen-slug required}"
 CELL_SIZE="${CELL_SIZE:-256}"
 
-IN_GRID="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}.png"
+GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 ASSET_DIR="$ROOT/dev/public/design/parts/${PLATFORM}/${SCREEN_SLUG}"
 TS_DIR="$ROOT/dev/src/components/design/${PLATFORM}/${SCREEN_SLUG}"
 MANIFEST="$ASSET_DIR/manifest.json"
@@ -40,35 +32,30 @@ elif command -v convert >/dev/null 2>&1; then IM="convert"
 else echo "::error:: ImageMagick required (brew install imagemagick / apt install imagemagick)" >&2; exit 3
 fi
 
-ROWS=$(jq -r .rows "$MANIFEST")
-case "$ROWS" in ''|*[!0-9]*) echo "::error:: manifest.rows invalid: '$ROWS'" >&2; exit 1 ;; esac
-
-# Zero-asset case: nothing to crop. Still create an empty parts.ts so imports work.
-if [ "$ROWS" = "0" ]; then
-  mkdir -p "$TS_DIR"
-  {
-    printf '/** Auto-generated empty parts map for %s / %s (no non-HTML assets). */\n' "$PLATFORM" "$SCREEN_SLUG"
-    printf 'export const parts = {} as const;\n'
-    printf 'export type PartKey = keyof typeof parts;\n'
-  } > "$TS_DIR/parts.ts"
-  echo "no assets to crop. wrote empty parts map."
-  exit 0
-fi
-
-[ -f "$IN_GRID" ] || { echo "::error:: not found: $IN_GRID (gen-page-parts.sh should have produced it when rows > 0)" >&2; exit 1; }
-
-read -r IMG_W IMG_H < <($IM identify -format "%w %h" "$IN_GRID")
-[ -n "${IMG_W:-}" ] && [ -n "${IMG_H:-}" ] || { echo "::error:: can't read grid dimensions" >&2; exit 1; }
-
-# Width sanity: should be 4 × CELL_SIZE (default 1024). Tolerate small deviation.
-EXPECTED_W=$(( CELL_SIZE * 4 ))
-if [ "$IMG_W" -lt $(( EXPECTED_W - 16 )) ] || [ "$IMG_W" -gt $(( EXPECTED_W + 16 )) ]; then
-  echo "::warning:: parts-grid width is $IMG_W, expected ~$EXPECTED_W (4 × CELL_SIZE=$CELL_SIZE). Cropping may misalign." >&2
-fi
+IMG_COUNT=$(jq -r '.image_count // 0' "$MANIFEST")
+case "$IMG_COUNT" in ''|*[!0-9]*) echo "::error:: manifest.image_count invalid: '$IMG_COUNT'" >&2; exit 1 ;; esac
 
 mkdir -p "$ASSET_DIR" "$TS_DIR"
 
 PARTS_TS="$TS_DIR/parts.ts"
+
+# Zero-asset case: empty parts.ts, exit cleanly.
+if [ "$IMG_COUNT" = "0" ]; then
+  {
+    printf '/** Auto-generated empty parts map for %s / %s (no non-HTML assets). */\n' "$PLATFORM" "$SCREEN_SLUG"
+    printf 'export const parts = {} as const;\n'
+    printf 'export type PartKey = keyof typeof parts;\n'
+  } > "$PARTS_TS"
+  echo "no assets to crop. wrote empty parts map: $PARTS_TS"
+  exit 0
+fi
+
+# Verify every referenced grid image exists.
+for ((i=0; i<IMG_COUNT; i++)); do
+  GRID="${GRID_PREFIX}-${i}.png"
+  [ -f "$GRID" ] || { echo "::error:: missing grid image: $GRID (gen-page-parts.sh should have produced it)" >&2; exit 1; }
+done
+
 {
   printf '/**\n'
   printf ' * 概要: %s / %s 画面の design parts asset 一覧。\n' "$PLATFORM" "$SCREEN_SLUG"
@@ -91,16 +78,23 @@ camel_case() {
 }
 
 jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
-  R=$(jq -r .row  <<<"$CELL")
-  C=$(jq -r .col  <<<"$CELL")
+  IMG=$(jq -r '.image // 0' <<<"$CELL")
+  R=$(jq -r .row <<<"$CELL")
+  C=$(jq -r .col <<<"$CELL")
   N=$(jq -r .name <<<"$CELL")
-  case "$R$C" in ''|*[!0-9]*) echo "::warning:: bad cell row=$R col=$C, skip" >&2; continue ;; esac
+  case "$IMG$R$C" in ''|*[!0-9]*) echo "::warning:: bad cell image=$IMG row=$R col=$C, skip" >&2; continue ;; esac
 
+  if [ "$IMG" -ge "$IMG_COUNT" ]; then
+    echo "::warning:: cell '$N' references image $IMG but image_count=$IMG_COUNT, skip" >&2
+    continue
+  fi
+
+  GRID="${GRID_PREFIX}-${IMG}.png"
   X=$(( CELL_SIZE * C ))
   Y=$(( CELL_SIZE * R ))
   OUT="$ASSET_DIR/${N}.png"
 
-  $IM "$IN_GRID" \
+  $IM "$GRID" \
     -crop "${CELL_SIZE}x${CELL_SIZE}+${X}+${Y}" +repage \
     -alpha set -fuzz 5% \
     -fill none \
@@ -114,7 +108,7 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
   KEY=$(camel_case "$N")
   REL_PATH="/design/parts/${PLATFORM}/${SCREEN_SLUG}/${N}.png"
   printf '  %s: %s,\n' "$KEY" "'$REL_PATH'" >> "$PARTS_TS"
-  echo "  cropped: $OUT  (${CELL_SIZE}×${CELL_SIZE} @ ${X},${Y})"
+  echo "  cropped: $OUT  (image=$IMG @ ${X},${Y})"
 done
 
 printf '} as const;\n\nexport type PartKey = keyof typeof parts;\n' >> "$PARTS_TS"
@@ -122,3 +116,4 @@ printf '} as const;\n\nexport type PartKey = keyof typeof parts;\n' >> "$PARTS_T
 echo
 echo "assets:   $ASSET_DIR"
 echo "parts.ts: $PARTS_TS"
+echo "images:   $IMG_COUNT"
