@@ -281,6 +281,58 @@ else
 fi
 
 # ===== Role prefix =====
+#
+# Single source of truth for harness rules: <project>/dev/.my-harness/rules/*.md
+# (mirrored from <plugin>/rules/*.md by bootstrap.sh). The harness roles
+# (engineer / e2e-reviewer / harness-reviewer) get a SHORT prefix that points
+# at those rule files; the actual rule content is appended to the prompt as
+# context files via auto_attach_rules() below. This keeps Claude's reading
+# (CLAUDE.md → rules/*.md) and Codex's reading (this prompt → rules/*.md)
+# in lock-step from a single source.
+#
+# Non-harness roles (architect / critic / planner / etc.) keep their inline
+# prefix — they're general-purpose and don't read project rules.
+resolve_rules_dir() {
+  # 1. Walk up from PWD looking for .my-harness/rules/ next to .bare/.
+  local d="$PWD"
+  while [ "$d" != "/" ]; do
+    [ -d "$d/.bare" ] && [ -d "$d/dev/.my-harness/rules" ] && { echo "$d/dev/.my-harness/rules"; return 0; }
+    [ -d "$d/.my-harness/rules" ] && { echo "$d/.my-harness/rules"; return 0; }
+    d="$(dirname "$d")"
+  done
+  # 2. Fall back to the plugin's own rules/ directory.
+  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/rules" ]; then
+    echo "$CLAUDE_PLUGIN_ROOT/rules"
+    return 0
+  fi
+  echo ""
+}
+
+auto_attach_rules() {
+  # Append harness rule files to CONTEXT_FILES based on the role. Idempotent.
+  local role="$1"
+  local rules_dir
+  rules_dir=$(resolve_rules_dir)
+  [ -n "$rules_dir" ] || return 0
+  local files=()
+  case "$role" in
+    engineer)
+      files=(tdd.md jsdoc.md hono-clean-arch.md drizzle.md design.md nix-pure.md no-hardcoded-secrets.md)
+      ;;
+    harness-reviewer)
+      files=(tdd.md jsdoc.md hono-clean-arch.md drizzle.md design.md nix-pure.md no-hardcoded-secrets.md)
+      ;;
+    e2e-reviewer)
+      files=()  # Tests are executed locally; rule files are not directly relevant.
+      ;;
+    *) return 0 ;;
+  esac
+  local f
+  for f in "${files[@]}"; do
+    [ -f "$rules_dir/$f" ] && CONTEXT_FILES+=("$rules_dir/$f")
+  done
+}
+
 add_role_prefix() {
   local role="$1"
   local prefix=""
@@ -305,9 +357,9 @@ add_role_prefix() {
 - When multiple concepts or screens are needed, **call image_gen separately for each asset/variant** (do not batch with the \`n\` parameter).
 - After generation, confirm the PNG exists at the requested save path and report the filename and path." ;;
     tdd)               prefix="You are a TDD coach. Ensure the test-first, minimal-implementation, refactor order is maintained." ;;
-    engineer)          prefix="You are a TypeScript/Hono engineer working in the harness. Implement strictly following these rules: (1) TDD: write a failing test first, confirm red, then write minimal implementation. (2) Hono Clean Architecture: enforce the dependency direction domain ← application ← infrastructure / interfaces. (3) Nix pure: run all tools via \`nix develop --command\`. Impure commands like \`brew install\` are prohibited. (4) JSDoc/TSDoc required on all exports; inline comments inside function bodies are prohibited; descriptions in \$LANG. (5) Drizzle migrate-only: \`drizzle-kit push\` is absolutely prohibited; always use \`drizzle-kit generate --name <descriptive>\` then \`migrate\`. (6) Follow Biome conventions. (7) Resolve conflicts with merge commits only; rebase / reset --hard / push --force are prohibited." ;;
+    engineer)          prefix="You are a TypeScript/Hono engineer working in the harness. Apply every rule from the attached rule files (tdd / jsdoc / hono-clean-arch / drizzle / design / nix-pure / no-hardcoded-secrets) strictly. Resolve conflicts with merge commits only; rebase / reset --hard / push --force are prohibited. NEVER touch git — analyst-N owns all git operations." ;;
     e2e-reviewer)      prefix="You are an E2E test reviewer. Validate user flows using Playwright (Web) or Maestro (Mobile) and report results in a structured format: (1) Impact assessment: does the change affect E2E (yes/no). (2) Execution results: pass/fail for each test case. (3) On failure: specific reproduction steps and screenshot save paths. (4) Recommended action: pass → merge-ready, fail → specific fix proposal. Perform real-device-equivalent validation, not AI-style mock assertions." ;;
-    harness-reviewer)  prefix="You are a harness convention reviewer. Scrutinize code changes from the following perspectives and flag violations at the file:line level: (1) Naming conventions: camelCase variables/functions, PascalCase types/classes, UPPER_SNAKE_CASE constants, kebab-case files. (2) JSDoc/TSDoc present on all exports. (3) No inline comments inside function bodies. (4) Hono Clean Architecture dependency direction. (5) Nix pure (no impure commands). (6) Lucide Icons only (emojis and other icon libraries prohibited). (7) Drizzle migrate-only. (8) Zod validation (API/form inputs). (9) WCAG AA compliance (color contrast, aria-label). (10) No any types, else statements, console.log, or hardcoded secrets. Output \`PASS\` explicitly if there are zero violations." ;;
+    harness-reviewer)  prefix="You are a harness convention reviewer. Use the attached rule files (tdd / jsdoc / hono-clean-arch / drizzle / design / nix-pure / no-hardcoded-secrets) as the checklist; flag violations at file:line level. Output \`PASS\` explicitly if there are zero violations." ;;
     "") return 0 ;;
     *) prefix="You are $role. Answer according to your role." ;;
   esac
@@ -316,6 +368,10 @@ add_role_prefix() {
   { echo "# Role"; echo "$prefix"; echo; echo "# Question"; cat "$TMP_PROMPT"; } > "$NEW"
   mv "$NEW" "$TMP_PROMPT"
 }
+
+# Auto-attach rules BEFORE the prefix step so the rule files appear in the
+# "Reference files" section appended later.
+auto_attach_rules "$ROLE"
 add_role_prefix "$ROLE"
 
 # ===== Append context files =====

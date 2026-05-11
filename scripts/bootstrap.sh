@@ -354,6 +354,23 @@ mkdir -p dev/.my-harness
 rsync -a --exclude='.git' --exclude='.config' "$HARNESS_DIR/" dev/.my-harness/
 cp .my-harness/.config dev/.my-harness/.config
 
+# ===== 5a. Generate dev/CLAUDE.md and dev/AGENTS.md (shared rule entry point) =====
+# Single source of truth: templates/CLAUDE.md.tmpl. The same content lands in both
+# files so Claude Code reads dev/CLAUDE.md and Codex CLI / Cursor / Aider read
+# dev/AGENTS.md. Both tools end up loading the rules under .my-harness/rules/.
+TMPL="$HARNESS_DIR/templates/CLAUDE.md.tmpl"
+if [ -f "$TMPL" ]; then
+  sed \
+    -e "s|\${PROJECT_NAME}|${PROJECT_NAME:-project}|g" \
+    -e "s|\${LANG}|${LANG:-en}|g" \
+    -e "s|\${ROOT}|$ROOT|g" \
+    "$TMPL" > dev/CLAUDE.md
+  cp dev/CLAUDE.md dev/AGENTS.md
+  echo "[bootstrap] generated dev/CLAUDE.md and dev/AGENTS.md from templates/CLAUDE.md.tmpl"
+else
+  echo "::warning:: $TMPL not found — dev/CLAUDE.md and dev/AGENTS.md NOT generated" >&2
+fi
+
 # ===== 5a. P2P scaffold =====
 # When ARCHITECTURE is p2p-pure or p2p-hybrid, drop a placeholder so the
 # /harness-team-lead phase can pick the right transport (libp2p / Iroh / Hypercore)

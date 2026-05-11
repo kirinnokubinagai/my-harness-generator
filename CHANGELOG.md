@@ -4,6 +4,25 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [3.10.0] — 2026-05-11
+
+### Added — single source of truth for harness rules, shared across Claude Code and Codex CLI
+
+- New `rules/` directory at the plugin root holding 7 rule files (`tdd.md`, `jsdoc.md`, `hono-clean-arch.md`, `drizzle.md`, `design.md`, `nix-pure.md`, `no-hardcoded-secrets.md`). Plain Markdown, no agent-specific syntax.
+- New `templates/CLAUDE.md.tmpl`: bootstrap renders this into `<root>/dev/CLAUDE.md` and copies it verbatim to `<root>/dev/AGENTS.md`. Both files point at `.my-harness/rules/*.md` so Claude Code, Codex CLI standalone, Cursor, Aider — anything that follows AGENTS.md or CLAUDE.md — picks up identical rules.
+- `bootstrap.sh` step 5a now generates `dev/CLAUDE.md` and `dev/AGENTS.md` (regular file copy, not a symlink, by request).
+- `scripts/codex-ask.sh` `--role engineer` and `--role harness-reviewer` now auto-attach the same 7 rule files via `--context` (resolved from `<root>/dev/.my-harness/rules/` or, as a fallback, `${CLAUDE_PLUGIN_ROOT}/rules/`). The previous hardcoded multi-clause prefix string is replaced with a short pointer so the rule body lives in exactly one place.
+- `agents/harness-engineer.md` and `agents/harness-reviewer.md` Conventions sections now Read the rule files directly instead of loading the legacy skills via the Skill tool.
+
+### Changed — `skills/harness-{tdd,jsdoc,hono-clean-arch,drizzle-rules,design-rules,nix-pure,no-hardcoded-secrets}` are thin pointers
+
+- The 7 convention skills are now ~10 lines each. The body simply tells the reader to load `<root>/dev/.my-harness/rules/<name>.md` (or `${CLAUDE_PLUGIN_ROOT}/rules/<name>.md`). Keeps slash-command compatibility (`/oh-my-claudecode:harness-tdd` etc. still works) without duplicating the rule text.
+- Total skill lines for these 7 files dropped from 762 to 78.
+
+### Why
+
+Previously, the engineer rule body was duplicated in `scripts/codex-ask.sh` (hardcoded role prefix) AND in seven `skills/harness-*/SKILL.md` files. Updating one and forgetting the other produced subtly different behaviour between Claude turns and Codex turns. The single source of truth removes that drift entirely; both clients now read the same on-disk Markdown.
+
 ## [3.9.4] — 2026-05-11
 
 - engineer / e2e-reviewer / reviewer now invoke `codex-ask.sh` via the absolute path `${CLAUDE_PLUGIN_ROOT}/scripts/codex-ask.sh`. The previous relative path `scripts/codex-ask.sh` did not exist inside the lane worktree, so every Codex call silently failed and the teammate fell back to Claude (or stalled in "blocker waiting"). Fixes Codex delegation never running even with `USE_CODEX_*=yes`.

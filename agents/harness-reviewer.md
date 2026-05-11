@@ -43,6 +43,20 @@ bash "$CODEX_ASK" --role harness-reviewer --session "$SESSION_ID" \
 
 The path must be absolute; the relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
 
+## Conventions (single source of truth: $ROOT/dev/.my-harness/rules/*.md)
+
+At the start of every REVIEW turn, Read the rule files. **Same files** are auto-attached to Codex via `codex-ask.sh --role harness-reviewer`, so Claude mode and Codex mode use the identical checklist:
+
+```
+$ROOT/dev/.my-harness/rules/tdd.md
+$ROOT/dev/.my-harness/rules/jsdoc.md
+$ROOT/dev/.my-harness/rules/hono-clean-arch.md
+$ROOT/dev/.my-harness/rules/drizzle.md
+$ROOT/dev/.my-harness/rules/design.md
+$ROOT/dev/.my-harness/rules/nix-pure.md
+$ROOT/dev/.my-harness/rules/no-hardcoded-secrets.md
+```
+
 ## Claude checklist mode
 
 ### Code
