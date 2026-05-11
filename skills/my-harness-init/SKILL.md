@@ -778,9 +778,18 @@ If USE_CODEX=yes, run a Codex consult at the end:
 
 Only **two** decisions are made here. Every concrete tool choice (framework, DB, package manager, email, e2e, Claude Code Action) is deferred to Phase 6, after we've seen the mocks. Re-read the discoverySheet first; skip a question whose answer is already locked.
 
-When the discoverySheet already implies a decision, say it explicitly and skip:
-- **LANG=en:** "From our conversation I already know `<decision> = <value>` (because you said `<reason>`). Skipping that question."
-- **LANG=ja:** "先ほどの会話から `<決定> = <値>` は確定していると判断しました（`<理由>` のため）。この質問はスキップします。"
+When the discoverySheet already implies a decision, say it explicitly using the **user-visible label** (never the internal enum value) and skip:
+- **LANG=en:** "Based on what you told me, this will be a `<user-visible label>` (because you mentioned `<plain-language reason>`). Skipping this question."
+- **LANG=ja:** "ここまでの会話から `<user-visible ラベル>` で進めます（`<平易な理由>` のため）。この質問はスキップします。"
+
+**Forbidden in skip messages:**
+- Internal enum values like `client-server` / `client-serverless` / `p2p-pure` / `p2p-hybrid`
+- Internal field names like `discoverySheet` / `architectureHints` / `ARCHITECTURE`
+- Code-like notation like `ARCHITECTURE = client-server`
+
+**Required in skip messages:**
+- The user-visible label from each Decision's table (e.g., "Web アプリ" / "Web app")
+- A plain-language reason summarized from the user's own words (not jargon)
 
 Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question, max 4 questions per turn. Use `multiSelect: true` where appropriate. Use `preview` (single-select only) for choices that need comparison.
 
@@ -790,20 +799,20 @@ Use the actual `AskUserQuestion` Claude Code tool. Up to 4 choices per question,
 
 ### Decision 1 — Architecture (only when `architectureHints == "undecided"`)
 
-Single-select. Use `preview` to show one-line ASCII diagrams.
+Single-select. **User-facing labels MUST use standard product terms; never expose the internal `ARCHITECTURE` enum value to the user.** The labels below are what the user sees; the enum on the right is internal only.
 
-| Choice | Preview |
-|--------|---------|
-| `Client + REST/GraphQL backend` | `[Client] ⇄ HTTPS ⇄ [Backend API] ⇄ [DB]` |
-| `Client + serverless functions` | `[Client] ⇄ HTTPS ⇄ [Edge fn] ⇄ [DB]` |
-| `Pure P2P (no central server)` | `[Peer A] ⇄ DHT/relay ⇄ [Peer B]` |
-| `P2P + coordinator/bootstrap server (hybrid)` | `[Peer A] ⇄ [Coord] ⇄ [Peer B]   data: peer↔peer direct` |
+| User-visible label (EN) | User-visible label (JA) | Preview | Internal enum |
+|---|---|---|---|
+| `Web app (server + database)` | `Web アプリ (サーバー + データベース)` | `[ブラウザ] ⇄ HTTPS ⇄ [サーバー] ⇄ [DB]` | `client-server` |
+| `Serverless web app` | `サーバーレス Web アプリ` | `[ブラウザ] ⇄ HTTPS ⇄ [サーバーレス関数] ⇄ [DB]` | `client-serverless` |
+| `P2P app (no central server)` | `P2P アプリ (中央サーバー無し)` | `[端末 A] ⇄ DHT / リレー ⇄ [端末 B]` | `p2p-pure` |
+| `P2P app with bootstrap server` | `P2P アプリ + 軽量サーバー` | `[端末 A] ⇄ [調整サーバー] ⇄ [端末 B]、データは端末同士で直接` | `p2p-hybrid` |
 
-**LANG=en question:** "Which overall architecture? Pick one — preview shows the data-flow shape."
+**LANG=en question:** "What kind of app are you building? (preview shows where the data flows)"
 
-**LANG=ja question:** "全体アーキテクチャを選んでください。プレビューはデータの流れ図です。"
+**LANG=ja question:** "どんな種類のアプリですか？（プレビューはデータがどこを流れるかの図）"
 
-Persist `ARCHITECTURE=client-server|client-serverless|p2p-pure|p2p-hybrid`.
+Map user choice to internal `ARCHITECTURE` enum from the table above. Do **not** print the enum value back to the user; reference the chosen app type in subsequent skip messages using the user-visible label (e.g., "Web アプリで進めます", not "client-server で進めます").
 
 ### Decision 2 — Platforms (always, multiSelect)
 
