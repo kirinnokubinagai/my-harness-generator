@@ -322,6 +322,11 @@ auto_attach_rules() {
     harness-reviewer)
       files=(tdd.md jsdoc.md hono-clean-arch.md drizzle.md design.md nix-pure.md no-hardcoded-secrets.md)
       ;;
+    harness-analyst)
+      # analyst writes briefs / commit messages / PR bodies — the same rules
+      # apply because the brief sets what engineer must follow.
+      files=(tdd.md jsdoc.md hono-clean-arch.md drizzle.md design.md nix-pure.md no-hardcoded-secrets.md)
+      ;;
     e2e-reviewer)
       files=()  # Tests are executed locally; rule files are not directly relevant.
       ;;
@@ -360,6 +365,7 @@ add_role_prefix() {
     engineer)          prefix="You are a TypeScript/Hono engineer working in the harness. Apply every rule from the attached rule files (tdd / jsdoc / hono-clean-arch / drizzle / design / nix-pure / no-hardcoded-secrets) strictly. Resolve conflicts with merge commits only; rebase / reset --hard / push --force are prohibited. NEVER touch git — analyst-N owns all git operations." ;;
     e2e-reviewer)      prefix="You are an E2E test reviewer. Validate user flows using Playwright (Web) or Maestro (Mobile) and report results in a structured format: (1) Impact assessment: does the change affect E2E (yes/no). (2) Execution results: pass/fail for each test case. (3) On failure: specific reproduction steps and screenshot save paths. (4) Recommended action: pass → merge-ready, fail → specific fix proposal. Perform real-device-equivalent validation, not AI-style mock assertions." ;;
     harness-reviewer)  prefix="You are a harness convention reviewer. Use the attached rule files (tdd / jsdoc / hono-clean-arch / drizzle / design / nix-pure / no-hardcoded-secrets) as the checklist; flag violations at file:line level. Output \`PASS\` explicitly if there are zero violations." ;;
+    harness-analyst)   prefix="You are a harness lane analyst writing structured text (briefs, commit messages, PR bodies) for the engineer-N teammate and the reviewer to consume. Your output goes directly into files or git — keep it crisp, in the project language (\$LANG), and consistent with the attached harness rules. Do NOT propose code; the engineer turns will do that." ;;
     "") return 0 ;;
     *) prefix="You are $role. Answer according to your role." ;;
   esac

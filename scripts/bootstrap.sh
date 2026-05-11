@@ -16,7 +16,7 @@
 #   USE_EMAIL / AUTH_KIND (none|password|oauth)
 #   E2E_SCOPE (web|mobile|both|none) → derive USE_PLAYWRIGHT / USE_MAESTRO
 #   USE_CLAUDE_ACTION / CLAUDE_AUTH (api|oauth)
-#   USE_CODEX + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
+#   USE_CODEX + USE_CODEX_ANALYST + USE_CODEX_ENGINEER + USE_CODEX_E2E_REVIEWER + USE_CODEX_REVIEWER
 #   CODEX_SESSION / ON_CODEX_AUTH_FAIL (pause|fail)
 #   USE_GITHUB_ISSUES
 #   USE_GLOBAL_CLAUDE (yes|no, default yes) — no writes dev/.claude/settings.json with claudeMdExcludes
@@ -99,6 +99,7 @@ if [ -n "$CONFIG_FILE" ]; then
   CLAUDE_AUTH="${CLAUDE_AUTH:-oauth}"
   USE_CODEX="${USE_CODEX:-no}"
   CODEX_SESSION="${CODEX_SESSION:-my-harness-init}"
+  USE_CODEX_ANALYST="${USE_CODEX_ANALYST:-no}"
   USE_CODEX_ENGINEER="${USE_CODEX_ENGINEER:-no}"
   USE_CODEX_E2E_REVIEWER="${USE_CODEX_E2E_REVIEWER:-no}"
   USE_CODEX_REVIEWER="${USE_CODEX_REVIEWER:-no}"
@@ -186,12 +187,14 @@ else
   USE_CODEX=$(ask_yn "Use Codex integration (second opinion / image generation / subagent delegation)" "n")
   if [ "$USE_CODEX" = "yes" ]; then
     CODEX_SESSION=$(ask "  Codex session name" "my-harness-init")
-    USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer to Codex" "y")
-    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer to Codex" "n")
-    USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer to Codex" "y")
+    USE_CODEX_ANALYST=$(ask_yn "  Delegate analyst (brief / commit msg / PR body) to Codex" "y")
+    USE_CODEX_ENGINEER=$(ask_yn "  Delegate engineer (file edits via codex exec --sandbox workspace-write) to Codex" "y")
+    USE_CODEX_E2E_REVIEWER=$(ask_yn "  Delegate e2e-reviewer failure-report synthesis to Codex (test execution stays local)" "n")
+    USE_CODEX_REVIEWER=$(ask_yn "  Delegate reviewer (codex exec --sandbox read-only) to Codex" "y")
     ON_CODEX_AUTH_FAIL=$(ask_choice "  Behavior on auth/subscription failure" "pause" pause fail)
   else
     CODEX_SESSION=my-harness-init
+    USE_CODEX_ANALYST=no
     USE_CODEX_ENGINEER=no
     USE_CODEX_E2E_REVIEWER=no
     USE_CODEX_REVIEWER=no
@@ -216,6 +219,7 @@ esac
 
 # ===== When USE_CODEX=no, force individual flags to no (master switch takes priority) =====
 if [ "$USE_CODEX" != "yes" ]; then
+  USE_CODEX_ANALYST=no
   USE_CODEX_ENGINEER=no
   USE_CODEX_E2E_REVIEWER=no
   USE_CODEX_REVIEWER=no
@@ -263,6 +267,7 @@ USE_CLAUDE_ACTION=$USE_CLAUDE_ACTION
 CLAUDE_AUTH=$CLAUDE_AUTH
 USE_CODEX=$USE_CODEX
 CODEX_SESSION=$CODEX_SESSION
+USE_CODEX_ANALYST=$USE_CODEX_ANALYST
 USE_CODEX_ENGINEER=$USE_CODEX_ENGINEER
 USE_CODEX_E2E_REVIEWER=$USE_CODEX_E2E_REVIEWER
 USE_CODEX_REVIEWER=$USE_CODEX_REVIEWER

@@ -62,6 +62,40 @@ This stops `list-pending-issues.sh` re-listing the task on `/loop` wakeups or to
 
 ### Step 1 — Brief production
 
+Read mode flags from `$ROOT/.my-harness/.config`:
+```bash
+USE_CODEX=$(grep -E "^USE_CODEX=" "$ROOT/.my-harness/.config" | cut -d= -f2)
+USE_CODEX_ANALYST=$(grep -E "^USE_CODEX_ANALYST=" "$ROOT/.my-harness/.config" | cut -d= -f2)
+```
+
+**Codex mode** (`USE_CODEX=yes && USE_CODEX_ANALYST=yes`) — delegate the brief text generation to Codex. Codex returns the brief body; you (analyst-N / Claude) write it to disk and report.
+
+```bash
+CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"
+SESSION_ID="ana-<issue#>-<lane#>"
+
+# Gather task source (USE_GITHUB_ISSUES branch as below) into a temp file
+TASK_SRC=$(mktemp)
+# ... write the issue body / task md content into $TASK_SRC ...
+
+bash "$CODEX_ASK" --role harness-analyst --session "$SESSION_ID" \
+  --context "$TASK_SRC" \
+  --out "$WORKTREE/.my-harness/briefs/lane-N-issue-<#>.md" \
+  "Produce a structured implementation brief from the attached task source. Format:
+  Goal: <one sentence in \$LANG>
+  Files expected to change: <list>
+  Acceptance behavior:
+    - <observable 1>
+    - ...
+  Constraints:
+    - <skill / rule names that apply>
+  Reference: <issue URL or task path>"
+```
+
+On `codex-ask.sh` exit 100: `[analyst-N issue=#X status=blocked-codex-auth role=analyst rescue=<path>]`. Forward to team-lead.
+
+**Claude mode** (else):
+
 1. Read the task source:
    - **USE_GITHUB_ISSUES=yes**: `gh issue view <X> --json title,body,labels`
    - **USE_GITHUB_ISSUES=no**: `Read $ROOT/dev/docs/task/child/<id>.md` (where `$ROOT` is the `root:` field from team-lead's ASSIGNMENT, i.e. the project root holding `.bare/`)
@@ -143,6 +177,35 @@ Reviewer pass is a hard gate before Step 5.
 
 ### Step 5 — Commit + PR (only analyst-N touches git)
 
+When `USE_CODEX_ANALYST=yes`, generate the commit message and PR body with Codex first. Reuse the Step 1 session id so Codex still has the brief context:
+
+```bash
+CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"
+SESSION_ID="ana-<issue#>-<lane#>"
+
+cd "$WORKTREE"
+DIFF_SUMMARY=$("$DEVSH" git diff --stat origin/dev...HEAD)
+CHANGED_FILES=$("$DEVSH" git diff --name-only origin/dev...HEAD)
+
+# Commit message (saved to a temp file, then passed to git commit -F)
+COMMIT_MSG=$(mktemp)
+bash "$CODEX_ASK" --role harness-analyst --session "$SESSION_ID" \
+  --out "$COMMIT_MSG" \
+  "Generate a Conventional Commit message for issue #<X>. Files changed: $CHANGED_FILES. Diff stat:
+$DIFF_SUMMARY
+
+Output ONLY the commit message body (subject line + blank line + body in \$LANG + trailing 'Refs: #<X>'). No code fences, no explanation."
+
+# PR body (saved to a separate file, passed to gh pr create --body-file)
+PR_BODY=$(mktemp)
+bash "$CODEX_ASK" --role harness-analyst --session "$SESSION_ID" \
+  --out "$PR_BODY" \
+  "Generate a PR body for issue #<X>. Sections: ## Summary (1-3 bullets), ## Test plan (bulleted checklist). Body in \$LANG. No code fences."
+```
+
+When `USE_CODEX_ANALYST=no`, write the commit message and PR body yourself (Claude).
+
+
 **Precondition (gate)**: do NOT enter this step until both of the following have been received for the current issue:
 - `[e2e-reviewer-N issue=#X status=pass]` (or skipped per Step 3 doc-only rule)
 - `[reviewer-N issue=#X status=pass]` (mandatory; never skipped)
@@ -155,6 +218,10 @@ DEVSH=$(bash "${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/skills/harne
 cd "$WORKTREE"
 
 "$DEVSH" git add <explicit list>     # never `git add -A` / `.`
+
+# When USE_CODEX_ANALYST=yes use the Codex-generated commit message via -F:
+#   "$DEVSH" git commit -F "$COMMIT_MSG"
+# Otherwise, hand-write the message inline:
 "$DEVSH" git commit -m "feat(<scope>): <issue summary>
 
 <body in $LANG>
@@ -165,6 +232,8 @@ Refs: #<issue#>"
 
 if "$DEVSH" git remote | grep -qx origin; then
   "$DEVSH" git push origin <branch>
+  # When USE_CODEX_ANALYST=yes pass the Codex-generated PR body file:
+  #   "$DEVSH" gh pr create --base dev --title "feat(#<issue#>): <summary>" --body-file "$PR_BODY"
   "$DEVSH" gh pr create --base dev --title "feat(#<issue#>): <summary>" --body-file <pr-body.md>
   "$DEVSH" gh pr edit <PR#> --add-label auto-merge
 else
@@ -213,4 +282,4 @@ INHERITED_SESSION_ID=<id>
 artifacts: <files / brief path / PR URL / commit sha>
 ```
 
-Status: `ready-for-issue` | `cleared` | `brief-ready` | `pr-created` | `blocked-codex-auth` | `blocked-merge-conflict` | `blocked-workspace-not-ready` | `blocked-devenv-build`.
+Status: `ready-for-issue` | `cleared` | `brief-ready` | `pr-created` | `blocked-codex-auth` | `blocked-codex-error` | `blocked-merge-conflict` | `blocked-workspace-not-ready` | `blocked-devenv-build`.

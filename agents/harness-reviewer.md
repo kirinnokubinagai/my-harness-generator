@@ -33,15 +33,27 @@ USE_CODEX_REVIEWER=$(grep -E "^USE_CODEX_REVIEWER=" "$ROOT/.my-harness/.config" 
 
 ## Codex mode
 
+When `USE_CODEX_REVIEWER=yes`, Codex runs `codex exec --sandbox read-only` against the worktree, reading any files it needs to evaluate the diff against the rules. You (reviewer-N / Claude) are the monitor: dispatch, capture the report, forward to analyst-N. Codex does NOT modify any files.
+
 ```bash
-CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"
-SESSION_ID="rev-<issue#>-<lane#>-$(date +%s)-$$"   # or INHERITED_SESSION_ID
-bash "$CODEX_ASK" --role harness-reviewer --session "$SESSION_ID" \
-  --context <changed files> --out "$ROOT/.my-harness/codex-rev-<issue#>.md" \
-  "Review for harness conventions. Worktree: $WORKTREE. Changed: $(git -C $WORKTREE diff origin/dev...HEAD --name-only). Output PASS or file:line violations."
+CODEX_EXEC="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-exec.sh"
+SESSION_ID="rev-<issue#>-<lane#>"   # or INHERITED_SESSION_ID
+
+cd "$WORKTREE"
+DIFF_NAMES=$("$DEVSH" git diff --name-only origin/dev...HEAD)
+
+bash "$CODEX_EXEC" \
+  --role harness-reviewer \
+  --worktree "$WORKTREE" \
+  --readonly \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-rev-<issue#>.log" \
+  "Review the changes between origin/dev and HEAD against AGENTS.md / .my-harness/rules/. Changed files: $DIFF_NAMES. Output \`PASS\` if there are zero violations, otherwise file:line violations and concrete fix suggestions."
 ```
 
-The path must be absolute; the relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
+The Codex output (PASS or violations) is captured in `$ROOT/.my-harness/codex-rev-<issue#>.log`. Forward it to analyst-N as the body of `[reviewer-N status=pass|fail mode=codex ...]`.
+
+On `codex-exec.sh` exit 100: `[reviewer-N status=blocked-codex-auth mode=codex rescue=<path>]`. On other non-zero exit: `[reviewer-N status=blocked-codex-error exit=<code> log=<path>]`.
 
 ## Conventions (single source of truth: $ROOT/dev/.my-harness/rules/*.md)
 
@@ -156,4 +168,4 @@ On `codex-ask.sh` exit 100: `[reviewer-N status=blocked-codex-auth mode=codex re
 
 ## Message format
 
-Status: `ready` | `cleared` | `pass` | `fail` | `blocked-codex-auth`.
+Status: `ready` | `cleared` | `pass` | `fail` | `blocked-codex-auth` | `blocked-codex-error`.

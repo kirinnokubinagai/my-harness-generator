@@ -4,6 +4,24 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.0.0] — 2026-05-11 (BREAKING)
+
+### Added — true Codex delegation via `codex exec`
+
+- New `scripts/codex-exec.sh` wraps `codex exec --cd <worktree> --sandbox <mode> --ask-for-approval never`. Used when the role's job is to actually edit / read worktree files (engineer, reviewer), not just generate text.
+- `agents/harness-engineer.md` Codex mode rewritten: when `USE_CODEX_ENGINEER=yes`, Codex performs file edits in the worktree (`sandbox=workspace-write`). engineer-N (Claude) becomes a monitor — verifies `git diff`, runs gates, reports.
+- `agents/harness-reviewer.md` Codex mode rewritten: when `USE_CODEX_REVIEWER=yes`, Codex reads the worktree freely (`sandbox=read-only`) and emits PASS or file:line violations. reviewer-N (Claude) forwards the report.
+- `agents/harness-analyst.md` gains a Codex mode: when `USE_CODEX_ANALYST=yes`, the brief / commit message / PR body text generation is delegated to Codex via `codex-ask.sh --role harness-analyst` (text-only, since analyst doesn't edit code). Step 1 starts a session, Step 5 resumes it so the brief context is preserved.
+- New `USE_CODEX_ANALYST` config flag in `bootstrap.sh` (default `y` when `USE_CODEX=yes`). All four lane roles (analyst / engineer / e2e-reviewer / reviewer) can now individually delegate to Codex.
+- New `harness-analyst` role in `scripts/codex-ask.sh` (auto-attaches the same 7 rule files as engineer / harness-reviewer).
+- New status values: `blocked-codex-error` (non-auth failures from `codex exec`).
+
+### Why BREAKING
+
+The engineer / reviewer Codex flows are no longer "Codex returns text → Claude edits the files". They become "Codex edits the files → Claude verifies". Existing custom integrations that assumed `$ROOT/.my-harness/codex-eng-<issue#>.md` contained ready-to-paste code text now find a `.log` of Codex's stdout (which mostly summarises what it did, since the actual change is on disk).
+
+Existing `.my-harness/.config` files without `USE_CODEX_ANALYST` default to `no` — safe fallback. Re-run `bootstrap.sh --config .my-harness/.config` interactively or set the flag manually to opt in.
+
 ## [3.10.0] — 2026-05-11
 
 ### Added — single source of truth for harness rules, shared across Claude Code and Codex CLI

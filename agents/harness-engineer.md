@@ -30,12 +30,36 @@ You are **engineer-N** of **lane-N** in the `harness-team`. Persistent across is
    USE_CODEX=$(grep -E "^USE_CODEX=" "$ROOT/.my-harness/.config" | cut -d= -f2)
    USE_CODEX_ENGINEER=$(grep -E "^USE_CODEX_ENGINEER=" "$ROOT/.my-harness/.config" | cut -d= -f2)
    ```
-3. **Codex mode** (`USE_CODEX=yes && USE_CODEX_ENGINEER=yes`):
-   - `CODEX_ASK="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-ask.sh"` — absolute path. The relative `scripts/codex-ask.sh` does NOT exist inside the lane worktree.
-   - `SESSION_ID="eng-<issue#>-<lane#>-$(date +%s)-$$"` (or `INHERITED_SESSION_ID` from RESUME).
-   - First turn: `bash "$CODEX_ASK" --role engineer --session "$SESSION_ID" --context <brief + related code> --out "$ROOT/.my-harness/codex-eng-<issue#>.md" "<brief>"`
-   - FIX turns: `bash "$CODEX_ASK" --role engineer --session "$SESSION_ID" "<fix items>"`. Reuse the session id; never `--reset-session` or re-attach `--context` mid-issue.
-   - On exit 100: `[engineer-N status=blocked-codex-auth rescue=<path>]`, idle.
+3. **Codex mode** (`USE_CODEX=yes && USE_CODEX_ENGINEER=yes`) — **Codex performs the file edits directly** in the worktree via `codex exec` (sandbox=workspace-write). You (engineer-N / Claude) are the monitor: dispatch, verify diff, run gates, report.
+   - `CODEX_EXEC="${CLAUDE_PLUGIN_ROOT:?CLAUDE_PLUGIN_ROOT must be set}/scripts/codex-exec.sh"` — absolute path.
+   - `SESSION_ID="eng-<issue#>-<lane#>"` (or `INHERITED_SESSION_ID` from RESUME).
+   - **First turn** (initial implementation):
+     ```bash
+     bash "$CODEX_EXEC" \
+       --role engineer \
+       --worktree "$WORKTREE" \
+       --session "$SESSION_ID" \
+       --out "$ROOT/.my-harness/codex-eng-<issue#>.log" \
+       "Read .my-harness/briefs/lane-<N>-issue-<#>.md and modify files in this worktree to satisfy the brief. Apply every rule in AGENTS.md / .my-harness/rules/. Do NOT touch git."
+     ```
+   - **FIX turns** (after analyst-N forwards a reviewer/e2e fail report):
+     ```bash
+     bash "$CODEX_EXEC" \
+       --role engineer \
+       --worktree "$WORKTREE" \
+       --session "$SESSION_ID" \
+       --out "$ROOT/.my-harness/codex-eng-<issue#>.log" \
+       "<fix items from the failure report>"
+     ```
+     Codex resumes the session (`--last`) so the original brief context is preserved.
+   - **Verify what Codex changed** before reporting back:
+     ```bash
+     cd "$WORKTREE"
+     CHANGED=$("$DEVSH" git diff --name-only)
+     ```
+     If `$CHANGED` is empty, Codex did nothing — surface as `[engineer-N status=brief-unclear question=codex-no-changes]`.
+   - On `codex-exec.sh` exit 100: `[engineer-N status=blocked-codex-auth rescue=<path>]`, idle. analyst-N escalates to team-lead.
+   - On other non-zero exit: `[engineer-N status=blocked-codex-error exit=<code> log=<path>]`, idle.
 4. **Claude mode**: implement directly via Write/Edit/MultiEdit per "Conventions" below.
 5. Update README.md / CLAUDE.md.
 6. Run local gates via `$DEVSH`:
@@ -110,4 +134,4 @@ tests: <count>
 gates: biome=<state> tsc=<state> vitest=<n>
 ```
 
-Status: `ready` | `cleared` | `impl-done` | `brief-unclear` | `blocked-codex-auth` | `blocked-devenv-build` | `blocked-workspace-not-ready`.
+Status: `ready` | `cleared` | `impl-done` | `brief-unclear` | `blocked-codex-auth` | `blocked-codex-error` | `blocked-devenv-build` | `blocked-workspace-not-ready`.
