@@ -154,7 +154,7 @@ Notes:
 | Restore to stage | `wrangler d1 execute DB --env staging --file prod.sql` |
 | Re-apply additional migrations | `wrangler d1 migrations apply DB --env staging --remote` |
 
-The R2 bucket and D1 databases used here are themselves provisioned by `dev/alchemy.run.ts` (see sample above). All steps run automatically every 3 days via `scheduled-db-backup.yml`. On failure, a GitHub issue is created with the `priority/p0` label.
+The R2 bucket and D1 databases used here are themselves provisioned by `dev/alchemy.run.ts` (see sample above). Operate the actual backup schedule from your own GitHub Actions workflow (the plugin no longer ships a template for this).
 
 ## Handling the Android SDK
 

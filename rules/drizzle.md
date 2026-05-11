@@ -73,7 +73,7 @@ user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'casca
 
 ## Parallel-development conflict avoidance
 
-Multiple child issues must not generate migrations at the same time. Only one child issue per parent owns the migration work; `harness-team-lead` detects collisions via `check-migration-conflict.sh`.
+Multiple child issues must not generate migrations at the same time. Only one child issue per parent owns the migration work — declare it in the parent issue's body before kicking off the lanes.
 
 ## Done
 

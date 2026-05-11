@@ -43,29 +43,6 @@ bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
 - **Never spawn long-running background bash** (`nohup ... &`).
 - **Never `TeamDelete` mid-session** to "reset" a corrupt team. Surface the corruption to the user with the recovery instructions.
 
-<!-- >>> TEST-LOG (REMOVE AFTER DEBUGGING) -->
-
-## TEMPORARY — test logging
-
-Every script writes to `<ROOT>/.my-harness/logs/harness-test.log`. The lead must mirror `Agent({})` / `TeamCreate` / `TeamDelete` calls to the same file:
-
-```bash
-printf '[%s] [lead] %s name=%s\n' "$(date -u +%FT%TZ)" BEFORE_AGENT "<name>" \
-  >> "$ROOT/.my-harness/logs/harness-test.log"
-# Agent({...}) here
-printf '[%s] [lead] %s name=%s\n' "$(date -u +%FT%TZ)" AFTER_AGENT "<name>" \
-  >> "$ROOT/.my-harness/logs/harness-test.log"
-```
-
-Removal once debugging is complete:
-
-```bash
-grep -rln 'TEST-LOG' "$CLAUDE_PLUGIN_ROOT/skills/harness-team-lead" | while read -r f; do
-  awk '/TEST-LOG/{f=!f; next} !f' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-done
-```
-
-<!-- <<< TEST-LOG -->
 
 ## Disk-full handling
 

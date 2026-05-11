@@ -32,21 +32,8 @@ __resolve_project_root() {
 
 ROOT="$(__resolve_project_root "${1:-$PWD}")"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
-__test_log() {
-  local logdir="$ROOT/.my-harness/logs"
-  mkdir -p "$logdir" 2>/dev/null
-  printf '[%s] [pid=%d] [preflight] %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
-    >> "$logdir/harness-test.log" 2>/dev/null
-}
-__test_log "STARTED root=$ROOT argv=$*"
-# <<< TEST-LOG
 
 if [ ! -f "$ROOT/.my-harness/.config" ]; then
-  # >>> TEST-LOG
-  __test_log "EXIT code=4 reason=init-required"
-  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: $ROOT/.my-harness/.config not found.
          Run /my-harness-init first.
@@ -56,13 +43,7 @@ fi
 
 DATA_AVAIL_GB=$(df -g /System/Volumes/Data 2>/dev/null | awk 'NR==2{print $4}')
 DATA_AVAIL_GB=${DATA_AVAIL_GB:-$(df -g / 2>/dev/null | awk 'NR==2{print $4}')}
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "DISK_GATE avail_gb=${DATA_AVAIL_GB:-?} threshold_gb=20"
-# <<< TEST-LOG
 if [ "${DATA_AVAIL_GB:-0}" -lt 20 ]; then
-  # >>> TEST-LOG
-  __test_log "EXIT code=1 reason=disk avail_gb=${DATA_AVAIL_GB}"
-  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: insufficient disk: ${DATA_AVAIL_GB} GB available
          /harness-team-lead needs ≥ 20 GB for nix store, pnpm store, and
@@ -89,21 +70,11 @@ elif command -v vm_stat >/dev/null 2>&1; then
   SWAP_USED_MB=${SWAP_RAW%.*}
   SWAP_USED_MB=${SWAP_USED_MB:-0}
 else
-  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-  __test_log "EXIT code=2 reason=no-mem-probe"
-  # <<< TEST-LOG
   echo "::error:: preflight.sh: cannot probe memory (no /proc/meminfo, no vm_stat)" >&2
   exit 2
 fi
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "MEM_GATE reclaimable_mb=$AVAIL_MB compressor_mb=$COMP_MB swap_used_mb=$SWAP_USED_MB ram_threshold=4096 swap_threshold=1024 comp_threshold=6144"
-__test_log "PROCSNAP node_count=$(pgrep -c node 2>/dev/null || echo 0) claude_count=$(pgrep -c claude 2>/dev/null || echo 0) total_procs=$(ps -A 2>/dev/null | wc -l | tr -d ' ')"
-# <<< TEST-LOG
 if [ "$AVAIL_MB" -lt 4096 ] || [ "$COMP_MB" -gt 6144 ] || [ "$SWAP_USED_MB" -gt 1024 ]; then
-  # >>> TEST-LOG
-  __test_log "EXIT code=2 reason=memory-pressure reclaimable=$AVAIL_MB comp=$COMP_MB swap=$SWAP_USED_MB"
-  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: memory under pressure:
          reclaimable=${AVAIL_MB}MB compressor=${COMP_MB}MB swap=${SWAP_USED_MB}MB
@@ -114,9 +85,6 @@ EOF
 fi
 
 if pgrep -f "nix-collect-garbage|nix-store --gc|nix store gc" >/dev/null 2>&1; then
-  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-  __test_log "EXIT code=3 reason=nix-gc-running"
-  # <<< TEST-LOG
   cat >&2 <<EOF
 ::error:: nix garbage collection is currently running.
          Wait for it to finish (\`pgrep -af nix-collect-garbage\`), then retry.
@@ -124,8 +92,5 @@ EOF
   exit 3
 fi
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "EXIT code=0 reason=ok disk=${DATA_AVAIL_GB}GB ram=${AVAIL_MB}MB comp=${COMP_MB}MB swap=${SWAP_USED_MB}MB"
-# <<< TEST-LOG
 echo "[preflight] disk=${DATA_AVAIL_GB}GB reclaimable=${AVAIL_MB}MB compressor=${COMP_MB}MB swap=${SWAP_USED_MB}MB — OK" >&2
 exit 0

@@ -52,21 +52,8 @@ __resolve_project_root() {
 ROOT="$(__resolve_project_root "${2:-$PWD}")"
 NAMES="analyst-$N engineer-$N e2e-reviewer-$N reviewer-$N"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
-__test_log() {
-  local logdir="$ROOT/.my-harness/logs"
-  mkdir -p "$logdir" 2>/dev/null
-  printf '[%s] [pid=%d] [spawn-lane-decision] %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
-    >> "$logdir/harness-test.log" 2>/dev/null
-}
-__test_log "STARTED lane=$N root=$ROOT argv=$*"
-# <<< TEST-LOG
 
 emit() {
-  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-  __test_log "DECISION=$1 lane=$N reason=$2"
-  # <<< TEST-LOG
   echo "DECISION=$1"
   echo "LANE=$N"
   echo "NAMES=$NAMES"
@@ -152,10 +139,6 @@ fi
 
 SNAP="reclaimable=${AVAIL_MB}MB swap=${SWAP_USED_MB}MB compressor=${COMP_MB}MB"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "RESOURCE_PROBE lane=$N reclaimable_mb=$AVAIL_MB swap_used_mb=$SWAP_USED_MB compressor_mb=$COMP_MB ram_threshold=$RAM_THRESH_MB swap_threshold=$SWAP_THRESH_MB comp_threshold=$COMP_THRESH_MB"
-__test_log "PROCSNAP lane=$N node_count=$(pgrep -c node 2>/dev/null || echo 0) claude_count=$(pgrep -c claude 2>/dev/null || echo 0) total_procs=$(ps -A 2>/dev/null | wc -l | tr -d ' ')"
-# <<< TEST-LOG
 
 [ "$AVAIL_MB" -ge "$RAM_THRESH_MB" ] || emit REFUSE "low-ram: $SNAP (need ≥ ${RAM_THRESH_MB}MB) — wait for an existing lane to finish, then retry"
 [ "$SWAP_USED_MB" -le "$SWAP_THRESH_MB" ] || emit REFUSE "swap-pressure: $SNAP (need swap ≤ ${SWAP_THRESH_MB}MB) — wait for an existing lane to finish"

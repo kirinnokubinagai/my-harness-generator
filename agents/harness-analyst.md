@@ -285,7 +285,7 @@ PARENT_ID="<parent id from front matter or issue body>"
 
 - Never `git reset --hard` / `rebase` / `push --force` / `commit --amend` (after a failed pre-commit) / `--no-verify`.
 - Merge conflicts: `git merge --no-ff` only.
-- Use `bash .harness/scripts/resolve-conflict.sh <worktree>` for conflict resolution.
+- For conflicts: hand-resolve via `git status` / `git diff --diff-filter=U`, then `git merge --no-ff` only. Never `--abort`, `--squash`, or `reset --hard`.
 
 ## Codex auth resume protocol
 

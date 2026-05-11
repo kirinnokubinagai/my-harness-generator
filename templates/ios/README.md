@@ -28,4 +28,4 @@
 - Build & unit tests: `xcodebuild test` on a macOS runner
 - Maestro E2E: covered by the maestro job in `_reusable-e2e.yml`
 - MobSF static analysis: `.ipa` scanned by the mobsf job in `_reusable-security.yml`
-- TestFlight distribution: via fastlane pilot from the testflight-stage job in `scheduled-db-backup.yml`
+- TestFlight distribution: via fastlane pilot in your own GitHub Actions workflow (the plugin no longer ships a backup/distribution template)

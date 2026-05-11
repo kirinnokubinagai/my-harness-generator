@@ -50,7 +50,7 @@ Immediately after introducing the harness, all 3 branches share the same "empty 
 
 Concrete steps:
 
-1. Create a `feat/bootstrap-harness` worktree from dev (using `new-feature.sh`).
+1. Create a `feat/bootstrap-harness` worktree from dev (`git --git-dir=.bare worktree add -b feat/bootstrap-harness lanes/feat-bootstrap-harness origin/dev`).
 2. In that worktree, introduce husky / biome / nix flake / .github / .harness and create a PR targeting dev.
 3. Once CI is green and merged to dev → propagate to stage / main via **normal release PRs**:
    - dev → stage (OWASP ZAP / E2E required)

@@ -36,7 +36,7 @@ bash .my-harness/scripts/check-forbidden-patterns.sh $(git diff --name-only)
 
 | Mechanism | What it prevents | When |
 |-----------|-----------------|------|
-| `harness-mask` skill | Secrets leaking into conversations / docs/talk | Before writing |
+| `scripts/mask-secrets.sh` (used by the conversation logging hook) | Secrets leaking into conversations / docs/talk | Before writing |
 | This skill | Secrets hardcoded in source files | Before commit |
 | `gitleaks` (pre-commit) | Known patterns (API key strings) | At commit time |
 | Pre-push history scan | Already-committed leaks | At push time |
@@ -50,5 +50,5 @@ bash .my-harness/scripts/check-forbidden-patterns.sh $(git diff --name-only)
 
 ## Related
 
-- Masking: `harness-mask`
+- Masking: `scripts/mask-secrets.sh` (invoked by the conversation logging hook)
 - No-hardcode policy: `harness-no-hardcoded-secrets`

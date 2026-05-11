@@ -45,5 +45,5 @@ Then try again.
 
 ## Related
 
-- Consulting Codex: `harness-codex-consult`
+- Consulting Codex: invoke `scripts/codex-ask.sh` (or `codex-exec.sh` for actual file edits) directly
 - This skill is called automatically when the user selects USE_CODEX=yes during `/my-harness-init` setup

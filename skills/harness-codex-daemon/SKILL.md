@@ -1,6 +1,6 @@
 ---
 name: harness-codex-daemon
-description: Lifecycle controller for the shared `codex app-server` daemon. Provides start / stop / status / restart / logs / doctor as the single canonical entry point. Other skills (harness-team-lead, harness-codex-consult, etc.) MUST invoke this skill instead of running `skills/harness-codex-daemon/scripts/codex-daemon.sh` inline — that keeps the bash boilerplate out of the caller's context. Fires when the user says "start the codex daemon", "stop the codex daemon", "share codex across lanes", or when an orchestrator is opening / closing a parallel work session.
+description: Lifecycle controller for the shared `codex app-server` daemon. Provides start / stop / status / restart / logs / doctor as the single canonical entry point. `harness-team-lead` invokes this skill instead of running `skills/harness-codex-daemon/scripts/codex-daemon.sh` inline so the bash boilerplate stays out of the caller's context. Fires when the user says "start the codex daemon", "stop the codex daemon", "share codex across lanes", or when an orchestrator is opening / closing a parallel work session.
 ---
 
 # harness-codex-daemon
@@ -17,7 +17,7 @@ a no-op when not running.
 |--------|--------|------|
 | `harness-team-lead` | `start` | At the top of a /harness-team-lead session, before issue dispatching |
 | `harness-team-lead` | `stop` | On Step 4 shutdown (best-effort) |
-| `harness-codex-consult` | (none) | The daemon is auto-detected by `codex-app-server-call.py`; no extra skill call needed |
+| Direct `codex-ask.sh` / `codex-exec.sh` callers | (none) | The daemon is auto-detected by `codex-app-server-call.py`; no extra skill call needed |
 | User direct | `status` / `logs` / `doctor` | Debugging or sanity checking |
 
 ## Why a daemon at all

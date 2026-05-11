@@ -113,27 +113,27 @@ bash .my-harness/scripts/setup-secrets.sh <owner>/<repo>
 | 2. Design | ロゴ + プラットフォーム別 UI モック + 仕様 iteration。モックがツール選定の入力になる | `/my-harness-init`（Visual → Tools フェーズ） |
 | 3. Tasks | issue / task ファイル生成、4 レーンへのファイル所有割当、bootstrap 実行 | `/my-harness-init`（Bootstrap フェーズ） |
 | 3.5. Switch session | `<root>/dev/` 内で Claude Code を再起動してプロジェクトスコープの CLAUDE.md と settings を読み込む | `cd <root>/dev && claude` |
-| 4. Implementation | 4 レーン並列実装、各 issue を fresh subagent で処理 | `/harness-new-feature <issue>` |
+| 4. Implementation | 4 レーン並列実装。各 issue を idle lane に dispatch、ファイル所有チェック、role ごとに Codex / Claude 委譲を切替 | `/harness-team-lead` |
 | 5. Deploy setup | Alchemy v2（Effect.ts）の infra スクリプト（`alchemy.run.ts`、Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel）、wrangler bindings、GitHub secrets / vars、fastlane（iOS） | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage`（自動 + 人間ラベル）→ `main`（canary 10% → 100%） | `/harness-deploy-execute` |
 
-緊急修正用の別経路（`/harness-new-hotfix`）もあります。次の「日常コマンド」を参照。
+hotfix は手動で行います: `main` から `hotfix/<short>` を切り、`main` へ PR、merge-commit で `stage` / `dev` に back-merge。詳細は `docs/HOTFIX.md`。
 
 ## 日常コマンド
 
 init 後の開発で使うコマンド一覧:
 
 | やりたいこと | コマンド |
-|-------------|---------|
-| 新規 feature を 4 レーン並列で開始 | `/harness-new-feature <issue#> <slug>` |
-| 緊急 hotfix（main 起点） | `/harness-new-hotfix <issue#> <slug>` |
-| コンフリクト解消（rebase 禁止） | `/harness-resolve-conflict` |
-| hotfix 後に全 feature を dev 同期 | `/harness-sync-features` |
-| Codex に第二意見を求める | `/harness-codex-consult`（または「Codex に聞いて」） |
+|---|---|
+| 全 pending issue を並列で進める | `/harness-team-lead` |
+| 既存 git repo を harness 構造に変換 | `/my-harness-adopt` |
+| plugin 更新を既存プロジェクトに反映 | `/my-harness-update` |
 | 機密チェック（手動） | `/harness-check-secrets` |
 | ブランチ保護を一括適用 | `/harness-branch-protection` |
 | Alchemy v2 デプロイ設定（`alchemy.run.ts`）を生成 | `/harness-deploy-setup` |
 | 段階的本番デプロイを実行 | `/harness-deploy-execute` |
+| 各 lane の動作を live で観察（別ターミナル） | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
+| watchdog モード（lead が Step 3.0 で読み込む） | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
 
 ## 自動発火する規約 skill
 
@@ -149,17 +149,17 @@ init 後の開発で使うコマンド一覧:
 | `harness-jsdoc` | 関数 / 型 / コメント記述（JSDoc 必須、関数内コメント禁止） |
 | `harness-git-discipline` | git 操作 / コンフリクト（`rebase` / `reset --hard` / `push --force` 禁止） |
 | `harness-no-hardcoded-secrets` | 環境変数 / API キー / `.env` 操作 |
-| `harness-mask` | 機密値マスク手動実行 |
-| `harness-codex-consult` | 「Codex に聞いて」「セカンドオピニオン」 |
 
 ## スラッシュコマンド
 
-**直接使用する 2 つのスラッシュコマンド：**
+**直接使用する 4 つのスラッシュコマンド：**
 
 - `/my-harness-init` — 新規プロジェクトをゼロから開始（プロジェクトごとに 1 回）。既存の `.my-harness/init-state.json` を検出すると保存済みフェーズから再開する。
-- `/harness-team-lead` — 4 レーン並列実装の継続開発を調整する
+- `/my-harness-adopt` — 既存 git repo を harness 構造に変換（履歴は保持）。
+- `/my-harness-update` — plugin の最新版を既存 adopted プロジェクトに反映（冪等）。
+- `/harness-team-lead` — 4 レーン並列実装を統括。
 
-この他に 19 個の規約 skill が文脈に応じて自動でロードされます（TDD / JSDoc / Hono Clean Architecture / Drizzle / Nix pure / デザイン規律 / 機密マスキング / Git 規律など）。ユーザーが直接呼ぶ必要はなく、エージェントがトピックに応じて読み込みます。
+この他に少数の規約 skill (TDD / JSDoc / Hono Clean Architecture / Drizzle / Nix pure / デザイン規約 / no-hardcoded-secrets / Git discipline) があり、これらは `rules/*.md` への薄い pointer になっています。同じ rule ファイルが `codex-ask.sh --role engineer` / `harness-reviewer` / `harness-analyst` の context にも自動 attach されるため、Claude と Codex は同じ規約で動きます。
 
 ## アーキテクチャ図
 
@@ -289,7 +289,7 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 | Codex 認証エラー | `/harness-check-codex-auth` → `codex login` |
 | Codex subagent が `blocked-codex-auth`（実行中に login 切れ）で停止 | `codex login` を実行 → team-lead に「resume」と返信。同じ Codex session がサーバー側で保持されているため、前ターンの context を保ったまま再開できる |
 | Codex subagent が `subscription-or-quota` 理由で停止 | ChatGPT サブスクを再有効化するか、`.my-harness/.config` で `USE_CODEX_<ROLE>=no` にして Claude フォールバックに切り替えてから「resume」 |
-| hotfix 逆流でコンフリクト | `/harness-resolve-conflict` を使う（rebase 禁止） |
+| hotfix 逆流でコンフリクト | `git merge --no-ff` で手動解消（rebase / reset --hard / push --force 禁止） |
 | 誤って `drizzle-kit push` してしまった | revert → `drizzle-kit generate --name <具体名>` → `wrangler d1 migrations apply` |
 | プラグインを更新したい | `/plugin marketplace update` → `/plugin install my-harness@my-harness-generator` |
 | dev に worktree 残骸 | `git worktree prune`（bootstrap が自動でやる） |

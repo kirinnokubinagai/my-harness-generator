@@ -48,20 +48,6 @@ set -u
 
 START="${1:-$PWD}"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
-__test_log() {
-  local logdir
-  for cand in "$START/.my-harness/logs" "$PWD/.my-harness/logs"; do
-    [ -d "$(dirname "$cand")" ] && logdir="$cand" && break
-  done
-  [ -n "${logdir:-}" ] || return 0
-  mkdir -p "$logdir" 2>/dev/null
-  printf '[%s] [pid=%d] [build-dev-env] %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
-    >> "$logdir/harness-test.log" 2>/dev/null
-}
-__test_log "STARTED start=$START argv=$*"
-# <<< TEST-LOG
 
 if ! START="$(cd "$START" 2>/dev/null && pwd)"; then
   echo "::error:: build-dev-env.sh: cannot cd to $1" >&2
@@ -107,19 +93,11 @@ HASH_MARKER="# harness-flake-sha256:$CURRENT_HASH"
 
 # Cache hit: raw + wrapper both present, raw's first-line hash matches.
 if [ -f "$RAW" ] && [ -x "$WRAPPER" ] && head -1 "$RAW" 2>/dev/null | grep -qx "$HASH_MARKER"; then
-  # >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-  __test_log "CACHE_HIT flake_dir=$FLAKE_DIR hash=$CURRENT_HASH wrapper=$WRAPPER"
-  # <<< TEST-LOG
   echo "[build-dev-env] cache hit — $WRAPPER (flake content unchanged since last build)" >&2
   echo "$WRAPPER"
   exit 0
 fi
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "CACHE_MISS flake_dir=$FLAKE_DIR hash=$CURRENT_HASH raw_exists=$([ -f "$RAW" ] && echo yes || echo no) wrapper_exists=$([ -x "$WRAPPER" ] && echo yes || echo no)"
-__test_log "NIX_EVAL_START flake_dir=$FLAKE_DIR"
-NIX_EVAL_T0=$(date +%s)
-# <<< TEST-LOG
 
 RAW_TMP="$RAW.tmp.$$"
 WRAPPER_TMP="$WRAPPER.tmp.$$"
@@ -180,9 +158,6 @@ mv "$WRAPPER_TMP" "$WRAPPER"
 rm -f "$ERR"
 
 RAW_SIZE=$(wc -c < "$RAW" | tr -d ' ')
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "NIX_EVAL_END elapsed_s=$(( $(date +%s) - NIX_EVAL_T0 )) raw_bytes=$RAW_SIZE wrapper=$WRAPPER nix_bash=$NIX_BASH"
-# <<< TEST-LOG
 echo "[build-dev-env] OK — wrapper=$WRAPPER (nix bash=$NIX_BASH, raw=$RAW_SIZE bytes)" >&2
 
 echo "$WRAPPER"

@@ -69,7 +69,7 @@ That's it — `codex`, `rtk`, `python` (with the SDK), and every other tool the 
 
 **First-run note:** on macOS arm64 the `codex` package may have to be compiled from source (~20–60 min) the first time you enter the shell, since not every nixpkgs `aarch64-darwin` build is in the public cache. After that initial build, subsequent `nix develop` invocations are instant. On Linux x86_64 the cache hit rate is much higher and the first run is typically under five minutes.
 
-**Memory savings:** when `harness-team-lead` runs lanes in parallel, the harness can route every lane through one shared `codex app-server` daemon (WebSocket transport). Measured locally on macOS arm64 with 3 concurrent lanes: peak 271 MB / 4 processes (stdio per-call) → 120 MB / 2 processes (shared daemon), a 55% drop. Extrapolated to a 16-lane team this is roughly an 85% reduction. The daemon is started/stopped via `skills/harness-codex-daemon/scripts/codex-daemon.sh start|stop|status`.
+**Shared Codex daemon:** when `harness-team-lead` runs lanes in parallel, the harness routes every lane through one shared `codex app-server` daemon (WebSocket transport) instead of spawning a fresh process per call. The daemon is started / stopped by the `harness-codex-daemon` skill at the boundaries of a `/harness-team-lead` session.
 
 ### Install the plugin
 
@@ -144,27 +144,27 @@ The plugin enforces a 6-phase flow from idea to production. The first three phas
 | 2. Design | Logo + per-platform UI mocks + spec iteration; mocks then drive tool selection | `/my-harness-init` (Visual phase, then Tools phase) |
 | 3. Tasks | Issues / task files generated, file-ownership assigned to 4 lanes, bootstrap runs | `/my-harness-init` (Bootstrap phase) |
 | 3.5. Switch session | Restart Claude Code inside `<root>/dev/` so project-scope CLAUDE.md and settings load | `cd <root>/dev && claude` |
-| 4. Implementation | 4-lane parallel feature work; each issue runs in a fresh subagent context | `/harness-new-feature <issue>` |
+| 4. Implementation | 4-lane parallel work — each issue dispatched to an idle lane, file-ownership-checked, Codex-or-Claude per role | `/harness-team-lead` |
 | 5. Deploy setup | Alchemy v2 (Effect.ts) infra script (`alchemy.run.ts`) for Cloudflare Workers / D1 / R2 / KV / DNS / Tunnel, wrangler bindings, GitHub secrets / vars, fastlane (iOS) | `/harness-deploy-setup` |
 | 6. Deploy | `dev` → `stage` (auto + human label) → `main` (canary 10% → 100%) | `/harness-deploy-execute` |
 
-A separate emergency path (`/harness-new-hotfix`) exists for production fixes; see "Daily commands" below.
+Hotfixes are handled by hand: branch `hotfix/<short>` from `main`, PR to `main`, merge-commit back to `stage` and `dev`. See `docs/HOTFIX.md`.
 
 ## Daily commands
 
 After init, these are the slash commands you'll reach for most often:
 
 | What you want | Command |
-|---------------|---------|
-| Start a new feature in a 4-lane parallel worktree | `/harness-new-feature <issue#> <slug>` |
-| Emergency hotfix (branched from `main`) | `/harness-new-hotfix <issue#> <slug>` |
-| Resolve a conflict (merge-commit only — no rebase) | `/harness-resolve-conflict` |
-| Sync all feature branches with `dev` after a hotfix back-merge | `/harness-sync-features` |
-| Ask Codex for a second opinion | `/harness-codex-consult` (or just say "ask Codex") |
+|---|---|
+| Drive all pending issues in parallel | `/harness-team-lead` |
+| Convert an existing git repo into harness layout | `/my-harness-adopt` |
+| Push a plugin upgrade into an already-adopted project | `/my-harness-update` |
 | Manual secret scan | `/harness-check-secrets` |
 | Apply branch protection in bulk | `/harness-branch-protection` |
 | Generate Alchemy v2 deploy infrastructure (`alchemy.run.ts`) | `/harness-deploy-setup` |
 | Run a staged production deploy | `/harness-deploy-execute` |
+| Live view of all lane agents (separate terminal) | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
+| Watchdog mode (lead consumes via Step 3.0) | `bash <plugin>/scripts/monitor-agents.sh <project-root> --watchdog` |
 
 ## Auto-firing skills
 
@@ -180,17 +180,17 @@ These convention skills load automatically when you do certain things — you do
 | `harness-jsdoc` | Writing functions, types, comments (JSDoc/TSDoc required, no inline comments inside functions) |
 | `harness-git-discipline` | Git operations and conflicts (no `rebase` / `reset --hard` / `push --force`) |
 | `harness-no-hardcoded-secrets` | Working with env vars, API keys, `.env` files |
-| `harness-mask` | Manually masking sensitive content before logging |
-| `harness-codex-consult` | "Ask Codex …" / second-opinion flows |
 
 ## Slash commands
 
-**Two slash commands you'll use directly:**
+**Four slash commands you'll use directly:**
 
 - `/my-harness-init` — start a new project (one-time, per project). Detects existing `.my-harness/init-state.json` and resumes from the saved phase.
-- `/harness-team-lead` — coordinate ongoing 4-lane parallel implementation
+- `/my-harness-adopt` — convert an existing git repo into the harness layout (preserves history).
+- `/my-harness-update` — push the latest plugin assets into an already-adopted project (idempotent).
+- `/harness-team-lead` — coordinate ongoing 4-lane parallel implementation.
 
-Plus 19 convention skills that load automatically when relevant (TDD, JSDoc, Hono Clean Architecture, Drizzle, Nix-pure, design rules, secret masking, git discipline, etc.). You don't invoke these directly — agents pull them in by topic.
+Plus a handful of convention skills (TDD, JSDoc, Hono Clean Arch, Drizzle, Nix-pure, design, no-hardcoded-secrets, git-discipline) that are thin pointers to `rules/*.md`. The same rule files are also auto-attached to Codex via `codex-ask.sh --role engineer` / `--role harness-reviewer` / `--role harness-analyst`, so Claude and Codex apply identical conventions.
 
 ## Architecture
 
@@ -320,7 +320,7 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 | Codex returns auth error | `/harness-check-codex-auth`, then `codex login` |
 | Codex subagent paused with `blocked-codex-auth` (login expired mid-flight) | Run `codex login`, then tell team-lead "resume". The same Codex session is preserved on the server. |
 | Codex subagent paused with `subscription-or-quota` reason | Renew your ChatGPT subscription, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
-| Conflict during hotfix back-merge | `/harness-resolve-conflict` (never rebase) |
+| Conflict during hotfix back-merge | Resolve by hand with `git merge --no-ff`; never `rebase` / `reset --hard` / `push --force`. |
 | Accidentally ran `drizzle-kit push` | Revert, then `drizzle-kit generate --name <descriptive>` followed by `wrangler d1 migrations apply` |
 | Update plugin | `/plugin marketplace update`, then `/plugin install my-harness@my-harness-generator` |
 | Stale worktree refs | `git worktree prune` (bootstrap does this for you) |

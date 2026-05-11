@@ -32,21 +32,8 @@ __resolve_project_root() {
 
 ROOT="$(__resolve_project_root "${1:-$PWD}")"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
-__test_log() {
-  local logdir="$ROOT/.my-harness/logs"
-  mkdir -p "$logdir" 2>/dev/null
-  printf '[%s] [pid=%d] [check-team-exists] %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
-    >> "$logdir/harness-test.log" 2>/dev/null
-}
-__test_log "STARTED team_cfg=$TEAM_CFG cfg_exists=$([ -f "$TEAM_CFG" ] && echo yes || echo no) cfg_size=$(stat -f %z "$TEAM_CFG" 2>/dev/null || stat -c %s "$TEAM_CFG" 2>/dev/null || echo 0)"
-# <<< TEST-LOG
 
 if [ ! -f "$TEAM_CFG" ]; then
-  # >>> TEST-LOG
-  __test_log "RESULT state=absent"
-  # <<< TEST-LOG
   echo "absent"
   exit 0
 fi
@@ -63,15 +50,8 @@ CORRUPT=$(printf '%s\n' "$MEMBERS" \
   | grep -E '^(analyst|engineer|e2e-reviewer|reviewer)-[0-9]+-[0-9]+$' \
   | tr '\n' ' ' | sed 's/ $//')
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-MEMBERS_LIST=$(printf '%s' "$MEMBERS" | tr '\n' ',' | sed 's/,$//')
-__test_log "MEMBERS_DETECTED count=$(printf '%s\n' "$MEMBERS" | grep -c . 2>/dev/null || echo 0) names=[$MEMBERS_LIST] corrupt_names=[$CORRUPT]"
-# <<< TEST-LOG
 
 if [ -n "$CORRUPT" ]; then
-  # >>> TEST-LOG
-  __test_log "RESULT state=corrupt names=[$CORRUPT]"
-  # <<< TEST-LOG
   echo "corrupt"
   cat >&2 <<EOF
 ::error:: harness-team has suffixed names: $CORRUPT
@@ -84,8 +64,5 @@ EOF
   exit 0
 fi
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING)
-__test_log "RESULT state=present"
-# <<< TEST-LOG
 echo "present"
 exit 0

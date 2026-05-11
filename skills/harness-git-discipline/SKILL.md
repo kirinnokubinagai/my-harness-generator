@@ -46,11 +46,6 @@ git commit  # Merge commit complete
 git push origin feat/123-foo  # No --force variants ever
 ```
 
-Using the harness script:
-```bash
-bash .my-harness/scripts/resolve-conflict.sh <feature-worktree>
-```
-
 ## Back-merge after hotfix (main → stage → dev)
 
 All back-merges use `git merge --no-ff`:

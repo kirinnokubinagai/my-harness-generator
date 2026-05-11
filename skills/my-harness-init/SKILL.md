@@ -1428,8 +1428,8 @@ nix develop --command <PACKAGE_MANAGER> exec husky
 
 The harness orchestrates:
 - `/harness-team-lead` — drive all issues in parallel across 4 lanes
-- `/harness-new-feature <issue#>` — start a specific issue
 - Re-run `/my-harness-init` — resume from where you left off
+- `/my-harness-update` — push the latest plugin version into an already-adopted project
 
 ## Environment variables
 
@@ -1524,7 +1524,7 @@ cat > "$ROOT/.my-harness/init-state.json" <<EOF
   "current_phase": "completed",
   "phases_completed": ["language", "setup", "discovery", "structure", "features", "visual", "tools", "data-model", "bootstrap", "tasks"],
   "next_action": "implementation",
-  "next_action_command": "/harness-team-lead (or /harness-new-feature <issue#>)",
+  "next_action_command": "/harness-team-lead",
   "working_directory": "$ROOT/dev",
   "issue_count": $ISSUE_COUNT,
   "lanes_assigned": true,

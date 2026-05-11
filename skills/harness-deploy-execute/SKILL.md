@@ -40,7 +40,7 @@ gh pr merge <pr-number> --auto --merge
 After the stage merge, the stage environment deploys automatically:
 - Cloudflare Pages picks up the stage branch
 - D1 stage migration (`wrangler d1 migrations apply DB --env staging --remote`)
-- Restore production backup from R2 (`restore-to-stage` job in `scheduled-db-backup.yml`)
+- Restore production backup from R2 (operated manually via `wrangler r2 object get` + `wrangler d1 execute`; the plugin no longer ships a scheduled backup workflow)
 - TestFlight build upload (when USE_IOS=yes)
 
 ### B. stage → main (after 24+ hours of stable operation on stage)
@@ -99,9 +99,9 @@ Or roll the canary back from 100% to the previous deployment:
 nix develop --command pnpm exec wrangler rollback <previous-deployment-id>
 ```
 
-## Emergency fixes use `harness-new-hotfix`
+## Emergency fixes
 
-For urgent fixes that bypass the normal deploy flow, use `harness-new-hotfix` (not this skill). See `docs/HOTFIX.md`.
+For urgent fixes that bypass the normal deploy flow, follow the manual procedure in `docs/HOTFIX.md` (branch `hotfix/<short>` from `main`, PR target `main`, then merge-commit back to `stage` and `dev`).
 
 ## Checklist
 
@@ -128,7 +128,7 @@ For urgent fixes that bypass the normal deploy flow, use `harness-new-hotfix` (n
 ## Related skills
 
 - Setup: `harness-deploy-setup`
-- Hotfix: `harness-new-hotfix`
+- Hotfix: see `docs/HOTFIX.md`
 - Git discipline: `harness-git-discipline`
 - Secrets: `harness-setup-secrets`
 - Infrastructure details: `docs/INFRA.md`

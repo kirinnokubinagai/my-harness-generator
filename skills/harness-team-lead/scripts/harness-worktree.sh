@@ -49,18 +49,6 @@ ROOT="$(__resolve_project_root "$2")"
 ID="$3"
 SLUG="$4"
 
-# >>> TEST-LOG (REMOVE AFTER DEBUGGING) — investigates why /harness-team-lead crashes
-__test_log() {
-  local logdir="$ROOT/.my-harness/logs"
-  mkdir -p "$logdir" 2>/dev/null
-  printf '[%s] [pid=%d] [harness-worktree] %s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" "$*" \
-    >> "$logdir/harness-test.log" 2>/dev/null
-}
-__test_log "STARTED action=$ACTION root=$ROOT id=$ID slug=$SLUG"
-T0=$(date +%s)
-trap '__test_log "FINISHED action=$ACTION id=$ID slug=$SLUG elapsed_s=$(( $(date +%s) - T0 )) exit_code=$?"' EXIT
-# <<< TEST-LOG
 
 case "$ACTION" in
   add|remove) : ;;

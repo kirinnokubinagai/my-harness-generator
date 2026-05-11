@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin",
   "name": "my-harness",
-  "version": "4.2.0",
-  "description": "Generic project harness generator. Bootstraps any combination of Hono / Cloudflare D1 / Resend / Playwright / Maestro / Android / iOS. Provides 4-lane parallel development, TDD enforcement, Codex integration via a shared `codex app-server` daemon (~85% RAM cut on 16-lane teams), secret masking, RTK-based Bash output compression, and git discipline as composable skills. Fresh-machine bootstrap from Nix flake alone — no brew/npm/pip required.",
+  "version": "4.3.0",
+  "description": "Parallel multi-agent harness for Claude Code + Codex CLI. Bootstraps a Hono / Cloudflare D1 / Playwright / Maestro / Android / iOS project (/my-harness-init), adopts an existing repo (/my-harness-adopt), and keeps it in sync after plugin upgrades (/my-harness-update). /harness-team-lead drives up to 4 lanes (16 teammates: 4 lanes × 4 roles — analyst / engineer / e2e-reviewer / reviewer) with per-lane resource gating; each role can individually delegate to Codex via codex-ask.sh (text) or codex-exec.sh (real file edits / read-only review). One rule set shared across Claude Code / Codex CLI / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md pointing at rules/*.md. Built-in observability layer (agent-log + monitor-agents --watchdog) with deterministic lead-side auto-intervention.",
   "author": {
     "name": "kirinnokubinagai",
     "email": "removed@redacted.local"
