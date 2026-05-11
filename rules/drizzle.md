@@ -19,14 +19,11 @@ DB stack is Cloudflare D1 + Drizzle ORM. Schema changes go through migrations on
 # 1. Edit src/db/schema.ts
 # 2. Generate (descriptive name required)
 "$DEVSH" pnpm exec drizzle-kit generate --name add_users_table
-
 # 3. Apply locally first
 "$DEVSH" pnpm exec wrangler d1 migrations apply DB --local
-
 # 4. Apply to staging / production
 "$DEVSH" pnpm exec wrangler d1 migrations apply DB --env staging --remote
 "$DEVSH" pnpm exec wrangler d1 migrations apply DB --remote
-
 # 5. Commit
 git add drizzle/ src/db/schema.ts
 git commit -m "feat: add users table migration"
@@ -34,11 +31,8 @@ git commit -m "feat: add users table migration"
 
 ## Naming
 
-| Good | Bad |
-|---|---|
-| `add_users_table` | `migration_1` |
-| `add_email_index_to_users` | `update` |
-| `rename_username_to_display_name` | `changes` |
+Good: `add_users_table`, `add_email_index_to_users`, `rename_username_to_display_name`.
+Bad: `migration_1`, `update`, `changes`.
 
 ## Schema conventions
 
@@ -54,22 +48,9 @@ export const users = sqliteTable('users', {
   created_at: text('created_at').notNull(),
   updated_at: text('updated_at').notNull(),
 });
+// Foreign keys are required:
+//   user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' })
 ```
-
-Foreign keys are required:
-```ts
-user_id: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' })
-```
-
-## Why push is prohibited
-
-| | migrate | push |
-|---|---|---|
-| History | ✅ | ❌ |
-| Rollback | ✅ | ❌ |
-| Team sharing | ✅ | ❌ |
-| Production-safe | ✅ | ❌ |
-| Git-managed | ✅ | ❌ |
 
 ## Parallel-development conflict avoidance
 

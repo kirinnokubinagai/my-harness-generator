@@ -1,6 +1,6 @@
 # JSDoc / TSDoc
 
-All exports require TSDoc. Inline comments inside function bodies are prohibited. Descriptions are written in `$LANG` (read from `.my-harness/.config`, default `en`).
+All exports require TSDoc. Inline comments inside function bodies are prohibited. Descriptions are in `$LANG` (from `.my-harness/.config`, default `en`).
 
 ## Rules
 
@@ -12,9 +12,8 @@ All exports require TSDoc. Inline comments inside function bodies are prohibited
 | Inline comments in function bodies | **Prohibited** — split the function instead |
 | Language | `$LANG` (proper nouns, type names, commands, URLs may stay English) |
 
-## Functions
+## Function example (`$LANG=en` shown; for `ja` translate the prose)
 
-`$LANG=en`:
 ```ts
 /**
  * Creates a user from email and password.
@@ -25,17 +24,6 @@ All exports require TSDoc. Inline comments inside function bodies are prohibited
  * @param input - Validated registration input
  * @returns The created user, or Result.err on failure
  * @throws DatabaseError - On DB connection failure
- */
-export async function createUser(input: CreateUserInput): Promise<Result<User>> { ... }
-```
-
-`$LANG=ja`:
-```ts
-/**
- * メールアドレスとパスワードからユーザーを作成する。
- *
- * 重複メールチェックは呼び出し前に済んでいることを前提とする。
- * パスワードは bcrypt cost 12 でハッシュ化される。
  */
 export async function createUser(input: CreateUserInput): Promise<Result<User>> { ... }
 ```
@@ -53,35 +41,25 @@ const SESSION_TTL_MS = 3600000;
 ## Inline comments are prohibited
 
 ```ts
-// ❌
+// ❌ inline comments inside the body
 function process(user: User) {
   // check user
   if (!user.isActive) return null;
   return user;
 }
 
-// ✅ Split and document via TSDoc
+// ✅ split + TSDoc
 /** Returns the user if active, null otherwise. */
 function selectIfActive(user: User): User | null {
   return user.isActive ? user : null;
 }
 ```
 
-## Naming over comments
-
-```ts
-// ❌
-const x = users.filter(u => u.a > 0);  // active users
-// ✅
-const activeUsers = users.filter((user) => user.activatedAt !== null);
-```
+Naming over comments: `const activeUsers = users.filter(u => u.activatedAt !== null)` beats `const x = users.filter(u => u.a > 0); // active users`.
 
 ## Language matrix
 
 | Location | en | ja |
 |---|---|---|
-| TSDoc | English | 日本語 |
-| Error messages | English | 日本語 |
-| Commit body / PR / issue | English | 日本語 |
-| README / docs | English | 日本語 |
+| TSDoc / error messages / commit body / PR / issue / README / docs | English | 日本語 |
 | Type names / commit prefix | English | English |

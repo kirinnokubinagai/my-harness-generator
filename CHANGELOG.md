@@ -4,6 +4,29 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.5.0] — 2026-05-11
+
+### Refactor — semantic-preserving prose compression
+
+Rewrote the high-context-frequency files (agents/* loaded as system prompt every spawn, SKILL.md held in lead context for the whole session, rules/* re-read per ASSIGNMENT) to cut prose redundancy while keeping every rule, example, command, and status value. Token footprint per harness session drops noticeably.
+
+Line counts (high-priority files only):
+
+| File | Before | After | Δ |
+|---|---:|---:|---:|
+| `agents/harness-analyst.md` | 306 | 247 | -59 |
+| `agents/harness-engineer.md` | 156 | 103 | -53 |
+| `agents/harness-reviewer.md` | 186 | 144 | -42 |
+| `agents/harness-e2e-reviewer.md` | 109 | 93 | -16 |
+| `skills/harness-team-lead/SKILL.md` | 305 | 271 | -34 |
+| `rules/jsdoc.md` | 87 | 65 | -22 |
+| `rules/drizzle.md` | 83 | 64 | -19 |
+| `rules/no-hardcoded-secrets.md` | 83 | 65 | -18 |
+| `rules/design.md` | 69 | 46 | -23 |
+| **Total** | **1560** | **1274** | **-286 (-18%)** |
+
+No rule body changed. No status enum changed. No bash command changed.
+
 ## [4.4.0] — 2026-05-11
 
 ### Unified `/my-harness-adopt` and dropped 8 thin-wrapper rule skills
