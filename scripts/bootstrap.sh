@@ -401,11 +401,33 @@ bash "$HARNESS_DIR/scripts/setup-common.sh" "$ROOT"
 echo "[bootstrap] Distributing platform-specific templates"
 bash "$HARNESS_DIR/scripts/setup-platforms.sh" "$ROOT"
 
+# ===== 4.5. Template projet-name substitution =====
+# wrangler.jsonc / alchemy.run.ts / lighthouserc.json には "harness" / "harness-app"
+# のプレースホルダが入っている。bootstrap 時点で PROJECT_NAME に置換しておく。
+SAFE_NAME=$(printf '%s' "${PROJECT_NAME:-harness}" | tr -c 'A-Za-z0-9-' '-' | sed 's/^-//; s/-$//')
+SAFE_NAME=${SAFE_NAME:-harness}
+for f in dev/wrangler.jsonc dev/alchemy.run.ts dev/lighthouserc.json; do
+  [ -f "$f" ] || continue
+  sed -i.bak \
+    -e "s/\"harness-app\"/\"${SAFE_NAME}-app\"/g" \
+    -e "s/\"harness\"/\"${SAFE_NAME}\"/g" \
+    -e "s/harness-dev-/${SAFE_NAME}-dev-/g" \
+    -e "s/harness-stage-/${SAFE_NAME}-stage-/g" \
+    -e "s/harness-prod-/${SAFE_NAME}-prod-/g" \
+    "$f"
+  rm -f "$f.bak"
+done
+
 # ===== 4a. Production templates (runbooks + CI workflows + Hono middleware) =====
 echo "[bootstrap] Distributing production templates"
 # shellcheck disable=SC1091
 . "$HARNESS_DIR/scripts/lib/distribute-production.sh"
 distribute_production_templates
+
+# learnings ファイル + secrets ガイドを dev/.my-harness/ へ配布 (初回のみ)
+mkdir -p dev/.my-harness dev/secrets
+[ -f "dev/.my-harness/learnings.md" ] || cp "$HARNESS_DIR/templates/dotmyharness/learnings.md" dev/.my-harness/learnings.md 2>/dev/null || true
+[ -f "dev/secrets/README.md" ] || cp "$HARNESS_DIR/templates/dotmyharness/secrets-README.md" dev/secrets/README.md 2>/dev/null || true
 
 
 # ===== 5. Copy harness itself to dev/.my-harness =====

@@ -49,21 +49,27 @@ echo "$BASE" > "$TMP"
 apply() { jq "$1" "$TMP" > "$TMP.next" && mv "$TMP.next" "$TMP"; }
 
 if [ "$USE_WEB" = "yes" ]; then
-  # Workers-target (rules/production.md). `wrangler dev` is local dev so KV / D1
-  # / R2 bindings behave the same as prod.
+  # Workers-target (rules/production.md). 初回 `pnpm dev` でクラウドの D1 ID が無くても
+  # 動くよう、ローカルエミュレータ (`--local --persist-to=.wrangler/state`) をデフォルト dev に。
+  # `pnpm dev:remote` は本物の D1 / KV / R2 を使う (デプロイ後の動作確認用)。
   apply '.scripts += {
-    "dev": "wrangler dev",
-    "build": "tsc -p tsconfig.build.json",
+    "dev":         "wrangler dev --local --persist-to=.wrangler/state",
+    "dev:remote":  "wrangler dev --remote",
+    "typecheck":   "tsc --noEmit",
     "deploy:dev":   "bunx alchemy deploy --stage dev",
     "deploy:stage": "bunx alchemy deploy --stage stage",
     "deploy:prod":  "bunx alchemy deploy --stage prod"
   } | .dependencies += {
     "hono": "^4.12.16",
     "@hono/zod-validator": "^0.7.0",
+    "@hono/zod-openapi": "^0.18.0",
+    "@scalar/hono-api-reference": "^0.5.0",
     "zod": "^3.25.0",
     "ulid": "^3.0.0",
     "pino": "^10.2.0",
-    "@sentry/cloudflare": "^9.0.0"
+    "@sentry/cloudflare": "^9.0.0",
+    "bcrypt-ts": "^7.1.0",
+    "jose": "^5.10.0"
   } | .devDependencies += {
     "alchemy": "2.0.0-beta.36",
     "effect": "^4.0.0",

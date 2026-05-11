@@ -4,6 +4,72 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [6.0.0] — 2026-05-11
+
+**The "you can actually ship to production" release.** Bundles 5.2.1
+(bug fixes), 5.3.0 (tests + DX), 5.4.0 (OpenAPI), and a thin but real auth
+scaffold. The harness now goes from `/my-harness-init` to "an API with
+working login, audit logging, rate limiting, idempotency, and
+auto-generated OpenAPI docs" in one bootstrap.
+
+### Added — auth scaffold (real, not stubbed)
+
+- `dev/src/interfaces/http/routes/auth.ts` — `/auth/login`, `/auth/password-reset/request`, `/auth/password-reset/confirm` with full Zod schemas, rate-limit (5/15min login, 3/h password-reset), audit-log on every outcome, and OpenAPI definitions.
+- `dev/src/application/auth/login.ts` — bcrypt-ts password verify + jose HS256 JWT issuance (15min TTL).
+- `dev/src/application/auth/password-reset.ts` — 2-phase flow: SHA-256 hex token storage (never plaintext), 30-min expiry, `consumed_at` for replay prevention, enumeration-attack-resistant request endpoint.
+- `dev/src/infrastructure/persistence/user-repository.ts` — Drizzle D1 adapter (`findUserByEmail`, reset-token CRUD, password update via D1 `batch` for atomicity).
+
+### Added — OpenAPI + Scalar UI
+
+- `@hono/zod-openapi` replaces `Hono` in `app.ts`. Every route declared with `createRoute({...})` produces OpenAPI 3.1 automatically.
+- `GET /openapi.json` — machine-readable spec.
+- `GET /docs` — Scalar API reference UI.
+- Generated clients (TS / Python / Go / Rust) can be produced with `pnpm dlx openapi-typescript /openapi.json`.
+
+### Added — Production Readiness Score
+
+- `scripts/score.sh` — evaluates 18 production-readiness checks (runbooks, wrangler config, audit_log, Renovate, CodeQL, SBOM, license, k6, Lighthouse, SOPS, middleware suite, auth route, OpenAPI, tests) and prints a 0-100 score. `--json` for machine output.
+- Exit codes: `0` (≥80), `1` (60-79), `2` (<60) — wire into CI as a release gate.
+
+### Added — Tests (TDD compliance)
+
+`rules/production.md` requires TDD strict but 5.0–5.2 shipped untested middleware. Now:
+
+- `templates/web/src/interfaces/http/middleware/rate-limit.test.ts` — window boundary, limit enforcement, 429 response shape, Retry-After header.
+- `templates/web/src/interfaces/http/middleware/idempotency.test.ts` — GET passthrough, replay caching, short-key 400, key-less passthrough.
+- `templates/web/src/infrastructure/audit/audit-log.test.ts` — adapter contract verification, metadata JSON encoding, sql tag invocation.
+- `templates/web/src/infrastructure/feature-flags/feature-flag.test.ts` — boolean / 0% / 100% / stable hash / WeakMap memoize.
+
+### Added — 4.x → 5.x/6.x upgrade automation
+
+- `scripts/upgrade-4-to-5.sh` — idempotent. Detects 4.x patterns (Node `@hono/node-server`, old `app.ts` signature, `wrangler.toml` only, missing `audit_log`), warns about manual steps, automatically removes the bad deps + drops missing runbooks. Run once after `/my-harness-adopt` against an adopted 4.x project.
+
+### Added — Operational guidance baked in
+
+- `templates/dotmyharness/learnings.md` → `dev/.my-harness/learnings.md` at bootstrap. All lane agents read this at ASSIGNMENT-time; new findings accumulate via PR review (blameless, no per-issue/lane names).
+- `templates/dotmyharness/secrets-README.md` → `dev/secrets/README.md`. Concrete age-keygen + sops encrypt commands; CI integration via `AGE_SECRET_KEY_STAGE`.
+
+### Changed — `doctor.sh` wired into the team-lead preflight
+
+`skills/harness-team-lead/SKILL.md` Precondition now invokes
+`bash $CLAUDE_PLUGIN_ROOT/scripts/doctor.sh` after `preflight.sh`. WARN
+is advisory; FAIL stops the lead before the first lane spawn.
+
+### Changed — package.json deps (USE_WEB=yes)
+
+Added: `@hono/zod-openapi`, `@scalar/hono-api-reference`, `bcrypt-ts`, `jose`.
+
+### Fixed — 5.2.0 carry-over bugs
+
+- `wrangler.jsonc` / `alchemy.run.ts` / `lighthouserc.json` now have **`PROJECT_NAME`** substituted at bootstrap (was hard-coded `harness-app` / `harness`).
+- `strictCors` no longer throws at module load when `ALLOWED_ORIGINS` is missing — defaults to `http://localhost:{3000,8787}` in non-prod (`ENVIRONMENT !== 'prod'`). Production still requires explicit allowlist.
+- `pnpm dev` defaults to `wrangler dev --local --persist-to=.wrangler/state` so first-run works without real Cloudflare resource IDs. `pnpm dev:remote` opts in to the cloud bindings.
+- `tsx watch` removed from `dev` script; `tsx` no longer relevant for Workers target.
+
+### Removed
+
+- `build: tsc -p tsconfig.build.json` script — Workers bundles internally via wrangler.
+
 ## [5.2.0] — 2026-05-11
 
 Integration pass. 5.0/5.1 added production middleware / docs / CI workflows

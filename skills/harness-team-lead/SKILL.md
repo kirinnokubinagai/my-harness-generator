@@ -42,9 +42,12 @@ User launches Claude Code from `<project>/dev/` (`cd <project>/dev && claude`). 
 ```bash
 ROOT="$(pwd)"
 bash "$SKILL_DIR/scripts/preflight.sh" "$ROOT" || exit $?
+# Production-grade diagnostics (Codex auth, MAX_LANES vs RAM, daemon liveness,
+# Agent Teams env, lane-gate dry run). FAIL → stop and surface remediation.
+bash "$CLAUDE_PLUGIN_ROOT/scripts/doctor.sh" || true   # advisory; WARN allowed
 ```
 
-Checks: `.my-harness/.config` exists, ≥ 20 GB disk, ≥ 4 GB reclaimable RAM, swap ≤ 1 GB, compressor ≤ 6 GB, no `nix-collect-garbage` running. Failure → surface remediation, do not retry silently.
+Checks: `.my-harness/.config` exists, ≥ 20 GB disk, ≥ 4 GB reclaimable RAM, swap ≤ 1 GB, compressor ≤ 6 GB, no `nix-collect-garbage` running. Failure → surface remediation, do not retry silently. `doctor.sh` produces non-blocking WARN for cases like a stale Codex daemon pid — the lead reads those and tells the user before starting Step 0.
 
 ## Observability — separate terminal
 
