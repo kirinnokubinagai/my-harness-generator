@@ -4,6 +4,18 @@ All notable changes to this plugin documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.2.0] — 2026-05-11
+
+### Added — `/my-harness-update`
+
+New idempotent skill that re-deploys the latest plugin assets into an already-adopted harness project. The companion to `/my-harness-adopt` (one-shot, refuses to run twice): update can be run any number of times after a plugin upgrade to push the new rules / scripts / templates / agent-log / monitor / codex-exec into your project's `dev/.my-harness/`, regenerate `dev/CLAUDE.md` and `dev/AGENTS.md`, and append new config flags (e.g. `USE_CODEX_ANALYST`) with safe defaults.
+
+`.bare/`, worktrees, commit history, and code under each worktree are NOT touched. No git operations.
+
+### Why
+
+Until 4.1.0 the only way to refresh an existing harness project after a plugin upgrade was for the user to manually invoke `bootstrap.sh --config <existing>` and remember the path. `/my-harness-adopt` refused to help (Hard rule: `.bare/` exists → already adopted → reject). 4.2.0 removes that friction with a one-line skill invocation.
+
 ## [4.1.0] — 2026-05-11
 
 ### Added — observability + auto-intervention
