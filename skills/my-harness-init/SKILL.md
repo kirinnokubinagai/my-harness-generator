@@ -556,94 +556,19 @@ Phase 2 starts with one open question and continues as a free-form, multi-turn c
 
 ### NON-NEGOTIABLE rules for this phase
 
-**1. Discovery NEVER reduces scope.** The harness produces production-grade scaffolds. If the user has listed N features, all N are in scope. Frequency / volume / "how often" questions are **only for capacity targets** (peak RPS, peak concurrent writers, retention horizon) — never to suggest that a feature should be dropped. Phrasings like "if only 5/month then DB is overkill" or "if monthly then static SSG is enough" are **forbidden**. The harness does not scope down. It capacities up.
+Full text + examples + bilingual ban lists are in **`rules/discovery-policy.md`** (read once at phase start, refer back as needed). The 11 rule headers below are the index; the canonical body lives in the rule file. Restating the long form here would risk Claude treating duplicate text as separate rules.
 
-**2. Treat "全部 / max / フル装備 / all / everything / maximum / unlimited / 最高のもの / fully equipped" answers as a fast-path signal.** When the user gives any of these answers (or any clear "do not reduce scope" statement):
-   - Set `scaleExpectation = "max"` (`users: "1M+"`, `dataSize: "TB"`, `concurrency: "high"`) unless the user provides specifics.
-   - Skip any further volume / frequency / "how big" / "how often" probes.
-   - Do **not** re-ask the same question hoping for a smaller number. Move on to **constraint** discovery (failure / trust / day-2 / privacy / latency budget).
-
-**3. Read the user's first message completely before the first follow-up.** If their first message already enumerates ≥ 5 concrete features (e.g., "AI text, scheduled posts, ads, search, embeds, RSS, PWA, ..."), the feature scope is established. Do not ask "do you really need X". Move directly to architecture / constraint questions.
-
-**4. No question may be asked twice in different phrasing.** If Claude's next planned question is a rewording of a question already asked, the planned question is dropped — pick a different empty `discoverySheet` field instead. The "no-redundancy check" below is **strict** — violating it is a bug.
-
-**5. Probes describe constraints, not choices.** Reframe any "simple vs complex" probe as "what's the upper bound the system must handle". The user's scope is fixed; only the budget is being elicited.
-
-**6. Universal-default policy (DO NOT ask about security / observability / quality / operations).** Production-grade defaults are decided by `rules/production.md` and applied **automatically** at bootstrap. The interview NEVER asks the user to choose between defense layers, log sinks, quality gates, or operational practices that have an industry-standard correct answer. The interview asks about **product** decisions (what features, what entities, what user-visible behavior), not about engineering practices.
-
-   Specifically **forbidden** question patterns:
-
-   | Forbidden | Why | What the harness does instead |
-   |---|---|---|
-   | "Which security layer should we invest in first?" / "シークレット混入の主犯はどっち？" | All layers always on by default | gitleaks pre-commit + GH Push Protection + GHA re-scan + Sentry source-map upload — all wired |
-   | "Where should logs go?" / "ログ送信先は？" | pino default; env var override only | `infrastructure/logging/pino-logger.ts` with redact; user can wire Axiom/Datadog later |
-   | "What encryption strength?" / "暗号化はどのくらい？" | Industry standard | TLS 1.3, bcrypt cost ≥ 12, AES-256, age for at-rest |
-   | "Should we have rate limiting?" / "レート制限は？" | Always yes | `middleware/rate-limit.ts` with login/password-reset/api buckets |
-   | "Backup retention?" / "バックアップ保持期間は？" | 30 d hot + 1 y cold default | Set in `rules/production.md`; user overrides only if regulator demands |
-   | "CSP report-only vs enforce?" / "CSP は報告のみ・強制？" | report-only 7d → enforce auto | `docs/runbooks/deploy.md` documents the cutover |
-   | "Should LLM auto-post require approval?" / "LLM 自動投稿に承認は要る？" | Yes, always — draft + human gate is the only sane default | Default for any auto-ingest path |
-   | "How strict should TypeScript be?" / "TS の strict 設定は？" | Always strict | `tsconfig.json` has `strict: true`, `noImplicitAny`, `noUncheckedIndexedAccess` |
-   | "Pre-commit hooks?" / "コミット前 hook は？" | Always yes | Husky + biome + commitlint + gitleaks |
-
-   When in doubt: **apply the strictest production-grade default and document it in `rules/production.md` or a runbook**, do not surface it as a question.
-
-**7. Question length cap.** Every question Claude sends to the user must fit in ≤ 5 lines as rendered. Long threat models / 4-layer frameworks / architectural explanations belong in `rules/` or `docs/` files for the agents to read silently — **not** in the user-facing question. If Claude needs > 5 lines of preamble to ask a question, the question is structurally wrong — break it into smaller atomic questions, or apply a default and skip asking entirely.
-
-**8. Binary when binary, multi-choice only when it matters.** If the realistic answer space is yes/no (e.g., "include local-LLM auto-post in v1?"), ask yes/no. Do not synthesize 3-option questions where (C) is just "both of A and B with conditions" — that's a `yes` with caveats; ask "yes/no" and apply the caveats as defaults.
-
-**10. Never force feature-ranking, "core" selection, or "MVP核" framing.** Once the user has listed N features, **all N are in scope** (Rule 1). Asking variants like:
-
-- "Which **one** feature, without which this project has no reason to exist?"
-- "What's the **core** that defines the MVP?"
-- "If you had to pick **one** differentiator, which one?"
-- "Rank these features by essentiality."
-- "Which feature is the heart of the product?"
-- Japanese variants: "これが無いなら作る意味がない、と一番強く感じる機能 1 つ" / "MVP の核を決めます" / "コア機能"
-
-…are **forbidden**. They are scope-reduction disguised as discovery. The harness is **not** producing an MVP — it produces a production-grade scaffold that implements **all** features the user listed.
-
-The differentiation probe (next section) asks **about competitive positioning** ("why does someone pick this over Notion/Substack/Ghost?") — that is allowed. It is **not** the same as "which of your features is THE one". Positioning is about the *whole product vs the world*; feature-ranking is about *cutting features from your own list*. Do not confuse them.
-
-When the user has already said "実装すればいい / build everything / all of the above / 全部やる" or equivalent, **no further prioritization questions are allowed at all** — proceed to the next discoverySheet field.
-
-**11. Proactively suggest ideas the user didn't mention** (additive only — never subtractive). When the user describes the product in Phase 2, after acknowledging what they said, name 2-4 features, behaviors, or concerns that adjacent products in the same category typically have **and that the user did not mention**. Frame each as an addition to consider, not a gap. Easy to ignore.
-
-   Examples (compose in `$LANG` — both shown):
-
-   **LANG=ja:**
-   - User: "ブログを作りたい。AI で文章書ける、リッチエディタ、予約投稿、広告、検索、Skills エクスポート、動画埋め込み、X 投稿、サムネ、GSC/GA、ローカル LLM、Atom/RSS、PWA"
-   - Acknowledge: "全部含めて進めます。"
-   - Then suggest (one sentence each, max 4):
-     - "下書き共有 URL (公開前に他人にプレビューさせる) もブログだとよく使われます。要りますか?"
-     - "コメント欄を入れる場合、スパム対策 (Akismet 系 or hCaptcha) のチェックを後で挟みますか?"
-     - "Webmention / トラックバック対応 (個人ブログ界で復活してる流れ) を入れますか?"
-     - "シリーズ機能 (連載記事を順番にナビゲートできる) もよく出ます。"
-   - Then: "要らないものは飛ばしてください。次は ◯◯ について聞きます。"
-
-   **LANG=en:**
-   - User: "I want to build a blog. AI-assisted writing, rich text editor, scheduled posts, ads, search, Skills export, video embeds, X posting, thumbnails, GSC/GA, local LLM, Atom/RSS, PWA"
-   - Acknowledge: "Got it — all of those are in scope."
-   - Then suggest (one sentence each, max 4):
-     - "Preview-share URLs (let others read a draft before publishing) are common in blogs — want that?"
-     - "If you're enabling comments, want a spam-filter step (Akismet / hCaptcha) added in?"
-     - "Webmention / trackback support (making a comeback in indie blogs) — interested?"
-     - "Series navigation (linking sequential posts in order) is also common."
-   - Then: "Skip whatever doesn't fit. Next I'll ask about ◯◯."
-
-   **Forbidden** when suggesting:
-   - The words "MVP", "core", "essential", "must-have", "the one" — these imply ranking (Rule 10 violation).
-   - "You're missing X" / "X が足りない" — that frames as a gap; banned. Use "X もよくあります" / "X も入れますか" instead.
-   - More than 4 suggestions per turn (overwhelm).
-   - Suggestions outside the product category (e.g., suggesting "newsletter" for a CLI tool).
-
-   Source of suggestions: known features of well-known products in the same category (Ghost, Substack, Note, Hashnode for blogs; Linear, Jira, Asana for issue trackers; etc.). Do not invent novel features.
-
-**9. Never ask for unknowable future predictions.** The user cannot know "how many readers in year 1", "how many users at year 3", "monthly PV after launch", "revenue forecast". These are guesses, not constraints. **Forbidden** patterns:
-   - "1 年後の読者規模は？" / "PV はどれくらい？" / "ユーザー数の年 1/年 3 目安は？"
-   - "How big does it get in year one? Year three?"
-   - "What's the year-1 vs year-3 expected peak?"
-
-   The harness builds for **autoscale by default** (Cloudflare Workers / D1 / KV / R2 scale to billions of requests transparently). Architecture decisions never ride on speculative growth numbers. The user volunteers concrete commitments (e.g., "we've signed a contract for 10k concurrent connections", "we've got 50k existing newsletter subscribers"); otherwise assume max and move on. If the user does volunteer a number, capture it in `discoverySheet.scaleExpectation` and proceed.
+1. **Discovery NEVER reduces scope.** N features listed → N in scope. Volume / frequency questions are capacity targets only.
+2. **Max-scope fast-path.** "全部 / max / fully equipped" → set `scaleExpectation = "max"`, skip all volume probes.
+3. **Read the first message fully.** ≥ 5 features enumerated → feature scope locked.
+4. **Strict no-redundancy.** Re-wording an already-asked question is a bug.
+5. **Probes describe constraints, not choices.** "Upper bound" not "simple vs complex".
+6. **Universal-default policy.** Don't ask about security / observability / quality / ops.
+7. **Question length ≤ 5 lines.** Long preamble → split or skip.
+8. **Binary when binary.** If (C) is "A+B with conditions", ask yes/no instead.
+9. **Never ask for unknowable future predictions.** No "PV 1 年後 / year-1 user count / revenue forecast".
+10. **Never force feature-ranking / `MVP核` / "core" selection.**
+11. **Proactively suggest ideas the user didn't mention** (additive only, 2-4 per turn, never gap framing).
 
 ### Internal `discoverySheet` (the state Claude maintains)
 
