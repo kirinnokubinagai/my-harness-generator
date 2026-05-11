@@ -61,6 +61,16 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 
 **Cardinal rules — applied every turn:**
 
+- **One topic per user-facing message.** A single reply must not stack multiple distinct subjects (analysis + decision + question + side note). If the harness has 3 things to convey, send 3 short messages, not 1 long one. Wait for the user's response before moving to the next subject. Tables, bullet lists, and headers are only allowed when the user explicitly asked for one (e.g., "summarize", "list the options"). Default to plain sentences.
+
+- **Plain language the user already understands. No harness-invented compounds.** Use the most common product name or everyday Japanese / English word for a concept. Examples: say "Web アプリ" / "Web app" rather than `client-server`; say "Codex の二次チェック" / "second look from Codex" rather than `Codex consult`; say "前の会話で決めた範囲" rather than `discoverySheet`. **If you are about to write a hyphenated compound, stop and check: is this a word the user has seen elsewhere?** If not, replace with a normal phrase. Made-up compounds are a bug.
+
+- **Codex second-opinion is opt-in per occurrence.** The harness must NEVER run `codex-ask.sh --role analyst|architect|harness-reviewer|code-reviewer` (or any Codex second-opinion call) without asking the user first. Even when `USE_CODEX=yes`, treat each occurrence as a separate ask. Image generation (logo / UI mocks) and session management (`--set-active` / `--clear-active`) are NOT second-opinions — those run normally per phase. Only the **review / verification** calls require asking. The ask template:
+  - **LANG=en:** "Want me to ask Codex for a second look at this? (yes / no)"
+  - **LANG=ja:** "ここまでの内容について、Codex に二次チェックしてもらいますか? (はい / いいえ)"
+
+  If "no" → skip the consult and continue. If "yes" → run the consult, then summarize the result in plain language (no `codex-phase2.md` filename in the user message).
+
 - **NEVER leak harness-internal terminology to the user.** The user reads product terms; Claude reads code. The following are **forbidden** in any user-facing message (questions, skip announcements, summaries, error displays, confirmations):
   - Internal field names: `discoverySheet`, `visualMocks`, `initState`, `init-state.json`, `architectureHints`, `persistenceHints`, `topUserActions`, `scaleExpectation`, `failureModes`, `resistance`, `scaleBreakpoints`, `trustModel`, `differentiation`, `day2Operations`, `decisionsRevealed`, etc.
   - Internal enum values: `client-server`, `client-serverless`, `p2p-pure`, `p2p-hybrid`, `nextjs`, `tanstack`, `sveltekit`, `swift`, `expo`, `flutter`, `kotlin`, `tauri`, `electron`, `hono`, `gin`, `rust`, `d1`, `postgres`, `mysql`, `sqlite`, `resend`, `pause`, `fail`, `oauth`, `api`. The user sees product names ("Next.js", "Cloudflare D1", "PostgreSQL", "Resend") or plain phrases ("Web app", "P2P app").
@@ -775,12 +785,13 @@ When exit criteria met, **show the discoverySheet to the user as a formatted sum
 
 If the user corrects, update sheet and repeat ritual. Once confirmed, persist final discoverySheet, write `dev/docs/spec/02-discovery.md` (the formatted summary), update `init-state.json` to `current_phase: "structure"`, and proceed to Phase 3.
 
-If USE_CODEX=yes, run a Codex consult at the end:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule: Codex second-opinion is opt-in per occurrence). Use the standard yes/no ask template. If "yes", run:
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase2.md \
   "DiscoverySheet: <paste JSON>. Point out logical contradictions, ambiguities, missing items, and which of the failure/resistance/scale/trust/differentiation/day-2 entries look hand-wavey."
 ```
+Then summarize the findings for the user in plain language (no internal file path in the user message). If "no", skip and proceed.
 
 ---
 
@@ -845,12 +856,13 @@ Persist `USE_WEB`, `USE_DESKTOP`, `USE_MOBILE` (intermediate; the per-mobile-OS 
 
 Update `init-state.json` to `current_phase: "features"`, `phases_completed: ["language", "setup", "discovery", "structure"]`. Save Phase 1 + 3 partial decisions to `dev/docs/spec/03-structure.md`. Move to Phase 4. (Concrete tool choices wait for Phase 6.)
 
-If USE_CODEX=yes, run an architect consult:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
   --out <root>/.my-harness/codex-phase3.md \
   "DiscoverySheet + structural decisions (architecture, platforms). Point out structural validity, tradeoffs, and any contradictions with the discoverySheet's failure/scale/trust block."
 ```
+Then summarize the findings in plain language. If "no", skip.
 
 ---
 
@@ -892,12 +904,13 @@ Save to: `dev/docs/spec/04-features.md` / `dev/docs/talk/04-features.md` (one se
 
 Each feature listed becomes one or more issues / task files at /harness-team-lead time. The list is the source of truth for what this project delivers.
 
-If USE_CODEX=yes:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role analyst \
   --out <root>/.my-harness/codex-phase4.md \
   "Complete feature list with access paths, failure modes, observability, onboarding, power-user, empty state, failure recovery, latency budgets: <paste>. Point out gaps, especially any feature whose latency budget contradicts the architecture choice."
 ```
+Then summarize findings in plain language. If "no", skip.
 
 Update `init-state.json` to `current_phase: "visual"`.
 
@@ -1362,12 +1375,13 @@ PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | 
 
 Save phase 1+3+6 results to `dev/docs/spec/06-tools.md` and `dev/docs/talk/06-tools.md`. Update `init-state.json` to `current_phase: "data-model"`.
 
-If USE_CODEX=yes, run an architect consult:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
   --out <root>/.my-harness/codex-phase6.md \
   "DiscoverySheet + structure + features + visualMocks + tool decisions: <paste config + visualMocks JSON>. Point out tool choices that contradict any mock's decisionsRevealed entry."
 ```
+Then summarize findings in plain language. If "no", skip.
 
 ---
 
@@ -1423,12 +1437,13 @@ For **each** entity, drill **at least 7 follow-ups** in this order:
 
 Save the final mermaid + answers + the 7 drill answers per entity to `dev/docs/spec/07-data-model.md`.
 
-If USE_CODEX=yes, run an architect normalization check focused on the new probes:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
 ~/my-harness-generator/scripts/codex-ask.sh --role architect \
   --out <root>/.my-harness/codex-phase7.md \
   "Data model with per-entity lifecycle / GDPR / permissions / cardinality / migration drills: <paste>. Point out normalization issues, GDPR gaps, permission contradictions, and any cardinality that the BACKEND_KIND can't sustain."
 ```
+Then summarize findings in plain language. If "no", skip.
 
 Update `init-state.json` to `current_phase: "bootstrap"`.
 
@@ -1440,12 +1455,13 @@ Update `init-state.json` to `current_phase: "bootstrap"`.
 
 Read all of `dev/docs/spec/0[1-7]-*.md` and `init-state.json` (`visualMocks[]`) and present a summary to the user for approval.
 
-If USE_CODEX=yes, run final cross-check with Codex code-reviewer:
+If USE_CODEX=yes, **ask the user first** (Cardinal rule). If "yes":
 ```bash
 ${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-ask.sh --role code-reviewer \
   --context <root>/dev/docs/spec/*.md <root>/dev/docs/design/*.png -- \
   "Point out inconsistencies between the spec / mocks / tech stack, logical contradictions, and missing functionality. Pay special attention to whether tool choices in spec/06-tools.md match every visualMocks[].decisionsRevealed entry, and whether spec/07-data-model.md addresses all GDPR / permissions / cardinality / migration drills."
 ```
+Then summarize findings in plain language. If "no", skip.
 
 If there are corrections, go back to phases 2–7 then return.
 
