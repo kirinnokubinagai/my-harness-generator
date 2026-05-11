@@ -496,31 +496,41 @@ EOF
     ;;
 esac
 
-# ===== 5b. Write dev/.claude/settings.json when USE_GLOBAL_CLAUDE=no =====
-if [ "${USE_GLOBAL_CLAUDE:-yes}" = "no" ]; then
-  # Resolve absolute path to user's global CLAUDE.md.
-  GLOBAL_CLAUDE_MD="${HOME}/.claude/CLAUDE.md"
+# ===== 5b. Write dev/.claude/settings.json =====
+# Two things go in this file:
+#   1. "model" — pinned default model for any Claude Code session opened
+#      under dev/. The harness's team-lead skill is heavy on orchestration
+#      and triage reasoning but light on raw output volume, so Opus 4.6 is
+#      a cost/latency-conscious default for these projects. Override at
+#      session start via `claude --model <other>` when needed.
+#   2. "claudeMdExcludes" — when USE_GLOBAL_CLAUDE=no, the user's global
+#      ~/.claude/CLAUDE.md is excluded from this project's sessions.
+#
+# Either way we merge into any existing settings.json instead of clobbering
+# user customization. jq drives the merge so adding fields stays safe.
+PROJECT_SETTINGS="dev/.claude/settings.json"
+DEFAULT_PROJECT_MODEL="claude-opus-4-6"
+GLOBAL_CLAUDE_MD="${HOME}/.claude/CLAUDE.md"
 
-  # Write project-scope settings.json (or merge into existing) so Claude Code
-  # excludes the user-level CLAUDE.md when sessions start under dev/.
-  PROJECT_SETTINGS="dev/.claude/settings.json"
-  mkdir -p "dev/.claude"
-  if [ -f "$PROJECT_SETTINGS" ]; then
-    # Merge: keep existing fields, add/override claudeMdExcludes.
-    tmp=$(mktemp)
-    jq --arg path "$GLOBAL_CLAUDE_MD" \
-       '.claudeMdExcludes = ((.claudeMdExcludes // []) + [$path] | unique)' \
-       "$PROJECT_SETTINGS" > "$tmp" && mv "$tmp" "$PROJECT_SETTINGS"
-  else
-    cat > "$PROJECT_SETTINGS" <<EOF
-{
-  "claudeMdExcludes": [
-    "$GLOBAL_CLAUDE_MD"
-  ]
-}
-EOF
-  fi
-  echo "Configured dev/.claude/settings.json to exclude ~/.claude/CLAUDE.md (USE_GLOBAL_CLAUDE=no)"
+mkdir -p "dev/.claude"
+if [ ! -f "$PROJECT_SETTINGS" ]; then
+  printf '{}\n' > "$PROJECT_SETTINGS"
+fi
+
+# Pin the project default model unless the file already has one.
+tmp=$(mktemp)
+jq --arg m "$DEFAULT_PROJECT_MODEL" \
+   '.model = (.model // $m)' \
+   "$PROJECT_SETTINGS" > "$tmp" && mv "$tmp" "$PROJECT_SETTINGS"
+
+if [ "${USE_GLOBAL_CLAUDE:-yes}" = "no" ]; then
+  tmp=$(mktemp)
+  jq --arg path "$GLOBAL_CLAUDE_MD" \
+     '.claudeMdExcludes = ((.claudeMdExcludes // []) + [$path] | unique)' \
+     "$PROJECT_SETTINGS" > "$tmp" && mv "$tmp" "$PROJECT_SETTINGS"
+  echo "Configured $PROJECT_SETTINGS: model=$DEFAULT_PROJECT_MODEL, excluded ~/.claude/CLAUDE.md (USE_GLOBAL_CLAUDE=no)"
+else
+  echo "Configured $PROJECT_SETTINGS: model=$DEFAULT_PROJECT_MODEL"
 fi
 
 # ===== 6. Commit initial scaffold on dev =====

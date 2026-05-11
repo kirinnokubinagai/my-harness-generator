@@ -999,11 +999,59 @@ The original 256×256 PNG is left in place. Components import whichever size mat
 
 Decide when to upscale based on the page mock: if a part is rendered larger than 256px on either axis in the page, upscale it. Otherwise, the source is enough.
 
-### Page HTML generation (final Phase 5 deliverable — written by Claude, NOT Codex)
+### Page HTML generation (final Phase 5 deliverable)
 
-After `crop-parts.sh` finishes, **Claude (you)** writes the self-contained Tailwind HTML file directly. This is the Phase 5 deliverable. Codex is not involved in this step — the page mock PNG already exists, Claude has multimodal vision, Claude can `Write` the file. Round-tripping to Codex adds latency, cost, and a session for no quality benefit.
+There are **two paths** depending on `USE_CODEX`:
 
-**Procedure** (per screen × per form factor that was generated — so a screen with NEED_PC=yes + NEED_MOBILE=yes yields TWO HTML files):
+#### USE_CODEX=yes — Codex writes the initial HTML, Claude polishes it (TWO STEPS, BOTH REQUIRED)
+
+**Step 1 — Codex writes the first cut** (automatic, part of `gen-page-auto.sh`):
+
+`gen-page-auto.sh` invokes `gen-page-html.sh` per form factor right after `crop-parts.sh`. The Codex HTML session is `design-html-<project-slug>`, separate from the image session, and receives:
+
+- The page-mock PNG as a `--context` attachment (so Codex must visually reference it to fulfill the prompt).
+- The full `manifest.json` as inline JSON (so Codex knows every available cropped part).
+- The `style_guide` from the manifest as immutable invariants.
+
+Output lands at `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html`. Source: `scripts/gen-page-html.sh` + `prompts/codex-page-to-html.md`.
+
+**Step 2 — Claude polishes the layout (MANDATORY)** ⛔️
+
+Codex's HTML is a first cut, not a finished deliverable. Its `file_write` tool cannot iterate on layout — it commits one snapshot. Common defects in the Codex output:
+
+- Elements that overflow their container ("潰れているところ") — text bleeding past edges, overlapping blocks
+- Component spacing off (gap / padding values wrong vs. the PNG)
+- Wrong column count on PC layouts
+- Missing aria attributes on icon-only buttons
+- An asset listed in manifest but never used in markup (or vice versa)
+- State variants implemented as duplicated elements instead of pseudo-classes
+
+For EACH `page-<form-factor>-<screen-slug>.html` that Codex produced:
+
+1. **`Read`** `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.png` — multimodal vision context loaded.
+2. **Open** the HTML in the browser (`open <path>` macOS / `xdg-open` Linux / `start "" <path>` Windows) — get the rendered view.
+3. **Compare** PNG vs rendered HTML. List concrete defects (be specific: "header logo overflows on PC at >1280px", not "looks off").
+4. **`Edit`** the HTML file to fix each defect. One Edit per defect when possible — easier to review.
+5. **Repeat** Steps 2-4 until the rendered HTML visually matches the PNG within reason. Hard stop after 3 polish iterations even if not perfect — diminishing returns.
+
+This Step 2 is NOT optional. Skipping it means shipping Codex's raw output, which routinely has 3-8 layout defects per screen even when the prompt was clear.
+
+Refinements requested by the user later (after the polish pass) can be applied either via `Edit` directly (Claude's tool) or — if the request is large — via the Codex session for re-generation:
+
+```bash
+SESSION_KEY=$(cat "$ROOT/.my-harness/codex-session-design-html.txt")
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role designer \
+  --session "$SESSION_KEY" \
+  --out "$ROOT/.my-harness/codex-html-<ff>-<screen>-rN.md" \
+  "Apply this change to the <SCREEN_NAME> screen on <FORM_FACTOR>: <user's request>. Overwrite the same HTML file."
+```
+
+After a Codex-driven refinement, Claude must redo Step 2 (polish) since Codex may have re-introduced defects.
+
+#### USE_CODEX=no — Claude writes the HTML directly
+
+When Codex is not available, Claude (you) writes the HTML. Procedure (per screen × per form factor):
 
 1. `Read` the page mock PNG at `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.png` — this loads the image into Claude's vision context so you can see the actual design.
 2. `Read` the manifest at `$ROOT/dev/docs/design/parts/<form-factor>/<screen-slug>/manifest.json` — this lists every cropped transparent PNG you can `<img>` into the markup.
@@ -1052,13 +1100,15 @@ open "$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html"  # macOS — 
 
 (use `xdg-open` on Linux, `start ""` on Windows).
 
-**Why Claude writes this, not Codex:** Codex would round-trip the same PNG through another agent and another session for no quality benefit. Claude already has the multimodal vision and the Tailwind knowledge. Skipping Codex saves a session, ~30-60 seconds, and a few thousand tokens per screen.
+**Why this path only when USE_CODEX=no:** when Codex is available, automating HTML through it removes the risk that Claude writes HTML from prompt-derived guesses without reading the PNG. With Codex disabled, the harness has no choice but to fall back to Claude — which works fine as long as Claude actually reads the PNG (see the enforcement checklist above).
 
-### Iteration
+### Iteration (USE_CODEX=no path)
 
-Refinements to the HTML: edit the file directly with the `Edit` tool. No Codex session needed. If the change is large enough that re-reading the PNG would help, `Read` the page-mock PNG first and rewrite the relevant section.
+When Claude wrote the HTML, refinements: edit the file directly with the `Edit` tool. If the change is large enough that re-reading the PNG would help, `Read` the page-mock PNG first and rewrite the relevant section.
 
-For refinements to the **page mock** (the PNG): use `scripts/refine-design.sh image ...` (still on the Codex image session).
+### Iteration on the page mock (always Codex)
+
+Refinements to the page-mock PNG itself: `scripts/refine-design.sh "$ROOT" "<form-factor>" "<SCREEN_NAME>" "<change>"` (resumes the `design-image-<project-slug>` session).
 
 ### Implementation-phase TSX conversion (NOT part of Phase 5)
 

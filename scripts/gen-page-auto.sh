@@ -32,6 +32,7 @@ USE_WEB=$(get_flag USE_WEB)
 USE_IOS=$(get_flag USE_IOS)
 USE_ANDROID=$(get_flag USE_ANDROID)
 USE_DESKTOP=$(get_flag USE_DESKTOP)
+USE_CODEX=$(get_flag USE_CODEX)
 
 NEED_PC=no
 NEED_MOBILE=no
@@ -74,6 +75,34 @@ for FF in pc mobile; do
     for g in "$ROOT/dev/docs/design/parts-grid-${FF}-${SCREEN_SLUG}-"*.png; do
       [ -f "$g" ] && OPEN_LIST+=("$g")
     done
+
+    # === Crop the parts grid into transparent PNGs ===
+    # Always runs (even when image_count=0 — crop-parts.sh writes an empty
+    # parts.ts cleanly in that case). Suppress per-part auto-open: with many
+    # parts × 2 form factors that would dump dozens of viewer windows; the
+    # page mock + grid PNGs already in OPEN_LIST are sufficient for review.
+    echo
+    echo "    [crop] slicing parts grid into transparent PNGs..."
+    if ! HARNESS_SKIP_OPEN=1 bash "$HARNESS_DIR/scripts/crop-parts.sh" "$ROOT" "$FF" "$SCREEN_SLUG"; then
+      FAILED+=("${FF}/crop")
+      echo "::warning:: crop-parts.sh failed for form factor '$FF'" >&2
+    fi
+
+    # === Codex HTML generation (only when USE_CODEX=yes) ===
+    # When Codex is disabled, HTML is the user/Claude's responsibility (see
+    # SKILL.md Phase 5). With Codex available, we round-trip the page PNG +
+    # style_guide invariants through it to produce page-<ff>-<screen>.html
+    # automatically — no manual hand-off needed.
+    if [ "$USE_CODEX" = "yes" ]; then
+      echo
+      echo "    [html] generating Tailwind HTML via Codex..."
+      if HARNESS_SKIP_OPEN=1 bash "$HARNESS_DIR/scripts/gen-page-html.sh" "$ROOT" "$FF" "$SCREEN_SLUG" "$PROJECT_NAME"; then
+        OPEN_LIST+=("$ROOT/dev/docs/design/page-${FF}-${SCREEN_SLUG}.html")
+      else
+        FAILED+=("${FF}/html")
+        echo "::warning:: gen-page-html.sh failed for form factor '$FF'" >&2
+      fi
+    fi
   else
     FAILED+=("$FF")
     echo "::warning:: gen-page-parts.sh failed for form factor '$FF'" >&2

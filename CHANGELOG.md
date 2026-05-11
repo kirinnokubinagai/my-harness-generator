@@ -4,6 +4,52 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.6.0] — 2026-05-12
+
+### Added
+
+- **Project-scope default model pinning.** `scripts/bootstrap.sh` now
+  writes `dev/.claude/settings.json` with `"model": "claude-opus-4-6"`
+  on every run (idempotent — if the file already pins a model, it's left
+  alone). Any Claude Code session opened under `dev/` (including
+  `/harness-team-lead`) uses Opus 4.6 by default. The team-lead is
+  orchestration-heavy but output-light, so 4.6 is the cost/latency
+  sweet spot.
+  - `model:` cannot be set on a Skill's frontmatter — Skills run on the
+    caller's session model. The correct lever is `~/.claude/settings.json`
+    or per-project `<root>/.claude/settings.json`. The harness uses the
+    latter.
+  - Existing logic for `claudeMdExcludes` (USE_GLOBAL_CLAUDE=no) merges
+    cleanly on top of the new model field via `jq`.
+
+### Changed
+
+- **`gen-page-html.sh` is now Step 1 of TWO for Phase 5 HTML, not the
+  final deliverable.** Codex's `file_write` tool produces a one-shot
+  HTML and cannot iterate on layout, so its output routinely ships with
+  3-8 layout defects per screen (overflow, wrong column counts, missing
+  aria, manifest-vs-markup mismatches). Claude polishes after Codex via
+  a MANDATORY second step:
+    1. `Read` the page-mock PNG (multimodal vision context)
+    2. `open` the HTML in the browser to see the rendered view
+    3. Compare PNG vs rendered HTML, list concrete defects
+    4. `Edit` the HTML to fix each defect
+    5. Loop up to 3 iterations
+  SKILL.md Phase 5 documents this as MANDATORY (the polish pass is not
+  optional). User-driven refinements after the polish pass may use the
+  Codex session OR `Edit` directly.
+
+### Migration
+
+For existing projects that ran `bootstrap.sh` before this version: just
+re-run `bootstrap.sh` to add the `model` field to `dev/.claude/settings.json`
+(idempotent — won't touch a model field you set manually). The HTML
+polish step is a Claude behavior change, no file rewrites needed — the
+next time Claude runs `gen-page-auto.sh` it follows the new SKILL.md
+flow.
+
+---
+
 ## [7.5.0] — 2026-05-12
 
 ### Changed
