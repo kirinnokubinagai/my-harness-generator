@@ -946,9 +946,18 @@ Update `init-state.json` to `current_phase: "visual"`.
 
 The mocks generated here become the **source of truth** for Phase 6 (tool selection) and Phase 7 (data model). Their visible elements (lists, forms, toggles, tabs, charts, real-time indicators, offline banners) are the inputs for tool decisions.
 
-**Absolute image format rules:**
-- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is allowed.
-- Resolution: logos ≥ 1024×1024; UI mocks at the resolution specified below.
+### Two paths: USE_CODEX=yes vs USE_CODEX=no
+
+Phase 5 branches at the top based on `USE_CODEX` in `<root>/.my-harness/.config`:
+
+- **`USE_CODEX=yes`** → run the **image path** (gen-page-parts + auto-crop + TSX). One high-resolution PNG per screen contains the full page (top) and a transparent-cropped grid of every UI component (bottom). PNGs land in `dev/public/design/parts/` as runtime assets; matching TSX components land in `dev/src/components/design/`.
+- **`USE_CODEX=no`** → run the **text-spec path**. No image generation. For each screen, write a structured markdown spec listing the visible elements and a parts list, then generate TSX component stubs from that spec. Implementation phase fills the visual details.
+
+Both paths still run the same 3-question post-mock drill (missing element / confusing element / hidden constraint) on whatever was produced.
+
+**Absolute image format rules (USE_CODEX=yes only):**
+- **PNG only.** SVG is **prohibited** as a generated format. Transparent PNG (alpha background) is the output of the crop step.
+- Resolution: target 2048 × 2880 per page+parts image.
 - After generation, **always auto-open** so the user can review:
   - macOS: `open <path>`
   - Linux: `xdg-open <path>`
@@ -1116,9 +1125,45 @@ Append every accepted mock to `init-state.json`'s `visualMocks`:
 
 ### Iteration
 
-If a mock reveals that requirements have changed (the answer to drill #3 surfaces a new entity, permission, or integration), update the discoverySheet, log the constraint, and either regenerate the affected mock or note it for Phase 6 / 7. **Maximum 3 iteration cycles per screen.**
+If a mock reveals that requirements have changed (the answer to drill #3 surfaces a new entity, permission, or integration), update the internal notes, log the constraint, and either regenerate the affected mock or note it for Phase 6 / 7. **Maximum 3 iteration cycles per screen.**
 
-When USE_CODEX=no, skip image generation and instead, for each screen, **draft a text mock** (markdown bullet list of visible elements) and run the same 3-question post-mock drill. Persist the text mock under `dev/docs/design/text-mock-<platform>-<screen>.md` and reference it from `visualMocks[].path`.
+### USE_CODEX=no path (no image generation)
+
+When `USE_CODEX=no`, the image pipeline above is skipped entirely (no Codex calls, no PNG, no auto-crop). Each screen still gets:
+
+1. **A text-spec markdown file** at `dev/docs/design/text-mock-<platform>-<screen-slug>.md` with a defined structure:
+
+   ```markdown
+   # <Screen Name> — <Platform>
+
+   ## Layout
+   <one-paragraph description of overall layout, hierarchy, grid>
+
+   ## Visible elements (top to bottom, left to right)
+   - <element>: <one-sentence description with state variants>
+   - <element>: ...
+
+   ## Parts list
+   - <part-name>: <component type + key props + state variants>
+   - <part-name>: ...
+
+   ## Interactions
+   - <action>: <result>
+   ```
+
+   Claude composes this from the spec + the user's screen list. The user reviews and corrects.
+
+2. **TSX component stubs** at `dev/src/components/design/<platform>/<screen-slug>/<PartName>.tsx`, one per entry in the "Parts list" section. Each stub:
+   - Has a `/** 概要: ... */` JSDoc comment naming the part and referencing the text-mock file.
+   - Has props for the state variants listed in the text spec.
+   - Uses Tailwind classes following `rules/design.md` (Lucide icons, no AI-style gradients).
+   - Renders a working component — not just a `TODO` — but visual polish is deferred to the implementation phase.
+
+3. **No `parts.ts` and no transparent PNGs** are produced on this path. If the user later switches to `USE_CODEX=yes`, the same screen can be regenerated and the image-path artifacts will overlay the text-spec path.
+
+The 3-question post-mock drill runs on the text-spec markdown (treat the markdown as the mock).
+
+`visualMocks[].path` for `USE_CODEX=no` screens points to the `text-mock-*.md` file rather than a PNG.
 
 ### Completion criteria
 

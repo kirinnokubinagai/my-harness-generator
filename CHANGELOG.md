@@ -4,6 +4,141 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.1.0] — 2026-05-11
+
+A bundle of interview behavior, communication, design pipeline, and
+reliability changes — driven by direct user feedback during a real
+`/my-harness-init` blog-app run.
+
+### Added — honesty rules (mandatory across all agents)
+
+`rules/honesty.md` defines 7 rules: say "I don't understand" out loud
+via `status=blocked-needs-clarification`; don't claim success without
+reading actual output; no vague jargon ("looks consistent" / "should
+work"); bad news first with concrete counts; never `status=pass` when
+any check failed; concrete next actions only ("Reading log at
+<path>"), never "investigating"; don't manipulate the user with
+intentional confusion.
+
+Applied as a 5-6-line restatement, calibrated per role, to:
+- `agents/harness-analyst.md`
+- `agents/harness-engineer.md`
+- `agents/harness-reviewer.md`
+- `agents/harness-e2e-reviewer.md`
+- `skills/harness-team-lead/SKILL.md`
+
+### Added — canonical communication rules
+
+`rules/communication.md` collects the 5 user-facing message rules:
+- One topic per message (no stacking analysis + decision + question).
+- Plain language, no harness-invented compounds.
+- Codex second-opinion is opt-in per occurrence.
+- Don't leak internal terminology (`discoverySheet`, enum values,
+  status codes, config keys, code notation).
+- Idea suggestion is allowed and encouraged — never required.
+
+Referenced from every user-facing skill (`my-harness-init`,
+`harness-team-lead`, `my-harness-adopt`).
+
+### Added — proactive idea suggestion (Phase 2 Rule 11)
+
+When the user describes the product, the harness suggests 2-4
+features that adjacent products in the same category typically have
+and that the user did not mention. Always additive, never
+subtractive. "Skip if not interesting" appended. Words "MVP" / "core"
+/ "essential" / "must-have" forbidden. Bilingual examples
+(blog domain) provided.
+
+### Changed — Phase 5 (Visual) redesigned around page + parts mocks
+
+The logo generation step is **removed entirely**. Per-screen flow:
+
+1. One Codex call produces ONE high-quality (2048 × 2880) PNG with two
+   sections: full page mock (top 65 %) and a 4-column grid of every
+   distinct UI component used (bottom 35 %, white background, labels).
+2. Claude reads the bottom grid via Vision, produces a manifest.json.
+3. `scripts/crop-parts.sh` slices each cell deterministically and
+   removes the white background by 4-corner flood-fill, leaving
+   transparent PNGs.
+4. Output lands at `dev/public/design/parts/<platform>/<screen-slug>/<name>.png`
+   so the running app can reach `/design/parts/...` directly.
+5. `dev/src/components/design/<platform>/<screen-slug>/parts.ts` is
+   auto-generated as a typed const object mapping each camelCased
+   part name to its public URL.
+6. Claude writes one TSX component per part — Tailwind code for
+   recreatable elements, `<img src={parts.X} />` for decorative
+   graphics that can't cleanly be recreated in code.
+
+### Added — reliability for Codex image generation
+
+`scripts/gen-page-parts.sh` now:
+- Pins a deterministic `--session` key per (platform, screen-slug),
+  persisted at `$ROOT/.my-harness/codex-session-design-<...>.txt`.
+- Verifies the PNG actually exists AND is a valid PNG after each call.
+- On failure, follows up in the same Codex session with an explicit
+  nudge ("you replied with text but did not save the image — call
+  image_gen now and save to <path>"), up to 3 retries
+  (`HARNESS_GEN_RETRY` overridable).
+- Exits non-zero only when retries exhaust; the session is preserved
+  so the user can resume manually.
+
+`crop-parts.sh` bug fix: the false-positive `-list option | grep fuzz`
+detection was silently zeroing `FUZZ_OPT` on every install (because
+`-list option` does not enumerate `-fuzz`), so flood-fill was running
+without tolerance. `-fuzz 5%` is now unconditional.
+
+### Added — explicit USE_CODEX=no path
+
+The no-Codex path was a one-line afterthought ("skip image generation,
+draft a text mock"). Now it is a fully specified branch:
+
+- Each screen gets a structured `text-mock-<platform>-<screen-slug>.md`
+  with Layout / Visible elements / Parts list / Interactions sections.
+- TSX component stubs are still generated, one per "Parts list" entry,
+  with state-variant props and `rules/design.md`-compliant Tailwind.
+- No PNG and no `parts.ts` on this path; `visualMocks[].path` points
+  to the markdown file.
+- Switching the project to `USE_CODEX=yes` later regenerates the
+  same screen and overlays the image artifacts.
+
+### Added — Codex second-opinion consult wrappers
+
+`scripts/consult-phase.sh` plus six `prompts/codex-consult-phase-N.md`
+templates (Phase 2 / 3 / 4 / 6 / 7 / 8). The wrapper auto-pastes the
+right data into each prompt's placeholder (discoverySheet from
+init-state.json, feature list from spec, data model from spec,
+config + visualMocks for tool review, full `--context` attach for
+the Phase 8 cross-check).
+
+Every consult site in `my-harness-init/SKILL.md` was rewritten to
+ask the user first and then `bash consult-phase.sh N "$ROOT"` —
+shrinking 6 bash blocks (~10 lines each) to 1 line each.
+
+### Added — discovery NON-NEGOTIABLE rules 6 → 11
+
+The Phase 2 ruleset grew over the release to cover real failures from
+the interview transcript:
+
+- Rule 6: Universal-default policy — never ask about engineering
+  practices that have industry-standard answers (security layers /
+  log sinks / rate limiting / encryption strength / etc).
+- Rule 7: Question length cap — ≤ 5 lines including preamble.
+- Rule 8: Binary when binary — never synthesize 3-option questions
+  where (C) is "A and B with conditions".
+- Rule 9: Never ask for unknowable future predictions ("monthly PV
+  next year").
+- Rule 10: Never force feature-ranking, "core" selection, or "MVP
+  framing".
+- Rule 11: Proactively suggest ideas (additive only).
+
+### Fixed — purged stale "logo" references
+
+13 user-visible mentions of the removed logo step were updated in
+`skills/my-harness-init/SKILL.md` (9), `README.md` (3),
+`README.ja.md` (3), and `scripts/codex-ask.sh` usage comment (1).
+The single remaining "logo" string is the policy statement "No logo
+generation step exists" (intentional — it makes the absence explicit).
+
 ## [7.0.4] — 2026-05-11
 
 User feedback during a real-project interview (blog app):
