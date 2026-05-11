@@ -5,16 +5,14 @@ description: Executes the staged deployment pipeline: dev → stage → main. St
 
 # harness-deploy-execute
 
-The skill for carrying out staged releases to each environment after implementation and `harness-deploy-setup` are complete.
+Stages releases dev → stage → main, after implementation and `harness-deploy-setup` are done.
 
 ## Prerequisites
 
-- `harness-deploy-setup` is done (`bunx alchemy deploy --stage prod` for the initial infra bootstrap, `DEPLOY_READY=yes` in `.my-harness/.config`)
-- All features are merged to dev / all CI is green
+- `harness-deploy-setup` complete (`bunx alchemy deploy --stage prod` ran, `DEPLOY_READY=yes` in `.my-harness/.config`).
+- All features merged to `dev`; CI green.
 
-## The 3 deployment stages
-
-### A. dev → stage (automated but requires human approval)
+## A. dev → stage (automated, human-approved)
 
 ```bash
 git checkout stage
@@ -22,32 +20,23 @@ git fetch origin
 gh pr create --base stage --head dev --title "release: dev → stage <date>"
 ```
 
-`pr-to-stage.yml` runs:
-- quality (biome / vitest / tsc)
-- e2e (Playwright + Maestro)
-- security (OWASP ZAP + MobSF + history gitleaks)
-- Even if all green, **`approved-for-stage` label is required** (human approval)
+`pr-to-stage.yml` runs quality (biome / vitest / tsc), e2e (Playwright + Maestro), security (OWASP ZAP + MobSF + history gitleaks). Green CI alone is **not** enough — the `approved-for-stage` label is required (human gate). CI failures auto-file an issue via `maybe-create-issue.js`.
 
-On CI failure, `maybe-create-issue.js` automatically creates an issue (or a file in `docs/task/auto/`).
-
-Human approval:
 ```bash
 gh pr review <pr-number> --approve
 gh pr edit <pr-number> --add-label approved-for-stage
 gh pr merge <pr-number> --auto --merge
 ```
 
-After the stage merge, the stage environment deploys automatically:
+After the merge, stage deploys automatically:
 - Cloudflare Pages picks up the stage branch
-- D1 stage migration (`wrangler d1 migrations apply DB --env staging --remote`)
-- Restore production backup from R2 (operated manually via `wrangler r2 object get` + `wrangler d1 execute`; the plugin no longer ships a scheduled backup workflow)
-- TestFlight build upload (when USE_IOS=yes)
+- `wrangler d1 migrations apply DB --env staging --remote`
+- Restore production backup from R2 (manual `wrangler r2 object get` + `wrangler d1 execute`; the plugin no longer ships a scheduled backup workflow)
+- TestFlight build upload (when `USE_IOS=yes`)
 
-### B. stage → main (after 24+ hours of stable operation on stage)
+## B. stage → main (after 24h+ stable on stage)
 
-Verify that the latest stage commit has been running stably in the staging environment for **at least 24 hours**:
-- Metrics (p95 / error rate / auth failures) show no anomalies
-- ZAP / E2E remain green (re-run is fine)
+Verify the latest stage commit ran stably on staging for at least 24 hours: metrics (p95 / error rate / auth failures) show no anomalies; ZAP / E2E remain green.
 
 ```bash
 gh release create vX.Y.Z --draft --generate-notes --target stage
@@ -58,77 +47,65 @@ gh pr edit <pr-number> --add-label approved-for-prod
 gh pr merge <pr-number> --auto --merge
 ```
 
-`pr-to-main.yml` re-runs all gates (reusing pr-to-stage) and verifies the `approved-for-prod` label.
+`pr-to-main.yml` re-runs all gates (reusing `pr-to-stage`) and verifies the `approved-for-prod` label.
 
-### C. Canary 10% → 100%
-
-Production deployment after the main merge is gradual:
+## C. Canary 10% → 100%
 
 ```bash
-# Cloudflare Pages traffic splitting (or Workers versioned deployment)
+# 10% first
 nix develop --command pnpm exec wrangler deployments deploy --env production --percent 10
-```
-
-30 minutes at 10% → check metrics:
-```bash
+# 30 min at 10% → check metrics
 nix develop --command bash .my-harness/scripts/check-canary-health.sh
-```
-
-If healthy:
-```bash
+# 100% if healthy
 nix develop --command pnpm exec wrangler deployments deploy --env production --percent 100
-```
-
-Publish the GitHub Release:
-```bash
+# Publish the GitHub Release
 gh release edit vX.Y.Z --draft=false
 ```
 
 ## Rollback
 
-On problems, use `git revert` (rebase / reset prohibited per `rules/` git policy (see `rules/nix-pure.md` / `docs/HOTFIX.md`)):
+Use `git revert` only (rebase / reset prohibited per `rules/nix-pure.md` + `docs/HOTFIX.md`):
 
 ```bash
 git checkout main
-git revert -m 1 <merge-sha>     # Revert the merge commit
+git revert -m 1 <merge-sha>
 git push origin main
 ```
 
-Or roll the canary back from 100% to the previous deployment:
+Or roll the canary back to the previous deployment:
+
 ```bash
 nix develop --command pnpm exec wrangler rollback <previous-deployment-id>
 ```
 
 ## Emergency fixes
 
-For urgent fixes that bypass the normal deploy flow, follow the manual procedure in `docs/HOTFIX.md` (branch `hotfix/<short>` from `main`, PR target `main`, then merge-commit back to `stage` and `dev`).
+Follow `docs/HOTFIX.md`: branch `hotfix/<short>` from `main`, PR target `main`, then merge-commit back to `stage` and `dev`.
 
 ## Checklist
 
-### dev → stage
-- [ ] All CI on dev is green
-- [ ] PR created with `--base stage --head dev`
+**dev → stage**
+- [ ] All CI on dev green
+- [ ] PR `--base stage --head dev`
 - [ ] OWASP ZAP / Playwright / Maestro green
-- [ ] `approved-for-stage` label applied (human approval)
+- [ ] `approved-for-stage` applied (human)
 - [ ] Stage updated via auto-merge
 
-### stage → main
-- [ ] Stage environment running for 24+ hours
-- [ ] Metrics show no anomalies
+**stage → main**
+- [ ] 24+ h stable on stage, metrics clean
 - [ ] `gh release create --draft` done
-- [ ] `approved-for-prod` label applied
+- [ ] `approved-for-prod` applied
 - [ ] Main updated via auto-merge
 
-### Canary
-- [ ] Monitored at 10% for 30 minutes
-- [ ] Error rate / latency show no anomalies
+**Canary**
+- [ ] 10% for 30 min, metrics clean
 - [ ] Promoted to 100%
 - [ ] `gh release edit --draft=false` done
 
-## Related skills
+## Related
 
 - Setup: `harness-deploy-setup`
-- Hotfix: see `docs/HOTFIX.md`
-- Git discipline: `rules/` git policy (see `rules/nix-pure.md` / `docs/HOTFIX.md`)
-- Secrets: `harness-setup-secrets`
+- Hotfix: `docs/HOTFIX.md`
+- Git discipline: `rules/nix-pure.md` + `docs/HOTFIX.md`
+- Secrets: `scripts/setup-secrets.sh` + `docs/SETUP.md`
 - Infrastructure details: `docs/INFRA.md`

@@ -158,8 +158,6 @@ After init, these are the slash commands you'll reach for most often:
 |---|---|
 | Drive all pending issues in parallel | `/harness-team-lead` |
 | Adopt an existing git repo OR refresh an adopted project after a plugin upgrade | `/my-harness-adopt` (idempotent — auto-detects `.bare/`) |
-| Manual secret scan | `/harness-check-secrets` |
-| Apply branch protection in bulk | `/harness-branch-protection` |
 | Generate Alchemy v2 deploy infrastructure (`alchemy.run.ts`) | `/harness-deploy-setup` |
 | Run a staged production deploy | `/harness-deploy-execute` |
 | Live view of all lane agents (separate terminal) | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
@@ -243,7 +241,7 @@ These files are mirrored to `<root>/dev/.my-harness/rules/` by bootstrap, embedd
 | `stage` → `main` | Human approval + all gates green + canary 10% → 100% |
 | `hotfix/*` → `main` | Emergency approval + minimal test/lint/format (post-merge ZAP / E2E runs immediately) |
 
-Direct pushes to `main` and `stage` are blocked twice: by the local pre-push hook and by GitHub branch protection (applied via `/harness-branch-protection`).
+Direct pushes to `main` and `stage` are blocked twice: by the local pre-push hook and by GitHub branch protection. The plugin no longer ships a slash command for the latter — apply it manually once with `bash scripts/setup-branch-protection.sh <owner>/<repo>` (or directly via `gh api ...`).
 
 ## Conventions enforced
 
@@ -314,7 +312,7 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 |---------|-----|
 | Skill doesn't fire | Restart Claude Code or `/clear` |
 | Hook doesn't write to `dev/docs/talk/` | Confirm `~/.claude/settings.json` has the plugin's `UserPromptSubmit` and `Stop` hooks; run `/doctor` to validate the schema |
-| Codex returns auth error | `/harness-check-codex-auth`, then `codex login` |
+| Codex returns auth error | `codex login` (the harness-team-lead Codex-auth handling section walks you through the resume protocol) |
 | Codex subagent paused with `blocked-codex-auth` (login expired mid-flight) | Run `codex login`, then tell team-lead "resume". The same Codex session is preserved on the server. |
 | Codex subagent paused with `subscription-or-quota` reason | Renew your ChatGPT subscription, or edit `.my-harness/.config` to set `USE_CODEX_<ROLE>=no` to fall back to Claude for that role. Then say "resume". |
 | Conflict during hotfix back-merge | Resolve by hand with `git merge --no-ff`; never `rebase` / `reset --hard` / `push --force`. |

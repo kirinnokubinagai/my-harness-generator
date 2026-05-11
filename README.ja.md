@@ -127,8 +127,6 @@ init 後の開発で使うコマンド一覧:
 |---|---|
 | 全 pending issue を並列で進める | `/harness-team-lead` |
 | 既存 git repo を harness 構造に変換 or 既存 adopted を最新 plugin に同期 | `/my-harness-adopt` (冪等 — `.bare/` の有無で自動分岐) |
-| 機密チェック（手動） | `/harness-check-secrets` |
-| ブランチ保護を一括適用 | `/harness-branch-protection` |
 | Alchemy v2 デプロイ設定（`alchemy.run.ts`）を生成 | `/harness-deploy-setup` |
 | 段階的本番デプロイを実行 | `/harness-deploy-execute` |
 | 各 lane の動作を live で観察（別ターミナル） | `bash <plugin>/scripts/monitor-agents.sh <project-root>` |
@@ -212,7 +210,7 @@ init 後の開発で使うコマンド一覧:
 | `stage` → `main` | 人間承認 + 全ゲート緑 + canary 10% → 100% |
 | `hotfix/*` → `main` | 緊急承認 + 最小 test/lint/format（post-merge で ZAP/E2E 即時実行） |
 
-`main` / `stage` への直接 push は pre-push フック + GitHub branch protection で **二重に遮断**（後者は `/harness-branch-protection` で適用）。
+`main` / `stage` への直接 push は pre-push フック + GitHub branch protection で **二重に遮断** (後者は一度だけ `bash scripts/setup-branch-protection.sh <owner>/<repo>` を実行、または `gh api` で手動適用)。
 
 ## 強制される規約
 
@@ -283,7 +281,7 @@ bash bootstrap.sh <root> --config <root>/.my-harness/.config
 |------|------|
 | skill が発火しない | Claude Code を完全再起動 / `/clear` |
 | hook が `dev/docs/talk/` に書かない | `~/.claude/settings.json` にプラグインの `UserPromptSubmit` / `Stop` hook が登録されているか確認。`/doctor` でスキーマ検証 |
-| Codex 認証エラー | `/harness-check-codex-auth` → `codex login` |
+| Codex 認証エラー | `codex login`（harness-team-lead の Codex auth handling セクションが resume protocol を案内） |
 | Codex subagent が `blocked-codex-auth`（実行中に login 切れ）で停止 | `codex login` を実行 → team-lead に「resume」と返信。同じ Codex session がサーバー側で保持されているため、前ターンの context を保ったまま再開できる |
 | Codex subagent が `subscription-or-quota` 理由で停止 | ChatGPT サブスクを再有効化するか、`.my-harness/.config` で `USE_CODEX_<ROLE>=no` にして Claude フォールバックに切り替えてから「resume」 |
 | hotfix 逆流でコンフリクト | `git merge --no-ff` で手動解消（rebase / reset --hard / push --force 禁止） |

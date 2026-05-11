@@ -5,137 +5,97 @@ description: Defines deploy infrastructure with Alchemy v2 (Effect.ts) and sets 
 
 # harness-deploy-setup
 
-The skill for building the **infrastructure and secrets** needed to deploy across the dev → stage → main pipeline, centered on **Alchemy v2 (Effect.ts, TypeScript-native IaC)**, after implementation is complete.
+Builds the **infrastructure + secrets** for the dev → stage → main pipeline using **Alchemy v2 (TypeScript-native IaC on Effect.ts)**. Run once after implementation, before the first deploy.
 
-## Why Alchemy v2 (not Terraform / OpenTofu)
-
-- **TypeScript-native** — same language as the rest of the harness; no HCL context switch.
-- **Effect.ts based** — composable retries, structured error handling, generator-driven resource declarations (`Effect.gen` + `yield*`).
-- **Cloudflare-first** — first-class providers for Workers / D1 / R2 / KV / Queues / Hyperdrive / Tunnel / Zone / DNS / Access / Workers AI. Cloudflare Pages is **not** a target for this harness (use `Cloudflare.Worker` + assets if a static site is needed).
-- **State store on Cloudflare** — remote state can live in a Cloudflare Worker + Durable Object (no AWS dependency).
-- **Adopt existing resources** — `--adopt` flag pulls existing Cloudflare resources into Alchemy management.
-
-⚠️ Alchemy v2 is `2.0.0-beta.x` (Effect v4 dependency). Expect occasional breaking changes during the beta. Pin the exact version in `package.json` and update intentionally.
+Cloudflare Pages is **out of scope** — use `Cloudflare.Worker` + Workers Static Assets if you need a static site. Alchemy v2 is `2.0.0-beta.x` (Effect v4); pin the exact version and update intentionally.
 
 ## Prerequisites
 
-- `.my-harness/.config` is finalized from `/my-harness-init` (`USE_DB`, `USE_EMAIL`, etc. are set).
-- Repository is pushed to GitHub (`gh repo view` confirms).
-- Branch protection has been applied via `harness-branch-protection`.
-- Bun is installed in the Nix shell (provided by `templates/nix/flake.nix`).
+- `.my-harness/.config` finalized (`USE_DB`, `USE_EMAIL`, etc. set).
+- Repo pushed to GitHub (`gh repo view` succeeds).
+- Branch protection applied once manually: `bash scripts/setup-branch-protection.sh <owner>/<repo>` (or `gh api ...`).
+- Bun in the Nix shell (from `templates/nix/flake.nix`).
 
-## Steps (in order)
+## Steps
 
-### 1. Install Alchemy v2 in the project
-
-Run inside `<root>/dev`:
+### 1. Install Alchemy v2 (in `<root>/dev`)
 
 ```bash
 nix develop --command bun add alchemy effect @effect/platform-bun @effect/platform-node
 nix develop --command bun add -d @cloudflare/workers-types
 ```
 
-Pin `alchemy` to a specific beta in `package.json`:
+Pin `alchemy` to a specific beta in `package.json` (e.g. `"alchemy": "2.0.0-beta.36"`).
 
-```json
-{
-  "dependencies": {
-    "alchemy": "2.0.0-beta.36"
-  }
-}
-```
+### 2. Generate `dev/alchemy.run.ts` from `.my-harness/.config`
 
-### 2. Generate `dev/alchemy.run.ts`
-
-This is the single source of truth for Cloudflare infrastructure. Generate it from the `.my-harness/.config` selections:
+Single source of truth for Cloudflare infrastructure. Do not put secrets in this file — they live in env vars (Step 4).
 
 ```typescript
-// dev/alchemy.run.ts
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 
 export default Alchemy.Stack(
-  "harness",                       // stack name (project)
+  "harness",
   {
     providers: Cloudflare.providers(),
     state: Cloudflare.state(),     // remote state in Cloudflare DO
   },
   Effect.gen(function* () {
-    // Determine stage from CLI flag (--stage dev|stage|prod) or env STAGE
-    // Each stage produces an isolated set of Cloudflare resources
+    // STAGE comes from --stage <name> or env STAGE; each stage is isolated.
 
-    // === D1 (USE_DB=yes && DB_KIND=d1) ===
+    // D1 (USE_DB=yes && DB_KIND=d1)
     const db = yield* Cloudflare.D1Database("Db", {
       name: `harness-${process.env.STAGE ?? "dev"}`,
-      // adopt: true,  // uncomment to import an existing D1 by the same name
+      // adopt: true,  // import an existing D1 by the same name
     });
 
-    // === R2 backup bucket ===
+    // R2 backup bucket
     const backupBucket = yield* Cloudflare.R2Bucket("BackupBucket", {
       name: `harness-${process.env.STAGE ?? "dev"}-backups`,
     });
 
-    // === KV (optional, if used) ===
+    // KV (optional)
     // const kv = yield* Cloudflare.KVNamespace("Kv", { title: "harness-kv" });
 
-    // === Worker (USE_WEB=yes typically renders into a Worker + Assets) ===
+    // Worker (USE_WEB=yes normally renders into a Worker + Assets)
     const worker = yield* Cloudflare.Worker("Api", {
       main: "./src/worker.ts",
       url: true,
-      bindings: {
-        Db: db,
-        BackupBucket: backupBucket,
-        // Kv: kv,
-      },
+      bindings: { Db: db, BackupBucket: backupBucket /*, Kv: kv*/ },
     });
 
-    // === DNS records (USE_EMAIL=yes adds SPF / DKIM / DMARC) ===
+    // DNS records (USE_EMAIL=yes → add SPF / DKIM / DMARC)
     // const zone = yield* Cloudflare.Zone("ApexZone", { name: "example.com" });
-    // yield* Cloudflare.DnsRecords("EmailDns", {
-    //   zone,
-    //   records: [
-    //     { type: "TXT", name: "@",         content: "v=spf1 include:_spf.resend.com ~all" },
-    //     { type: "TXT", name: "_dmarc",    content: "v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com" },
-    //     { type: "TXT", name: "resend._domainkey", content: "<dkim public key from Resend>" },
-    //   ],
-    // });
+    // yield* Cloudflare.DnsRecords("EmailDns", { zone, records: [ ... ] });
 
-    return {
-      worker_url: worker.url,
-      d1_id:      db.id,
-      bucket:     backupBucket.name,
-    };
+    return { worker_url: worker.url, d1_id: db.id, bucket: backupBucket.name };
   }),
 );
 ```
 
-Save to `<root>/dev/alchemy.run.ts`. **Do not** commit secrets to this file — use environment variables (Step 4).
-
-### 3. Set GitHub Actions vars / secrets
+### 3. Register GitHub Actions secrets
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/setup-secrets.sh <owner>/<repo>
 ```
 
-Required secrets for Alchemy v2 + Cloudflare:
+Required for Alchemy v2 + Cloudflare:
+- `CLOUDFLARE_API_TOKEN` (Workers / D1 / R2 / KV permissions)
+- `CLOUDFLARE_ACCOUNT_ID`
 
-- `CLOUDFLARE_API_TOKEN` — API token with Workers / D1 / R2 / KV permissions
-- `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account ID
+Alchemy reads these at deploy time. **Never** put them in `alchemy.run.ts`.
 
-These are read by Alchemy at deploy time. **Do not put them in `alchemy.run.ts`.**
-
-### 4. Configure local Alchemy authentication (developer machines)
-
-For local dry-runs and the first deploy from a developer machine:
+### 4. Local Alchemy auth (developer machines)
 
 ```bash
 nix develop --command bunx alchemy login --configure
-# Pick "Cloudflare", paste API token + account ID, save under profile name `dev` (default)
+# Pick "Cloudflare", paste API token + account ID, save as profile "dev"
 # For prod: bunx alchemy login --profile prod --configure
 ```
 
-Profiles are stored at `~/.alchemy/profiles.json` (plain JSON; do not commit). For SOPS-encrypted credentials in the repo, decrypt before invoking Alchemy:
+Profiles live at `~/.alchemy/profiles.json` (plain JSON, do not commit). For SOPS-encrypted credentials:
 
 ```bash
 nix develop --command sh -c '
@@ -145,90 +105,68 @@ nix develop --command sh -c '
 '
 ```
 
-### 5. wrangler binding sync (D1 migrations only)
+### 5. Hand-write `dev/wrangler.jsonc` (Alchemy does not generate it)
 
-Alchemy v2's `alchemy dev` uses an internal workerd, but `wrangler d1 migrations apply` is still useful for D1 schema changes. Generate a minimal `wrangler.jsonc` by hand (Alchemy v2 does **not** auto-generate it):
+Used by `wrangler d1 migrations apply`:
 
 ```jsonc
-// dev/wrangler.jsonc
 {
   "name": "harness",
   "main": "src/worker.ts",
   "compatibility_date": "2025-05-01",
   "d1_databases": [
-    { "binding": "Db", "database_name": "harness-dev",   "database_id": "<filled by alchemy state get harness dev Db>" }
+    { "binding": "Db", "database_name": "harness-dev",   "database_id": "<from alchemy state get harness dev Db>" }
   ],
   "env": {
-    "stage": {
-      "d1_databases": [
-        { "binding": "Db", "database_name": "harness-stage", "database_id": "<filled by alchemy state get harness stage Db>" }
-      ]
-    },
-    "prod": {
-      "d1_databases": [
-        { "binding": "Db", "database_name": "harness-prod",  "database_id": "<filled by alchemy state get harness prod Db>" }
-      ]
-    }
+    "stage": { "d1_databases": [{ "binding": "Db", "database_name": "harness-stage", "database_id": "<...>" }] },
+    "prod":  { "d1_databases": [{ "binding": "Db", "database_name": "harness-prod",  "database_id": "<...>" }] }
   }
 }
 ```
 
-Pull the actual D1 ids from Alchemy state after the first deploy:
+Pull the real D1 ids after the first deploy:
 
 ```bash
 nix develop --command bunx alchemy state get harness dev Db | jq -r .id
 ```
 
-### 6. First deploy (creates resources in Cloudflare)
-
-Dry-run first to see the plan:
+### 6. First deploy (creates Cloudflare resources)
 
 ```bash
 nix develop --command bunx alchemy plan --stage dev
-```
-
-Then deploy:
-
-```bash
 nix develop --command bunx alchemy deploy --stage dev --yes
 ```
 
-Repeat for `--stage stage` after Step 5 is verified. **Do not** auto-deploy `--stage prod` from the dev machine; that goes through CI (`harness-deploy-execute`).
+Repeat for `--stage stage` after Step 5 is verified. **Never** auto-deploy `--stage prod` from a dev machine — that's `harness-deploy-execute`'s job (via CI).
 
-### 7. Verify deployment works
+### 7. Verify
 
-- Hit the Worker URL emitted by `alchemy deploy` — health check passes
-- `wrangler d1 migrations apply Db --env stage --remote` succeeds
-- R2 dummy `put` / `get` succeeds via `wrangler r2 object`
-- `bunx alchemy state tree` shows the expected resources
+- Worker URL emitted by `alchemy deploy` → health check passes.
+- `wrangler d1 migrations apply Db --env stage --remote` succeeds.
+- R2 dummy `put` / `get` via `wrangler r2 object` succeeds.
+- `bunx alchemy state tree` shows the expected resources.
 
 ## Adopting existing Cloudflare resources
-
-If the Cloudflare account already has a `harness-prod` D1 or `harness-prod-backups` R2 from manual / Terraform provisioning, take ownership without recreation:
 
 ```bash
 nix develop --command bunx alchemy deploy --stage prod --adopt
 ```
 
-Or per-resource by adding `adopt: true` in `alchemy.run.ts` and re-running deploy.
+Or set `adopt: true` per-resource in `alchemy.run.ts` and re-deploy.
 
-## Cloudflare Pages
-
-**Out of scope for this harness.** If a static site is needed, render it via `Cloudflare.Worker` + assets (Workers Static Assets), not Pages.
-
-## Completion checklist
+## Done
 
 - [ ] `dev/alchemy.run.ts` committed (no secrets inside)
 - [ ] `package.json` pins `alchemy` to a specific beta
 - [ ] `bunx alchemy plan --stage dev` produces a clean diff
 - [ ] D1 / R2 / Worker created in the Cloudflare dashboard
 - [ ] `dev/wrangler.jsonc` populated with real D1 ids from `alchemy state`
-- [ ] All GitHub Secrets / Variables populated via `harness-setup-secrets`
+- [ ] All GitHub Secrets / Variables populated via `scripts/setup-secrets.sh`
 - [ ] `DEPLOY_READY=yes` appended to `.my-harness/.config`
 
-## Related skills
+## Related
 
-- Secrets registration: `harness-setup-secrets`
+- Secrets registration: `scripts/setup-secrets.sh` + `docs/SETUP.md`
 - No-hardcode policy: see `rules/no-hardcoded-secrets.md`
 - Execution: `harness-deploy-execute`
 - Infrastructure details: `docs/INFRA.md`

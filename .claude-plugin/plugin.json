@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin",
   "name": "my-harness",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "description": "Parallel multi-agent harness for Claude Code + Codex CLI. /my-harness-init bootstraps a Hono / Cloudflare D1 / Playwright / Maestro / Android / iOS project from an empty directory; /my-harness-adopt is idempotent and serves as both initial adoption of an existing git repo (history preserved) and ongoing refresh after plugin upgrades (auto-detected via .bare/). /harness-team-lead drives up to 4 lanes (16 teammates: 4 lanes × 4 roles — analyst / engineer / e2e-reviewer / reviewer) with per-lane resource gating; each role can individually delegate to Codex via codex-ask.sh (text) or codex-exec.sh (real file edits / read-only review). One rule set shared across Claude Code / Codex CLI / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md pointing at rules/*.md. Built-in observability layer (agent-log + monitor-agents --watchdog) with deterministic lead-side auto-intervention.",
   "author": {
     "name": "kirinnokubinagai",

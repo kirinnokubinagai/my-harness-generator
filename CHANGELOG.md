@@ -4,6 +4,27 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [4.6.0] — 2026-05-11
+
+### Removed — 4 auxiliary slash commands replaceable by one-line manual ops
+
+- `/harness-branch-protection` — one-time setup, replaceable by `bash scripts/setup-branch-protection.sh <owner>/<repo>` or a single `gh api repos/<o>/<r>/branches/main/protection -X PUT ...` call.
+- `/harness-check-codex-auth` — replaceable by running `codex` (auth state is immediately visible). The internal `scripts/check-codex-auth.sh` is kept — `harness-team-lead`'s Codex-auth-handling section still calls it.
+- `/harness-check-secrets` — pre-commit's gitleaks + CI scans already cover this. The internal `scripts/check-forbidden-patterns.sh` is kept.
+- `/harness-setup-secrets` — one-time setup, replaceable by `bash scripts/setup-secrets.sh <owner>/<repo>` or by reading the GitHub Secrets / SOPS recipe in `docs/SETUP.md`.
+
+Slash-command surface: 10 → 6 (`/my-harness-init`, `/my-harness-adopt`, `/harness-team-lead`, `/harness-codex-daemon`, `/harness-deploy-setup`, `/harness-deploy-execute`).
+
+### Refactor — compress remaining skill SKILL.md
+
+| File | Before | After | Δ |
+|---|---:|---:|---:|
+| `skills/harness-codex-daemon/SKILL.md` | 105 | 44 | -61 |
+| `skills/harness-deploy-setup/SKILL.md` | 234 | 172 | -62 |
+| `skills/harness-deploy-execute/SKILL.md` | 134 | 111 | -23 |
+
+No behaviour change.
+
 ## [4.5.0] — 2026-05-11
 
 ### Refactor — semantic-preserving prose compression
