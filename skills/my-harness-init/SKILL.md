@@ -523,19 +523,29 @@ Use `AskUserQuestion` with named options:
 
 Map: `Local markdown` / `ローカルマークダウン` → `USE_GITHUB_ISSUES=no`. `GitHub Issues` → `USE_GITHUB_ISSUES=yes`. No default applied.
 
-### Setup Q5: Start (or revive) the shared codex app-server daemon — **only when USE_CODEX=yes**
+### Setup Q5: Trust the project root + start the codex daemon — **only when USE_CODEX=yes**
 
-When `USE_CODEX=yes`, every later phase that touches Codex (Phase 2 / 4 / 5 / 7 consultations, Phase 5 image generation, Phase 5 HTML rendering, etc.) will call `codex-ask.sh`. Without a shared daemon, each call spawns a fresh `codex app-server` Node process (cold-start cost per call). One persistent daemon eliminates that cost and is reused across every subsequent Codex call in this and future sessions.
+When `USE_CODEX=yes`, two things must be set up before any later phase calls `codex-ask.sh` — in this exact order:
 
-The daemon script is idempotent and best-effort: `start` is a no-op if a healthy daemon is already running, brings one up otherwise, and never blocks the init flow. Run this exactly once at the end of Phase 1, only when `USE_CODEX=yes`:
+**Q5.a — Mark the project as trusted in `~/.codex/config.toml`** (required, otherwise the daemon hangs):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-project-trust.sh" "$ROOT"
+```
+
+Why this matters: Codex has TWO independent approval layers. **L2 (action approval — shell exec, file edit)** is set to `"never"` by our `codex-app-server-call.py`, but **L1 (project trust — "may Codex run in this directory?")** is enforced separately from `~/.codex/config.toml` and our `approval_policy="never"` does NOT bypass it. A daemon running in a non-trusted directory raises an L1 approval request that has no UI to answer it, so `thread/start` hangs forever and every `image_gen` call (and every other Codex call) silently times out. The script appends a `[projects."<ROOT>"] trust_level = "trusted"` section to `~/.codex/config.toml` (idempotent — no-op when already present).
+
+**Q5.b — Start the shared codex app-server daemon**:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-daemon.sh" "$ROOT"
 ```
 
-Implementation: reads `USE_CODEX` from `.config`; if `yes`, branches on `harness-codex-daemon` `status` (0 = healthy, 1 = start, 2 = restart). Best-effort: failure only loses the cold-start savings, never blocks the init flow. Source: `scripts/ensure-codex-daemon.sh`.
+Without a shared daemon, each Codex call spawns a fresh `codex app-server` Node process (cold-start cost per call). One persistent daemon eliminates that cost and is reused across every subsequent Codex call in this and future sessions. Implementation: reads `USE_CODEX` from `.config`; if `yes`, branches on daemon `status` (0 = healthy, 1 = start, 2 = restart). Best-effort: failure only loses the cold-start savings, never blocks the init flow. Source: `scripts/ensure-codex-daemon.sh`.
 
-When `USE_CODEX=no`, skip this step entirely — no Codex calls will be made, so the daemon serves no purpose.
+Order matters: trust must be in place **before** the daemon comes up, because the daemon reads `config.toml` at start time. If the daemon is already running and trust has just been added, `ensure-codex-daemon.sh` will see a healthy daemon and skip; force-restart with `bash $D restart` (where `$D` is the daemon script) to pick up the new trust entry.
+
+When `USE_CODEX=no`, skip BOTH Q5.a and Q5.b entirely — no Codex calls will be made, so trust and daemon serve no purpose.
 
 After all five steps are answered (Q5 only runs the daemon command — no user question), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 

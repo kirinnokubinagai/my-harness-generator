@@ -4,6 +4,39 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.3.1] — 2026-05-12
+
+### Fixed
+
+- **Phase-5 Turn 1 hanging forever when the project root is not in
+  Codex's trusted-projects list.** Codex CLI has two independent
+  approval layers — L2 (per-action: shell exec / file edit), which
+  our `codex-app-server-call.py` already sets to `"never"`, and L1
+  (project trust, configured in `~/.codex/config.toml`). L1 is NOT
+  bypassed by `approval_policy="never"`. A `codex app-server` daemon
+  running on behalf of an untrusted project raises an L1 trust prompt
+  that has nowhere to be answered (the daemon has no UI), so every
+  `thread/start` hangs until inactivity timeout. No image_gen call
+  fires, no file lands, the bridge appears to "succeed" but the page
+  PNG never exists.
+
+### Added
+
+- **`scripts/ensure-codex-project-trust.sh`** — appends
+  `[projects."<ROOT>"]` with `trust_level = "trusted"` to
+  `~/.codex/config.toml` (idempotent — no-op when already trusted).
+  Uses Python's stdlib `tomllib` for parsing with a tolerant text-scan
+  fallback. Preserves existing config (append-only, never rewrites
+  other sections). Schema matches the official Codex
+  [config reference](https://developers.openai.com/codex/config-reference).
+- **Phase 1 Setup Q5 split into Q5.a + Q5.b** (in `SKILL.md`):
+    - Q5.a — `ensure-codex-project-trust.sh "$ROOT"` (always before daemon)
+    - Q5.b — `ensure-codex-daemon.sh "$ROOT"` (unchanged)
+  Order matters: the daemon reads `config.toml` at start time, so
+  trust must be in place first.
+
+---
+
 ## [7.3.0] — 2026-05-11
 
 Phase 5 redesigned around (a) edit-mode chaining for the image-generation
