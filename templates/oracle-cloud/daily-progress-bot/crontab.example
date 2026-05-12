@@ -1,0 +1,14 @@
+# daily-progress-bot crontab example
+#
+# Install on the OCI VM:
+#   crontab -e
+#   (paste the line below, adjust path)
+#
+# UTC 09:00 = JST 18:00. OCI VMs default to UTC timezone unless you
+# `sudo timedatectl set-timezone Asia/Tokyo` and use minute-of-the-day
+# in local time instead.
+
+PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.npm-global/bin
+
+# Daily at 18:00 JST (= 09:00 UTC).
+0 9 * * * /home/opc/daily-progress-bot/daily-progress.sh >> /home/opc/daily-progress-bot/cron.log 2>&1

@@ -4,6 +4,63 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.12.0] — 2026-05-12
+
+### Added
+
+- **`templates/oracle-cloud/daily-progress-bot/`** — optional scaffold
+  for a "Claude reads GitHub at 18:00 and posts a Japanese summary to
+  Discord" bot. Designed to run on an Oracle Cloud Always-Free VM under
+  cron, using the user's existing Claude Pro/Max subscription via
+  `CLAUDE_CODE_OAUTH_TOKEN`.
+  - **Cost: ¥0** (existing Pro/Max + OCI Always Free + Discord free)
+  - **Time precision: seconds** (dedicated VM cron, not GitHub Actions'
+    ~15-minute cron delay)
+  - **Officially permitted** per Anthropic's Consumer ToS exemption for
+    Claude Code CLI ("one human, one subscription, one beneficiary")
+  - Files:
+      - `daily-progress.sh` — bash script that collects 24 hours of
+        commits / opened+closed issues / opened+closed PRs / latest
+        workflow runs / `priority/p1` open issues via the `gh` CLI,
+        asks `claude -p` to summarize in Japanese as 3-5 emoji-prefixed
+        bullets, then posts an embed to the Discord webhook.
+      - `.env.example` — `CLAUDE_CODE_OAUTH_TOKEN`, `DISCORD_WEBHOOK_URL`,
+        `GH_TOKEN`, `REPO_OWNER`, `REPO_NAME`, optional `LANG_TAG` and
+        `LOOKBACK_HOURS`.
+      - `crontab.example` — `0 9 * * *` (UTC 09:00 = JST 18:00).
+      - `README.md` — full setup walkthrough: OCI VM creation, Node /
+        Claude CLI / `gh` / `jq` install, OAuth token transfer from a
+        desktop machine, file deployment via `scp`, smoke test, cron
+        registration, troubleshooting, and OAuth token rotation
+        (~90 days) reminder.
+- **`scripts/bootstrap.sh`** — copies `templates/oracle-cloud/daily-progress-bot`
+  to `dev/oracle-cloud/daily-progress-bot/` so projects can opt in
+  later by following the README. Skipped silently if already present.
+
+### Why OCI VM instead of GitHub Actions for the daily cron
+
+GitHub Actions' `schedule` event:
+  - ~15 minute delay (officially documented as "best-effort, not guaranteed")
+  - extra delay near the top of an hour (official guidance: "avoid the
+    top of the hour")
+  - workflow auto-disabled after 60 days of repo inactivity
+  - workflow disabled on forks
+OCI Always-Free VM cron has none of these — it's a dedicated scheduler
+with seconds precision.
+
+### Why subscription (Pro/Max) instead of API key
+
+- Cost: ¥0 (subscription already paid) vs ~$1-2/mo with API key
+- Allowed by Anthropic's Consumer ToS: "Claude Code CLI running on your
+  own computer is Anthropic's official product built for scripted and
+  automated use, and the Consumer ToS exempts it from the prohibition
+  on automated access."
+- Constraint: `one human, one subscription, one beneficiary` — fine for
+  a personal/sole-developer's own daily progress digest; not OK for
+  multi-developer teams (use Anthropic Team Plan instead).
+
+---
+
 ## [7.11.1] — 2026-05-12
 
 ### Changed

@@ -432,6 +432,16 @@ mkdir -p dev/.my-harness dev/secrets
 [ -f "dev/.my-harness/learnings.md" ] || cp "$HARNESS_DIR/templates/dotmyharness/learnings.md" dev/.my-harness/learnings.md 2>/dev/null || true
 [ -f "dev/secrets/README.md" ] || cp "$HARNESS_DIR/templates/dotmyharness/secrets-README.md" dev/secrets/README.md 2>/dev/null || true
 
+# Oracle Cloud daily-progress bot scaffold — optional. Users who want a
+# daily 18:00 JST progress digest in Discord (Claude-summarized) follow
+# dev/oracle-cloud/daily-progress-bot/README.md to provision an OCI
+# Always Free VM. No fee — uses existing Claude Pro/Max subscription
+# + OCI Always Free + Discord free plan. Skip if unused.
+if [ ! -d "dev/oracle-cloud/daily-progress-bot" ]; then
+  mkdir -p "dev/oracle-cloud"
+  cp -r "$HARNESS_DIR/templates/oracle-cloud/daily-progress-bot" "dev/oracle-cloud/" 2>/dev/null || true
+fi
+
 
 # ===== 5. Copy harness itself to dev/.my-harness =====
 mkdir -p dev/.my-harness
