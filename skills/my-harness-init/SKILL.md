@@ -535,13 +535,49 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-project-trust.sh" "$ROOT"
 
 Why this matters: Codex has TWO independent approval layers. **L2 (action approval — shell exec, file edit)** is set to `"never"` by our `codex-app-server-call.py`, but **L1 (project trust — "may Codex run in this directory?")** is enforced separately from `~/.codex/config.toml` and our `approval_policy="never"` does NOT bypass it. A daemon running in a non-trusted directory raises an L1 approval request that has no UI to answer it, so `thread/start` hangs forever and every `image_gen` call (and every other Codex call) silently times out. The script appends a `[projects."<ROOT>"] trust_level = "trusted"` section to `~/.codex/config.toml` (idempotent — no-op when already present).
 
-**Q5.b — Pin Codex's reasoning effort to `xhigh`**:
+**Q5.b — Pin Codex's reasoning effort (ask the user: `xhigh` or `high`)**:
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-effort.sh" xhigh
+Ask the user with `AskUserQuestion`. Match `LANG`:
+
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "How deeply should Codex reason on each turn?",
+    "header": "Codex effort",
+    "multiSelect": false,
+    "options": [
+      { "label": "xhigh", "description": "Highest reasoning depth. Best output quality on hard tasks (design / complex implementation). Slower and consumes the Codex usage allowance faster." },
+      { "label": "high", "description": "One step below xhigh. Faster and lighter on usage; slightly less thorough on multi-step reasoning. Adequate for most everyday tasks." }
+    ]
+  }]
+}
 ```
 
-This adds `model_reasoning_effort = "xhigh"` at the top of `~/.codex/config.toml` if the key is not already present. `xhigh` is the highest of the six reasoning depths (`none|minimal|low|medium|high|xhigh`) and is the right default for harness workloads — Phase 5 image generation, refinement turns, and implementation-phase code work all benefit from deeper reasoning. Idempotent: if the user already set a different value, it's left alone.
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "Codex の推論の深さはどうしますか？",
+    "header": "Codex 推論レベル",
+    "multiSelect": false,
+    "options": [
+      { "label": "xhigh", "description": "最高の推論深度。デザイン / 複雑な実装などハードなタスクで品質が最も高い。時間と Codex 利用枠を多く消費する。" },
+      { "label": "high", "description": "xhigh の 1 段下。速くて軽い。多段の推論はやや劣るが、日常的なタスクには十分。" }
+    ]
+  }]
+}
+```
+
+Map: `xhigh` → `xhigh`, `high` → `high`. No default applied — the user must choose.
+
+Then write the choice to `~/.codex/config.toml`:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-effort.sh" "<chosen-level>"
+```
+
+This adds `model_reasoning_effort = "<chosen-level>"` at the top of `~/.codex/config.toml` if the key is not already present. Idempotent: if the user already set a value in a previous session, it's left alone (no overwrite). The script validates the level against the SDK's allowed values (`none|minimal|low|medium|high|xhigh`); anything else is rejected with a clear error.
 
 **Q5.c — Start the shared codex app-server daemon**:
 

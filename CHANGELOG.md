@@ -4,6 +4,28 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.7.2] — 2026-05-12
+
+### Changed
+
+- **Phase 1 Setup Q5.b now asks the user `xhigh` vs `high`** instead of
+  hardcoding `xhigh`. AskUserQuestion presents the two options with a
+  short tradeoff description (xhigh = best output / slower / more
+  usage; high = faster / lighter / slightly less thorough on multi-step
+  reasoning). The user's choice is passed to `ensure-codex-effort.sh`,
+  which still idempotently writes / preserves the value in
+  `~/.codex/config.toml`.
+
+Underlying script unchanged (it already validated the level against
+the SDK's `ReasoningEffort` literal and accepted any of
+`none|minimal|low|medium|high|xhigh`); only the SKILL.md flow that
+calls it now ends with a real user choice rather than a baked-in
+default. Lower levels (`medium` and below) intentionally aren't
+offered via the question — they're available via direct
+`ensure-codex-effort.sh <level>` for anyone who wants them.
+
+---
+
 ## [7.7.1] — 2026-05-12
 
 ### Added
