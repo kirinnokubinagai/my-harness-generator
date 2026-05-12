@@ -4,6 +4,40 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.7.1] — 2026-05-12
+
+### Added
+
+- **`scripts/ensure-codex-effort.sh`** — sets Codex's global
+  `model_reasoning_effort` in `~/.codex/config.toml`. Default level is
+  `xhigh` (the highest of six steps: `none|minimal|low|medium|high|xhigh`),
+  which is the right default for harness workloads (Phase 5 image
+  generation + refinements + implementation-phase Codex work all benefit
+  from deeper reasoning). Idempotent: if the user already set a value
+  it's preserved (no overwrite); otherwise the line is inserted at the
+  top level of config.toml above any `[section]` headers. Validates the
+  level against the SDK's `ReasoningEffort` literal (rejects typos like
+  `ultrahigh`).
+- **SKILL.md Phase 1 Setup Q5 split into three steps** (was two):
+    - Q5.a — `ensure-codex-project-trust.sh "$ROOT"`
+    - Q5.b — `ensure-codex-effort.sh xhigh` (NEW)
+    - Q5.c — `ensure-codex-daemon.sh "$ROOT"`
+  Both Q5.a and Q5.b touch `~/.codex/config.toml` and must complete
+  before Q5.c brings the daemon up, since the daemon reads config.toml
+  at start time.
+
+### Why
+
+The SDK exposes reasoning effort via `TurnOverrides.effort` per-turn
+and `model_reasoning_effort` at global config.toml level. Setting the
+global default once (instead of injecting `TurnOverrides` on every
+codex-ask.sh call) is simpler and works for both harness Codex
+invocations AND the user's own direct `codex` CLI usage.
+
+Reference: https://developers.openai.com/codex/config-reference
+
+---
+
 ## [7.7.0] — 2026-05-12
 
 Phase 5 is now a clean **three-stage** flow at the user's request:

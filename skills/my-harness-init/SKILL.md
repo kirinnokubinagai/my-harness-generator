@@ -535,7 +535,15 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-project-trust.sh" "$ROOT"
 
 Why this matters: Codex has TWO independent approval layers. **L2 (action approval — shell exec, file edit)** is set to `"never"` by our `codex-app-server-call.py`, but **L1 (project trust — "may Codex run in this directory?")** is enforced separately from `~/.codex/config.toml` and our `approval_policy="never"` does NOT bypass it. A daemon running in a non-trusted directory raises an L1 approval request that has no UI to answer it, so `thread/start` hangs forever and every `image_gen` call (and every other Codex call) silently times out. The script appends a `[projects."<ROOT>"] trust_level = "trusted"` section to `~/.codex/config.toml` (idempotent — no-op when already present).
 
-**Q5.b — Start the shared codex app-server daemon**:
+**Q5.b — Pin Codex's reasoning effort to `xhigh`**:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-effort.sh" xhigh
+```
+
+This adds `model_reasoning_effort = "xhigh"` at the top of `~/.codex/config.toml` if the key is not already present. `xhigh` is the highest of the six reasoning depths (`none|minimal|low|medium|high|xhigh`) and is the right default for harness workloads — Phase 5 image generation, refinement turns, and implementation-phase code work all benefit from deeper reasoning. Idempotent: if the user already set a different value, it's left alone.
+
+**Q5.c — Start the shared codex app-server daemon**:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-daemon.sh" "$ROOT"
@@ -543,9 +551,9 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-daemon.sh" "$ROOT"
 
 Without a shared daemon, each Codex call spawns a fresh `codex app-server` Node process (cold-start cost per call). One persistent daemon eliminates that cost and is reused across every subsequent Codex call in this and future sessions. Implementation: reads `USE_CODEX` from `.config`; if `yes`, branches on daemon `status` (0 = healthy, 1 = start, 2 = restart). Best-effort: failure only loses the cold-start savings, never blocks the init flow. Source: `scripts/ensure-codex-daemon.sh`.
 
-Order matters: trust must be in place **before** the daemon comes up, because the daemon reads `config.toml` at start time. If the daemon is already running and trust has just been added, `ensure-codex-daemon.sh` will see a healthy daemon and skip; force-restart with `bash $D restart` (where `$D` is the daemon script) to pick up the new trust entry.
+Order matters: trust + effort must be in place **before** the daemon comes up, because the daemon reads `config.toml` at start time. If the daemon is already running and trust / effort has just been added, `ensure-codex-daemon.sh` will see a healthy daemon and skip; force-restart with `bash $D restart` (where `$D` is the daemon script) to pick up the new entries.
 
-When `USE_CODEX=no`, skip BOTH Q5.a and Q5.b entirely — no Codex calls will be made, so trust and daemon serve no purpose.
+When `USE_CODEX=no`, skip Q5.a, Q5.b, and Q5.c entirely — no Codex calls will be made, so trust / effort / daemon all serve no purpose.
 
 After all five steps are answered (Q5 only runs the daemon command — no user question), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
