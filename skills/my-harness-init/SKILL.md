@@ -595,7 +595,411 @@ Order matters: trust + effort must be in place **before** the daemon comes up, b
 
 When `USE_CODEX=no`, skip Q5.a, Q5.b, and Q5.c entirely — no Codex calls will be made, so trust / effort / daemon all serve no purpose.
 
-After all five steps are answered (Q5 only runs the daemon command — no user question), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+### Setup Q6: Notification service
+
+Use `AskUserQuestion` with **named options** (do NOT phrase as a free-text "which one?"):
+
+**LANG=en — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "Enable notifications? Choose a service:",
+    "header": "Notifications",
+    "multiSelect": false,
+    "options": [
+      { "label": "Discord",  "description": "Free, easy. Recommended for personal projects." },
+      { "label": "Slack",    "description": "Better for teams already on Slack." },
+      { "label": "Teams",    "description": "Microsoft Teams. Slightly more setup." },
+      { "label": "Disable",  "description": "Skip notifications. You can enable later with `bash scripts/ensure-notification-webhook.sh ...`." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "通知を有効にしますか？サービスを選択してください:",
+    "header": "通知",
+    "multiSelect": false,
+    "options": [
+      { "label": "Discord",  "description": "無料・簡単。個人プロジェクトに最適。" },
+      { "label": "Slack",    "description": "既に Slack を使っているチームに最適。" },
+      { "label": "Teams",    "description": "Microsoft Teams。設定はやや多め。" },
+      { "label": "無効化",   "description": "通知をスキップ。あとから `bash scripts/ensure-notification-webhook.sh ...` で有効化可能。" }
+    ]
+  }]
+}
+```
+
+Map the user's choice to `$SERVICE` (lowercase): `Discord` → `discord`, `Slack` → `slack`, `Teams` → `teams`, `Disable` / `無効化` → `none`.
+
+**Already-configured detection (option α) for Q6:**
+
+Before asking, check whether the relevant config already exists:
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^NOTIFICATION_SERVICE=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_SERVICE="$(grep '^NOTIFICATION_SERVICE=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)"
+  CURRENT_URL="$(grep '^NOTIFICATION_WEBHOOK_URL=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)"
+  # Mask URL: show only the first 20 chars + "..."
+  MASKED_URL="$(printf '%.20s...' "$CURRENT_URL")"
+fi
+```
+
+If a prior config exists, show the masked current value and ask:
+
+- **LANG=en:** "Current config: `$CURRENT_SERVICE` → `$MASKED_URL`. Change it?"
+- **LANG=ja:** "現在の設定: `$CURRENT_SERVICE` → `$MASKED_URL`。変更しますか?"
+
+Options (single-select): `Keep` / `保持する` → skip Q6/Q7 entirely, retain current values; `Change` / `変更する` → ask the original Q6 question above.
+
+**Behavior after Q6:**
+
+If `$SERVICE == "none"`:
+
+```bash
+bash scripts/ensure-notification-webhook.sh "$ROOT" none
+```
+
+This wipes any prior config. **Skip Q7-Q9 entirely** and jump to the Phase 1 wrap-up.
+
+Otherwise, continue to Q7.
+
+### Setup Q7: Webhook URL acquisition (only when `$SERVICE != none`)
+
+Use `AskUserQuestion`. Substitute `<Service>` in each option with the selected `$SERVICE` (rendered as `Discord` / `Slack` / `Teams`).
+
+**LANG=en — payload:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide the webhook URL?",
+    "header": "Webhook URL",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "I already created the webhook in <Service>. I'll paste the URL on the next prompt." },
+      { "label": "Walk me through creating it",
+        "description": "Open templates/notifications/SETUP.md with step-by-step instructions for <Service>, including signing up for a free account if needed." },
+      { "label": "Auto-acquire via Chrome",
+        "description": "Use Claude in Chrome to navigate the <Service> UI and pull the URL automatically. Falls back to manual paste if anything fails. Currently only works for Discord — Slack/Teams must use manual paste." }
+    ]
+  }]
+}
+```
+
+**LANG=ja — payload:**
+```json
+{
+  "questions": [{
+    "question": "Webhook URL の入力方法を選んでください:",
+    "header": "Webhook URL",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "<Service> で Webhook を既に作成済み。次のプロンプトで URL を貼り付ける。" },
+      { "label": "作り方を案内してほしい",
+        "description": "templates/notifications/SETUP.md を開いて <Service> の手順を順に説明（無料アカウント作成手順も含む）。" },
+      { "label": "Chrome で自動取得する",
+        "description": "Claude in Chrome で <Service> の画面を操作して URL を自動取得。失敗時は手動貼り付けにフォールバック。現状 Discord のみ対応 — Slack/Teams は手動貼り付けが必要。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "I have it — I will paste" / 「持っているので貼り付ける」
+
+Ask via `AskUserQuestion` (single freeform option):
+
+- **LANG=en** question: "Paste the webhook URL:"
+- **LANG=ja** question: "Webhook URL を貼り付けてください:"
+
+Then validate:
+
+```bash
+bash scripts/ensure-notification-webhook.sh "$ROOT" "$SERVICE" "$URL"
+```
+
+Exit code 0 → success, continue to Q8. Exit code 2 (bad shape) → show the script's stderr and reprompt (loop). Exit code 3 should not happen here (URL is provided); treat as a script bug and surface the error.
+
+#### "Walk me through creating it" / 「作り方を案内してほしい」
+
+Print the absolute path to `templates/notifications/SETUP.md`:
+
+- **LANG=en:** "Open `<absolute-path-to>/templates/notifications/SETUP.md` and follow the `<Service>` section. Return here when you have the URL."
+- **LANG=ja:** "`<absolute-path-to>/templates/notifications/SETUP.md` を開いて `<Service>` のセクションに従ってください。URL を取得したら戻ってきてください。"
+
+Wait for user acknowledgement (`continue` / `done`), then `AskUserQuestion` for the URL (same as the paste path above) and validate via `ensure-notification-webhook.sh`.
+
+#### "Auto-acquire via Chrome" / 「Chrome で自動取得する」
+
+Only valid when `$SERVICE == "discord"`. For Slack/Teams, downgrade to the paste path with a one-line note:
+
+- **LANG=en:** "Auto-acquire is only supported for Discord. Falling back to manual paste."
+- **LANG=ja:** "自動取得は現状 Discord のみ対応。手動貼り付けにフォールバックします。"
+
+For Discord, attempt the following (best-effort — selectors are volatile):
+
+1. Use `mcp__claude-in-chrome__tabs_context_mcp` to look for an open Discord tab. If none, call `tabs_create_mcp` and `navigate` to `https://discord.com/channels/@me`.
+2. If the resulting URL contains `/login`, pause and ask the user to log in:
+   - **LANG=en:** "Please log in to Discord in the opened tab, then say `continue`."
+   - **LANG=ja:** "開いたタブで Discord にログインしてから `continue` と入力してください。"
+3. Once logged in, ask the user via `AskUserQuestion` (freeform) which server they want, or ask them to manually navigate to the destination channel and say `continue`. (We do NOT navigate the server picker — too brittle.)
+4. Navigate to channel settings → Integrations → Webhooks → New Webhook. Use `mcp__claude-in-chrome__find` to locate "Integrations" and click; repeat for "Webhooks" and "New Webhook" / "Create Webhook".
+5. Use `mcp__claude-in-chrome__javascript_tool` to read the Webhook URL from the DOM, or click "Copy Webhook URL" and read the clipboard via `navigator.clipboard.readText()`. The clipboard read might require a permission prompt; if denied, fall back to manual paste.
+6. Validate the URL via `ensure-notification-webhook.sh`.
+7. **On ANY failure** (timeout, element not found, clipboard denied, browser tools fail) → fall back to manual paste with a clear explanation of what went wrong and what to do next. The manual paste path IS the happy path; auto-acquire is just nice-to-have.
+
+Reality check: Discord's SPA is volatile and these selectors will break over time. Treat the entire auto-acquire flow as best-effort.
+
+### Setup Q8: GitHub PAT
+
+**Already-configured detection (option α) for Q8:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^GH_TOKEN=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_PAT="$(grep '^GH_TOKEN=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)"
+  MASKED_PAT="$(printf '%.20s...' "$CURRENT_PAT")"
+fi
+```
+
+If a prior PAT exists, ask first:
+
+- **LANG=en:** "Current PAT: `$MASKED_PAT`. Change it?"
+- **LANG=ja:** "現在の PAT: `$MASKED_PAT`。変更しますか?"
+
+Options: `Keep` / `保持する` → skip Q8 entirely. `Change` / `変更する` → ask the original question below.
+
+**Q8 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide a GitHub read-only token?",
+    "header": "GitHub PAT",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "Fine-grained PAT with READ scopes for contents, issues, pull-requests, actions." },
+      { "label": "Walk me through creating it",
+        "description": "Open templates/notifications/SETUP.md → GitHub PAT section." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "GitHub の読み取り専用トークンの入力方法を選んでください:",
+    "header": "GitHub PAT",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "Fine-grained PAT、READ 権限のみ（contents / issues / pull-requests / actions）。" },
+      { "label": "作り方を案内してほしい",
+        "description": "templates/notifications/SETUP.md の GitHub PAT セクションを開く。" }
+    ]
+  }]
+}
+```
+
+For "I have it — I will paste": ask for the PAT via `AskUserQuestion` (freeform), validate via:
+
+```bash
+bash scripts/ensure-github-pat.sh "$ROOT" "$PAT"
+```
+
+Exit 0 → success; exit 2 → bad shape, reprompt; exit 3 → script bug (PAT should have been provided).
+
+For "Walk me through creating it": print the path to `templates/notifications/SETUP.md` (Section 4 — GitHub fine-grained PAT), wait for `continue`, then ask + validate as above.
+
+### Setup Q9: Oracle Cloud daily-progress VM
+
+**Already-configured detection (option α) for Q9:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.oci-vm.env" ]; then
+  CURRENT_VM_NAME="$(grep '^OCI_VM_NAME=' "$ROOT/.my-harness/.oci-vm.env" | cut -d= -f2)"
+  CURRENT_VM_IP="$(grep '^OCI_VM_PUBLIC_IP=' "$ROOT/.my-harness/.oci-vm.env" | cut -d= -f2)"
+fi
+```
+
+If `.oci-vm.env` exists, ask:
+
+- **LANG=en:** "Current VM: `$CURRENT_VM_NAME` @ `$CURRENT_VM_IP`. Change it?"
+- **LANG=ja:** "現在の VM: `$CURRENT_VM_NAME` @ `$CURRENT_VM_IP`。変更しますか?"
+
+Options: `Keep` / `保持する` → skip Q9 entirely. `Change` / `変更する` → ask the original Q9 question below.
+
+**Q9 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Provision an Oracle Cloud VM for the daily-progress bot?",
+    "header": "OCI VM",
+    "multiSelect": false,
+    "options": [
+      { "label": "Yes — provision now",
+        "description": "Create a new Always-Free A1.Flex VM (4 OCPU, 24 GB RAM). Requires `oci` CLI configured (~/.oci/config). The script will guide you if missing." },
+      { "label": "Already have one — connect to it",
+        "description": "Tell me the public IP + SSH key path, I'll deploy the bot there." },
+      { "label": "Skip — set up later",
+        "description": "I'll run scripts/ensure-oci-vm.sh + setup-oci-vm.sh manually later. Don't ask again this session." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "デイリープログレスボット用の Oracle Cloud VM をプロビジョニングしますか？",
+    "header": "OCI VM",
+    "multiSelect": false,
+    "options": [
+      { "label": "はい — 今すぐ作成",
+        "description": "Always-Free A1.Flex VM (4 OCPU / 24 GB RAM) を新規作成。`oci` CLI と `~/.oci/config` が必要。未設定なら案内する。" },
+      { "label": "既存の VM に接続",
+        "description": "public IP と SSH 鍵パスを教えてくれれば、そこにボットをデプロイする。" },
+      { "label": "スキップ — あとで自分でやる",
+        "description": "scripts/ensure-oci-vm.sh と setup-oci-vm.sh を後で手動実行する。今セッションでは再度尋ねない。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "Skip — set up later" / 「スキップ — あとで自分でやる」
+
+Continue to the Phase 1 wrap-up. Do not ask again this session.
+
+#### "Already have one — connect to it" / 「既存の VM に接続」
+
+Ask via `AskUserQuestion` (freeform):
+
+1. Public IP of the existing VM.
+2. SSH key filename (default `kirin_oracle_cloud.key`, relative to `~/.ssh/`).
+
+Write the answers to `.my-harness/.oci-vm.env` manually:
+
+```bash
+mkdir -p "$ROOT/.my-harness"
+cat > "$ROOT/.my-harness/.oci-vm.env" <<EOF
+# Manually configured — pointed at an existing VM.
+OCI_VM_NAME=existing
+OCI_VM_REGION=unknown
+OCI_VM_INSTANCE_ID=
+OCI_VM_PUBLIC_IP=$VM_IP
+OCI_VM_SSH_KEY=$HOME/.ssh/$SSH_KEY_FILENAME
+EOF
+chmod 600 "$ROOT/.my-harness/.oci-vm.env"
+```
+
+Then deploy:
+
+```bash
+bash scripts/setup-oci-vm.sh "$ROOT"
+```
+
+#### "Yes — provision now" / 「はい — 今すぐ作成」
+
+Ask 3 follow-up sub-questions in order:
+
+##### Q9a — VM name
+
+Freeform via `AskUserQuestion`, default `kirin` (matches the existing `whoami` convention).
+
+- **LANG=en:** "VM display name (default: `kirin`):"
+- **LANG=ja:** "VM の表示名 (デフォルト: `kirin`):"
+
+##### Q9b — Region
+
+`AskUserQuestion`, `multiSelect: false`:
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which OCI region?",
+    "header": "Region",
+    "multiSelect": false,
+    "options": [
+      { "label": "Osaka (ap-osaka-1)",                     "description": "Default. Closest to Japan-based users." },
+      { "label": "Tokyo (ap-tokyo-1)",                     "description": "Alternative Japan region." },
+      { "label": "Ashburn (us-ashburn-1) — best for capacity availability",
+                                                            "description": "US East. Historically the most A1 capacity available." },
+      { "label": "Frankfurt (eu-frankfurt-1)",             "description": "EU region." },
+      { "label": "I'll type my own",                        "description": "Enter any other region code (e.g. `ap-seoul-1`, `uk-london-1`)." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "OCI のリージョンを選んでください:",
+    "header": "リージョン",
+    "multiSelect": false,
+    "options": [
+      { "label": "大阪 (ap-osaka-1)",                       "description": "デフォルト。日本ユーザーに最も近い。" },
+      { "label": "東京 (ap-tokyo-1)",                       "description": "もう一つの日本リージョン。" },
+      { "label": "アッシュバーン (us-ashburn-1) — 容量豊富",
+                                                            "description": "米国東部。A1 容量が最も多い傾向にある。" },
+      { "label": "フランクフルト (eu-frankfurt-1)",         "description": "EU リージョン。" },
+      { "label": "自分で入力する",                           "description": "他のリージョンコード（例: `ap-seoul-1`, `uk-london-1`）を入力。" }
+    ]
+  }]
+}
+```
+
+If "I'll type my own" / 「自分で入力する」 is selected, ask via a follow-up freeform `AskUserQuestion` for the region code.
+
+Map the chosen label to the region code (parenthesized part). Persist as `$REGION`.
+
+##### Q9c — SSH key filename
+
+Freeform via `AskUserQuestion`, default `kirin_oracle_cloud.key`.
+
+- **LANG=en:** "SSH key filename (under `~/.ssh/`, will be generated if missing). Default: `kirin_oracle_cloud.key`:"
+- **LANG=ja:** "SSH 鍵ファイル名 (`~/.ssh/` 配下、無ければ生成)。デフォルト: `kirin_oracle_cloud.key`:"
+
+##### After Q9a/b/c — provision
+
+Call:
+
+```bash
+bash scripts/ensure-oci-vm.sh "$ROOT" "$VM_NAME" "$REGION" "$SSH_KEY"
+```
+
+Handle exit codes:
+
+- **Exit 0:** success — proceed to `bash scripts/setup-oci-vm.sh "$ROOT"`.
+- **Exit 1** (missing `~/.oci/config` or `oci` CLI not on PATH): the script prints its own setup hint. ALSO point the user at `templates/notifications/SETUP.md` Section 5 (Oracle Cloud). Pause and ask:
+  - **LANG=en:** "Set up `~/.oci/config` per the instructions, then choose:"
+  - **LANG=ja:** "`~/.oci/config` を上記の手順でセットアップしてから、選んでください:"
+  - Options: `Retry` / `再試行` → re-run `ensure-oci-vm.sh`; `Skip — set up later` / `スキップ — あとで` → continue to wrap-up.
+- **Exit 2** (network / "Out of Host Capacity" after retries):
+  - **LANG=en:** "OCI launch failed (likely Out of Host Capacity — the Always-Free A1 region is exhausted). Skipping VM provisioning for now. Re-run `bash scripts/ensure-oci-vm.sh "$ROOT" "$VM_NAME" "$REGION" "$SSH_KEY"` later, or try another region."
+  - **LANG=ja:** "OCI VM の起動に失敗しました（Always-Free A1 の容量切れの可能性が高い）。今回は VM プロビジョニングをスキップします。後で `bash scripts/ensure-oci-vm.sh "$ROOT" "$VM_NAME" "$REGION" "$SSH_KEY"` を再実行するか、別リージョンを試してください。"
+
+On success (Exit 0) call `bash scripts/setup-oci-vm.sh "$ROOT"` to install dependencies, deploy the bot, and register the crontab inside the VM.
+
+### Phase 1 wrap-up
+
+After Q6-Q9 answered (or skipped via Q6=Disable / Q9=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 

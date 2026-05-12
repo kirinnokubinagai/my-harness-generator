@@ -4,6 +4,74 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.16.0] — 2026-05-12
+
+### Added — Phase 1 Setup orchestration for notifications + OCI VM (Step E)
+
+This commit ties the 4 bash building blocks from 7.15.0 into the
+`/my-harness-init` Phase 1 conversational flow. Users now configure
+notifications and the daily-progress bot **during initial project
+setup**, with re-runs detecting existing config and offering to keep
+or change each piece independently.
+
+#### `skills/my-harness-init/SKILL.md` — 4 new question groups (Q6–Q9)
+
+  - **Q6** — Notification service (Discord / Slack / Teams / Disable),
+    bilingual EN/JA. Discord recommended for personal projects.
+  - **Q7** — Webhook URL acquisition: (a) paste manually,
+    (b) walk-through via `templates/notifications/SETUP.md`,
+    (c) Discord-only auto-acquire via `claude-in-chrome` (best-effort,
+    falls back to paste on any failure). Validates URL shape via
+    `ensure-notification-webhook.sh`.
+  - **Q8** — GitHub PAT (read-only): paste or walk-through. Validates
+    PAT shape (ghp_* / github_pat_* / 40-hex). Saves to the same
+    `.notification.env` as Q7.
+  - **Q9** — OCI VM: provision now / use existing host / skip. Provision
+    path asks Q9a VM name (default `kirin`), Q9b region (Osaka /
+    Tokyo / Ashburn / Frankfurt / custom), Q9c SSH key filename
+    (default `kirin_oracle_cloud.key`). Invokes `ensure-oci-vm.sh`
+    + `setup-oci-vm.sh` to provision + deploy + start cron end-to-end.
+
+**Already-configured detection (option α)**: Each of Q6/Q8/Q9 first
+checks for prior config in `.my-harness/.notification.env` or
+`.my-harness/.oci-vm.env`. If present, the current value is shown
+(URL/PAT masked to first 20 chars) with a Keep/Change prompt. Q7 is
+skipped when Q6 was answered "Keep".
+
+#### `templates/notifications/SETUP.md` (438 lines, bilingual JA-first)
+
+Step-by-step account creation + secret generation walkthroughs:
+
+  1. **Discord** — sign up, create server (optional), Channel Settings
+     → Integrations → Webhooks → Copy URL
+  2. **Slack** — workspace creation, app, Incoming Webhook activation
+  3. **Microsoft Teams** — Channel → ⋯ → Connectors → Incoming Webhook
+  4. **GitHub fine-grained PAT** — exact scopes (contents / issues /
+     pull-requests / actions, all Read-only), one-time visibility
+     warning, `.gitignore` reminder
+  5. **Oracle Cloud** — account creation (credit-card requirement is
+     explained in bold), API key generation in User Settings, the
+     `~/.oci/config` template with `chmod 600 ~/.oci/oci_api_key.pem`
+     warning, "never commit the private key" warning
+
+Plus a troubleshooting table and a final "Where the secrets live" recap.
+
+### Tests
+
+23/23 bats + 11/11 spawn-lane still pass (no script changes in this
+commit — SKILL.md + docs only).
+
+### Open items (flagged by the executor)
+
+- Auto-acquire fallback on Slack/Teams currently goes straight to paste
+  rather than re-showing Q7. Could be a 5-line change if we want the
+  full 3-option re-prompt.
+- "Already have one" OCI path sets `OCI_VM_REGION=unknown` since the
+  user only provides IP + SSH key. Verify against `setup-oci-vm.sh`'s
+  expected inputs before relying on it.
+
+---
+
 ## [7.15.0] — 2026-05-12
 
 ### Added — Steps C + D of the notification rework (4 new scripts + 9 bats tests)
