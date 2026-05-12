@@ -4,6 +4,52 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.9.2] — 2026-05-12
+
+### Added
+
+- **`rules/spec-style.md`** — canonical rule: spec files describe
+  WHAT the system does and the constraints, not HOW. No TypeScript /
+  SQL / Bash / framework calls / Tailwind class strings / config-file
+  contents inside spec artifacts (`dev/docs/spec/*.md`,
+  `init-state.json`'s `discoverySheet`, etc.). The spec must survive
+  a framework swap without rewriting; if it can't, it had
+  implementation details that belonged in code.
+
+  What IS allowed (defines the contract, not the implementation):
+    - API path strings (`POST /api/auth/login`)
+    - HTTP status codes (`422 VALIDATION_FAILED`)
+    - Hex colors locked in by brand identity (`#14b8a6`)
+    - Numeric thresholds (`bcrypt cost ≥ 12`, `rate limit 100/min`)
+    - JSON request/response shape examples
+    - Identifiers in the data model (`User.email`)
+    - Mermaid diagrams, ASCII state machines, pseudo-code
+
+  Translation table shows how to rewrite the typical code-shaped
+  requirements as behavior constraints ("`bcrypt.hash(password, 12)`"
+  → "Passwords are hashed with bcrypt, cost factor ≥ 12, before
+  persistence").
+
+  Exemption: `rules/*.md` files that describe coding standards (TDD,
+  Drizzle conventions, etc.) intentionally show right/wrong code —
+  those are guidelines, not specs.
+
+- **Cardinal-rule reference** in `skills/my-harness-init/SKILL.md`
+  pointing at `rules/spec-style.md` (alongside `communication.md`
+  and `codex-handoff.md`). Claude reads it once at skill start; does
+  not restate inline.
+
+### Why
+
+Specs that embed code anchor Codex on Claude's specific syntax instead
+of letting Codex pick the right implementation for the actual
+framework, couple the spec to one toolchain (re-writing spec on
+framework swap), double the review surface (spec changes diff
+alongside code changes), and rot when refactors update code but not
+the embedded snippets.
+
+---
+
 ## [7.9.1] — 2026-05-12
 
 ### Added

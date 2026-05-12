@@ -65,6 +65,8 @@ User-facing message style (one topic per message, plain language no invented com
 
 **Codex handoff** (when `USE_CODEX=yes`): Claude is the orchestrator, NOT the code author. Do not paste diffs / code snippets / function bodies / starter code as proposals. Describe the symptom + desired behavior + verification, delegate the implementation to Codex via `codex-ask.sh`. Exceptions (typo fixes, docs, mechanical config edits, direct user override, harness internal code) are listed in **canonical: `rules/codex-handoff.md`** — read it once at skill start; do not restate.
 
+**Spec style** (every interview phase that writes a spec file): Specs describe **WHAT and the constraints**, not HOW. No TypeScript / SQL / Tailwind class strings / framework calls / config-file contents inside `dev/docs/spec/*.md`, `init-state.json`'s `discoverySheet`, or any decision-recording artifact Claude produces. The spec must survive a framework swap without rewriting. Pseudo-code, Mermaid diagrams, API paths, HTTP status codes, hex colors, and numeric thresholds ARE okay (they define the contract). Full ruleset + translation table: **canonical: `rules/spec-style.md`**.
+
 Interview-specific rules (applied to every Phase 1-7 question, not just Phase 2):
 
 - **Never ask a question whose answer is already implied** by what the user said or by an approved mock. Re-read the internal notes (without exposing their names to the user) before composing; skip what's already on file.
