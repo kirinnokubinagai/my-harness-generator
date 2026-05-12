@@ -81,6 +81,13 @@
             # bats — Bash Automated Testing System. Used by tests/bats/*.bats
             # to unit-test the harness's own shell scripts. Cross-platform.
             bats
+
+            # oci-cli — Oracle Cloud Infrastructure CLI. Used by
+            # scripts/ensure-oci-vm.sh to provision the daily-progress-bot
+            # VM declaratively (= `oci compute instance launch ...`)
+            # instead of clicking through the Web Console. Cross-platform
+            # (darwin / linux / windows all supported in nixpkgs).
+            oci-cli
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # OWASP ZAP — Java-based DAST scanner. nixpkgs lists `zap` as
             # `platforms = [...]-linux only`, so we only include it on

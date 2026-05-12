@@ -4,6 +4,26 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.14.1] — 2026-05-12
+
+### Added — Step B of the Phase-1-init notification rework
+
+- **`flake.nix`** gains `pkgs.oci-cli` in `buildInputs`. The Oracle
+  Cloud CLI is now available inside `nix develop` on every platform
+  (nixpkgs lists it as 3.81.0 with `darwin / linux / windows / freebsd`
+  in `meta.platforms`, so no conditional gate needed). This is the
+  prerequisite for Step D — `scripts/ensure-oci-vm.sh` will use
+  `oci compute instance launch` to provision the daily-progress-bot
+  VM declaratively rather than asking the user to click through the
+  Web Console.
+
+### Verified
+
+- `nix flake check` on aarch64-darwin: all checks passed
+- 14/14 bats + 11/11 spawn-lane still pass
+
+---
+
 ## [7.14.0] — 2026-05-12
 
 ### Changed — multi-service notification (Step A of the Phase-1-init flow)
