@@ -26,12 +26,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
 : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set (run \`claude login\` on a desktop machine, copy token here)}"
-: "${DISCORD_WEBHOOK_URL:?must be set (Discord server → Integrations → Webhooks)}"
+# Either NOTIFICATION_WEBHOOK_URL (preferred, multi-service) or the legacy
+# DISCORD_WEBHOOK_URL must be set.
+: "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
+: "${NOTIFICATION_WEBHOOK_URL:?must be set (Discord/Slack/Teams webhook URL — see your services docs)}"
+: "${NOTIFICATION_SERVICE:=discord}"
 : "${REPO_OWNER:?must be set}"
 : "${REPO_NAME:?must be set}"
 : "${GH_TOKEN:=${GITHUB_TOKEN:-}}"
 LANG_TAG="${LANG_TAG:-ja}"
 LOOKBACK_HOURS="${LOOKBACK_HOURS:-24}"
+
+# Pull in the multi-service notification helper.
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/post-notification.sh"
 
 command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; }
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required (https://cli.github.com/)" >&2; exit 1; }
@@ -110,23 +118,11 @@ $(cat "$ACTIVITY_FILE")" \
 
 [ -z "$SUMMARY" ] && SUMMARY="(本日の活動なし、または取得不可)"
 
-# ---- 3. Post to Discord ----
+# ---- 3. Post notification ----
 TODAY=$(date +"%Y-%m-%d")
-PAYLOAD=$(jq -n \
-  --arg title "📊 $TODAY の進捗 ($REPO_OWNER/$REPO_NAME)" \
-  --arg description "$SUMMARY" \
-  '{
-    embeds: [{
-      title: $title,
-      description: $description,
-      color: 5814783,
-      footer: { text: "Claude (subscription) on Oracle Cloud Always Free" },
-      timestamp: now | todateiso8601
-    }]
-  }')
+TITLE="📊 $TODAY の進捗 ($REPO_OWNER/$REPO_NAME)"
+post_notification "$TITLE" "$SUMMARY" 5814783
 
-curl -fsS -X POST -H 'Content-Type: application/json' \
-  -d "$PAYLOAD" \
-  "$DISCORD_WEBHOOK_URL" >/dev/null
+NOW=$(date)
+echo "[daily-progress] posted to $NOTIFICATION_SERVICE at $NOW"
 
-echo "[daily-progress] posted to Discord at $(date)"

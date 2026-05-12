@@ -19,7 +19,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
 : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set}"
-: "${DISCORD_WEBHOOK_URL:?must be set}"
+: "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
+: "${NOTIFICATION_WEBHOOK_URL:?must be set (Discord/Slack/Teams webhook URL)}"
+: "${NOTIFICATION_SERVICE:=discord}"
 : "${REPO_OWNER:?must be set}"
 : "${REPO_NAME:?must be set}"
 : "${GH_TOKEN:=${GITHUB_TOKEN:-}}"
@@ -29,6 +31,9 @@ command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH" >
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }
 command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required" >&2; exit 1; }
+
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/post-notification.sh"
 
 export GH_TOKEN
 
@@ -125,24 +130,9 @@ if [ -z "$SUMMARY" ] || echo "$SUMMARY" | grep -q '_no_report_'; then
   exit 0
 fi
 
-# ---- 3. Post to Discord ----
+# ---- 3. Post notification ----
 HOUR=$(date +"%H:%M")
-PAYLOAD=$(jq -n \
-  --arg title "⏰ $HOUR の最新動向 ($REPO_OWNER/$REPO_NAME)" \
-  --arg description "$SUMMARY" \
-  '{
-    embeds: [{
-      title: $title,
-      description: $description,
-      color: 16776960,
-      footer: { text: "event-watch (1h) — Claude (subscription) on OCI" },
-      timestamp: now | todateiso8601
-    }]
-  }')
-
-curl -fsS -X POST -H 'Content-Type: application/json' \
-  -d "$PAYLOAD" \
-  "$DISCORD_WEBHOOK_URL" >/dev/null
-
+TITLE="⏰ $HOUR の最新動向 ($REPO_OWNER/$REPO_NAME)"
+post_notification "$TITLE" "$SUMMARY" 16776960
 echo "$now" > "$STATE_FILE"
-echo "[event-watch] posted to Discord at $(date)"
+echo "[event-watch] posted to $NOTIFICATION_SERVICE at $(date)"

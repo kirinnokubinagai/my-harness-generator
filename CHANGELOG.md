@@ -4,6 +4,53 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.14.0] — 2026-05-12
+
+### Changed — multi-service notification (Step A of the Phase-1-init flow)
+
+The `daily-progress-bot` is now service-agnostic. Discord, Slack, and
+Teams webhooks are all supported with the same scripts; the choice is
+a single env var.
+
+- **New file `lib/post-notification.sh`** — shared helper that
+  dispatches a `post_notification "<title>" "<body>" "<color>"` call
+  to the right service-specific payload builder. Three payload
+  generators:
+  - Discord: Embed with title / description / color / timestamp
+  - Slack: Block Kit (header + section with mrkdwn body)
+  - Teams: MessageCard with themeColor / title / text
+- **`daily-progress.sh` and `event-watch.sh`** — replaced hardcoded
+  Discord `curl` blocks with a single `post_notification` call.
+  Source the helper near the top, then reuse the same one-liner.
+  Both scripts still accept legacy `DISCORD_WEBHOOK_URL` env var as
+  a fallback for already-deployed bots.
+- **`.env.example`** — new vars `NOTIFICATION_SERVICE` (`discord` /
+  `slack` / `teams`; default `discord`) and `NOTIFICATION_WEBHOOK_URL`
+  replacing the old `DISCORD_WEBHOOK_URL`. Comments document where
+  to obtain the webhook URL for each service.
+
+### Fixed
+
+- **Bash parse error in `daily-progress.sh`** — an unescaped
+  apostrophe inside a `${VAR:?word}` parameter expansion's `word`
+  swallowed all quote tracking until EOF (bash's quote-tracking
+  rules inside `${...:?...}` differ from ordinary `"..."` strings).
+  Bash reported the error at line 126 but the actual culprit was line
+  32. Fixed by rewording the error message to avoid the apostrophe
+  (`service's docs` → `services docs`).
+
+### Step A done. Remaining steps (planned):
+
+- B: `flake.nix` adds `oci-cli`
+- C: `scripts/ensure-notification-webhook.sh` + Phase 1 Q-A/Q-B
+  (claude-in-chrome auto-acquire → manual paste fallback)
+- D: `scripts/ensure-oci-vm.sh` + Phase 1 Q-C/Q-D/Q-E
+  (`~/.oci/config` check → VM provision or instructions)
+- E: `templates/notifications/SETUP.md` (account-creation walkthroughs
+  for Discord / Slack / Teams / OCI, EN + JA)
+
+---
+
 ## [7.13.0] — 2026-05-12
 
 ### Added — three Discord notification routes
