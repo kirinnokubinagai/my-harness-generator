@@ -61,13 +61,67 @@ fi
 
 Capture exit code, stdout / stderr, screenshot paths from `test-results/`.
 
-- **Codex mode** (`USE_CODEX_E2E_REVIEWER=yes`): build the failure report via
-  ```bash
-  bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" --role e2e-reviewer \
-    --session "e2e-<issue#>-<lane#>-$(date +%s)-$$" \
-    --out <report.md> "<test output + diff>"
-  ```
-- **Claude mode**: synthesize the report yourself.
+### Failure report mode dispatch
+
+Read `USE_CODEX` and `USE_CODEX_E2E_REVIEWER` from `.config`:
+
+| `USE_CODEX` | `USE_CODEX_E2E_REVIEWER` | report mode |
+|---|---|---|
+| `yes` | `yes` | **Dialog mode** (Codex + Claude cross-analyze, 3 rounds) |
+| `yes` | `no`  | Claude solo |
+| `no`  | (any) | Claude solo |
+
+### Dialog mode for failure reports
+
+Test execution itself is unchanged (always local Bash). What changes is the **failure-report synthesis** when tests fail. Both Codex and Claude independently analyze the same failure log + diff, then cross-check each other's root-cause hypotheses to reach an agreed-on report.
+
+`SESSION_ID="e2e-<issue#>-<lane#>-$(date +%s)-$$"` (or `INHERITED_SESSION_ID` on auth-rescue). Same Codex thread across the 3 rounds.
+
+**Round 1 — Independent root-cause analyses (parallel)**:
+
+```bash
+TEST_OUTPUT=$(cat /tmp/playwright-out-<issue#>.txt /tmp/maestro-out-<issue#>.txt 2>/dev/null)
+DIFF=$("$DEVSH" git diff origin/dev...HEAD)
+
+# Codex side
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role e2e-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-e2e-<issue#>-r1.md" \
+  "Analyze the test failure. Test output: $TEST_OUTPUT. Diff under review: $DIFF. Output JSON: [{\"failed_test\":\"...\",\"expected\":\"...\",\"actual\":\"...\",\"root_cause_hypothesis\":\"...\",\"confidence\":\"high|med|low\",\"fix_hint\":\"...\"}]."
+
+# Claude side: you, in this agent — read the test output + diff yourself,
+# write your own analysis to claude-e2e-<issue#>-r1.json
+```
+
+**Round 2 — Cross-check hypotheses**:
+
+You (Claude) read Codex's hypothesis per failure; classify `agree` / `disagree (alternative)` / `partial-agree (refinement)`. Codex does the same on your hypothesis via codex-ask.sh:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role e2e-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-e2e-<issue#>-r2.md" \
+  "Here is Claude's independent failure analysis: <paste claude-e2e-<issue#>-r1.json>. For each failure, reply [agree] [disagree (your alternative)] or [partial-agree (refinement)]. Add 'codex_classification' field."
+```
+
+**Round 3 — Resolution (only if disagreements remain)**:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role e2e-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-e2e-<issue#>-r3.md" \
+  "Resolve disagreement. Failure: <test name>. Claude's hypothesis: X. Codex earlier said: Y. Re-examine test output + diff and pick the most likely root cause in one sentence. Confidence must be 'high' or 'med'; if only 'low' is honest, mark both hypotheses as plausible."
+```
+
+**Final consolidation**:
+- Hypotheses both sides agree on → included with original confidence
+- Disagreements resolved in Round 3 → resolved version included
+- Remaining disagreements after 3 rounds → BOTH labeled, `disputed=true`
+
+**Claude solo** (dialog mode off): synthesize the failure report yourself from test output + diff. Same JSON shape, no `codex_classification` / `disputed` fields.
 
 ## Reply format
 

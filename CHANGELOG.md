@@ -4,6 +4,59 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.9.0] — 2026-05-12
+
+### Changed
+
+- **reviewer and e2e-reviewer now run as Codex + Claude dialog** when
+  `USE_CODEX=yes` AND the respective `USE_CODEX_REVIEWER` /
+  `USE_CODEX_E2E_REVIEWER` flag is `yes`. Previous behavior was "Codex
+  produces the report, Claude forwards" — single-source review that
+  could ship Codex's false positives or miss issues Claude would have
+  caught. New behavior: both reviewers do an **independent pass**, then
+  **cross-check** each other's findings, and reach an agreed-on
+  consolidated list.
+
+### Dialog protocol (3-round cap)
+
+  - **Round 1 — Independent reviews (parallel)**: Codex produces JSON
+    findings via codex-ask.sh; Claude produces an equivalent JSON list
+    by reading the diff / test output directly.
+  - **Round 2 — Cross-check**: Each side reads the OTHER's findings and
+    classifies each item as `keep` / `reject (specific reason)` /
+    `clarify (question)`. Codex's classifications come back through a
+    second codex-ask.sh call on the same session.
+  - **Round 3 — Resolution (only if disagreements remain)**: Codex is
+    asked to pick the technically correct side in one sentence per
+    disputed finding.
+  - Unresolved after 3 rounds → BOTH positions written verbatim with
+    `disputed=true`, no silent picking.
+
+### Why dialog over solo Codex
+
+  - Codex false positives get filtered (Claude rejects with a specific
+    reason)
+  - Claude blind spots get caught (Codex flags issues Claude misses)
+  - The analyst sees an honest "two reviewers agreed" signal — much
+    stronger than either reviewer alone
+  - The dialog is bounded (3 rounds) so token / latency budget stays
+    predictable
+
+### Failure handling
+
+  - codex-ask.sh exit 100 (auth) → `mode=dialog rescue=<path>`
+  - Other Codex error → `mode=dialog` with explicit `blocked-codex-error`
+    status; the agent does NOT silently fall back to Claude-solo so the
+    analyst knows dialog mode failed
+
+### Activation
+
+Only when BOTH `USE_CODEX=yes` AND the role's `USE_CODEX_*=yes` are set
+in `.config`. Either off → falls back to Claude-only checklist /
+synthesis (existing behavior).
+
+---
+
 ## [7.8.0] — 2026-05-12
 
 ### Added

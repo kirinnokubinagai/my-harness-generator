@@ -37,28 +37,82 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/agent-log.sh" "$ROOT" reviewer-N step=<sho
 
 ## Mode
 
-Read `USE_CODEX`, `USE_CODEX_REVIEWER` from `$ROOT/.my-harness/.config`. Both `yes` → Codex mode. Else → Claude checklist mode.
+Read `USE_CODEX`, `USE_CODEX_REVIEWER` from `$ROOT/.my-harness/.config`.
 
-## Codex mode (`USE_CODEX_REVIEWER=yes`)
+| `USE_CODEX` | `USE_CODEX_REVIEWER` | mode |
+|---|---|---|
+| `yes` | `yes` | **Dialog mode** (Codex + Claude cross-review, 3 rounds) |
+| `yes` | `no`  | Claude checklist mode |
+| `no`  | (any) | Claude checklist mode |
 
-Codex runs `codex exec --sandbox read-only` against the worktree; you forward its report.
+## Dialog mode (`USE_CODEX=yes` && `USE_CODEX_REVIEWER=yes`)
+
+Codex and Claude each produce **independent reviews**, then **cross-check** each other's findings, and reach an agreed-on consolidated issue list. Hard cap: 3 rounds total. The dialog filters false positives (one reviewer flags, the other demonstrates why it isn't a violation → drop) AND surfaces gaps (one reviewer caught something the other missed → keep).
+
+`SESSION_ID="rev-<issue#>-<lane#>"` (or `INHERITED_SESSION_ID` on auth-rescue resume). Same Codex thread across all 3 rounds.
+
+### Round 1 — Independent reviews (parallel)
+
+**Codex's review** via `codex-ask.sh`:
 
 ```bash
-CODEX_EXEC="${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-exec.sh"
-SESSION_ID="rev-<issue#>-<lane#>"   # or INHERITED_SESSION_ID
-
 cd "$WORKTREE"
 DIFF_NAMES=$("$DEVSH" git diff --name-only origin/dev...HEAD)
+DIFF=$("$DEVSH" git diff origin/dev...HEAD)
 
-bash "$CODEX_EXEC" --role harness-reviewer --worktree "$WORKTREE" --readonly \
-  --session "$SESSION_ID" --out "$ROOT/.my-harness/codex-rev-<issue#>.log" \
-  "Review the changes between origin/dev and HEAD against AGENTS.md / .my-harness/rules/. Changed files: $DIFF_NAMES. Output \`PASS\` if there are zero violations, otherwise file:line violations and concrete fix suggestions."
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role code-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-rev-<issue#>-r1.md" \
+  "You are reviewer-N's Codex half. Review the changes between origin/dev and HEAD against AGENTS.md and dev/.my-harness/rules/*. Changed files: $DIFF_NAMES. Diff: $DIFF. Output a JSON list of violations: [{\"file\":\"...\",\"line\":N,\"rule\":\"...\",\"severity\":\"high|med|low\",\"reason\":\"...\",\"fix\":\"...\"}]. Empty list = clean."
 ```
 
-The captured output goes into `[reviewer-N status=pass|fail mode=codex ...]` to analyst-N.
+**Claude's review** (you, in this agent): read every file in `$DIFF_NAMES`, apply the checklist below, build an equivalent JSON list. Save it to `$ROOT/.my-harness/claude-rev-<issue#>-r1.json` for the next round.
 
-- Exit 100 → `[reviewer-N status=blocked-codex-auth mode=codex rescue=<path>]`
-- Other non-zero → `[reviewer-N status=blocked-codex-error exit=<code> log=<path>]`
+### Round 2 — Cross-check
+
+Each side validates the other's findings:
+
+**You (Claude) read Codex's r1 list**. For each Codex finding, classify:
+- `keep` — Codex is right, this is a real violation
+- `reject` — false positive (give specific reason: "rule X explicitly exempts ..." or "this is not what the line does")
+- `clarify` — ambiguous, will ask Codex in Round 3
+
+**Codex reads your r1 list** via codex-ask.sh (same session):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role code-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-rev-<issue#>-r2.md" \
+  "Here is Claude's independent review (claude-rev-<issue#>-r1.json contents inline): <paste>. For each finding, reply [keep] [reject (reason)] or [clarify (question)]. Output the same JSON shape with an added 'codex_classification' field."
+```
+
+### Round 3 — Disagreement resolution (only if any item is `[clarify]` or both sides disagree)
+
+For each disagreement, ask Codex to pick the technically correct side in **one sentence**:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/codex-ask.sh" \
+  --role code-reviewer \
+  --session "$SESSION_ID" \
+  --out "$ROOT/.my-harness/codex-rev-<issue#>-r3.md" \
+  "Resolve disagreement. Finding: <file:line, rule, reason>. Claude says [keep/reject because X]. Codex earlier said [keep/reject because Y]. Pick the technically correct side and explain in one sentence."
+```
+
+If 3 rounds finish and disagreements remain, the analyst gets both sides labeled in the final report (reviewer stays honest about not reaching consensus; never silently picks one side).
+
+### Final consolidation
+
+- Findings both sides agreed to `keep` → included with their severity
+- Findings one side flagged that the other rejected with a valid reason → dropped (logged)
+- Findings unresolved after Round 3 → `disputed=true` flag on the entry, BOTH positions written verbatim
+
+Hand off to analyst-N via `[reviewer-N issue=#X status=fail|pass mode=dialog dialog_rounds=N agreed=K disputed=D]`.
+
+**Failure handling:**
+- `codex-ask.sh` exit 100 (auth) → `[reviewer-N status=blocked-codex-auth mode=dialog rescue=<path>]`
+- Other Codex error → `[reviewer-N status=blocked-codex-error exit=<code> log=<path>]` — do NOT silently fall back to Claude-solo; the analyst must know dialog failed.
 
 ## Claude checklist mode
 
