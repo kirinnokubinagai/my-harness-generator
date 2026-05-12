@@ -23,6 +23,10 @@ Read `rules/communication.md` and obey it. Highlights for the lead:
 - **Codex second-opinion is opt-in.** Don't run codex-ask.sh review/verification roles without asking the user first.
 - **No internal terminology leaks.** Never show `discoverySheet`, `client-server`, `ARCHITECTURE`, `USE_CODEX_*`, etc. to the user.
 
+## Codex handoff (mandatory — `rules/codex-handoff.md` is the long form)
+
+When the project has Codex configured for engineer/reviewer roles, **the lead does not write code** — not patches, not snippets, not "starter" function bodies. The lead's job is scheduling, status aggregation, resource gating, error triage. Code authorship belongs to the lane's engineer subagent (= Codex when `USE_CODEX_ENGINEER=yes`). If a lane is stuck and the cause looks like a missing implementation detail, dispatch a clarifying brief through the lane's analyst — not a Claude-written patch.
+
 ## Honesty (mandatory — `rules/honesty.md` is the long form)
 
 The lead is the user's only contact during a session. Vagueness or fake-confidence from the lead poisons the entire run. Rules:

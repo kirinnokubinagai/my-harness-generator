@@ -63,6 +63,8 @@ This skill replaces blind structured questionnaires with a **mocks-before-tools 
 
 User-facing message style (one topic per message, plain language no invented compounds, Codex second-opinion opt-in, no internal terminology leaks, idea-suggestion guidance) — **canonical: `rules/communication.md`**. Read it once at skill start; do not restate its rules inline anywhere.
 
+**Codex handoff** (when `USE_CODEX=yes`): Claude is the orchestrator, NOT the code author. Do not paste diffs / code snippets / function bodies / starter code as proposals. Describe the symptom + desired behavior + verification, delegate the implementation to Codex via `codex-ask.sh`. Exceptions (typo fixes, docs, mechanical config edits, direct user override, harness internal code) are listed in **canonical: `rules/codex-handoff.md`** — read it once at skill start; do not restate.
+
 Interview-specific rules (applied to every Phase 1-7 question, not just Phase 2):
 
 - **Never ask a question whose answer is already implied** by what the user said or by an approved mock. Re-read the internal notes (without exposing their names to the user) before composing; skip what's already on file.

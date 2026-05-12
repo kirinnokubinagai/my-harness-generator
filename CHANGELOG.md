@@ -4,6 +4,48 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.8.0] — 2026-05-12
+
+### Added
+
+- **`rules/codex-handoff.md`** — canonical rule: when `USE_CODEX=yes`,
+  Claude is the orchestrator, NOT the code author. No diffs, no
+  snippets, no "starter" function bodies, no `useState(...)`-style
+  speculation. Claude carries requirements + verification; Codex
+  carries the code. The rule defines the boundary as "executable
+  code" (TS / JS / Bash / Python / SQL / Tailwind class strings —
+  anything with identifier names + syntax) and lists six explicit
+  exceptions where Claude can still write code: USE_CODEX=no, trivial
+  one-liners, documentation files, mechanical config edits, direct
+  user override, and harness-internal code (since the harness is the
+  tool, Codex is for the projects the tool generates).
+  - Common rationalizations table flags the typical thoughts that
+    precede breaking the rule ("It's just a simple fix" / "Codex
+    won't get this nuance" / "I'm just suggesting an approach").
+- **Cardinal-rule reference in two skill files** so Claude reads it
+  every session it might do code work:
+    - `skills/my-harness-init/SKILL.md` (Cardinal rules section)
+    - `skills/harness-team-lead/SKILL.md` (new "Codex handoff" section
+      between Communication and Honesty)
+  Both files point to `rules/codex-handoff.md` as the canonical source
+  and do not restate the rule inline (per existing harness convention).
+
+### Why
+
+Pre-empting Codex with Claude's own code suggestion is a process bug:
+the engineer / Codex anchors on Claude's guess instead of solving the
+problem freshly, two different proposals end up in the user's review
+queue, and the chain-of-authorship gets muddled (tests pass / fail for
+"Claude's version" or "Codex's version"). Cleaner role separation —
+Claude orchestrates, Codex codes — is faster and produces less
+review thrash.
+
+The rule is unconditional inside the listed scope but has explicit
+exceptions for cases where routing through Codex costs more than it
+saves (typo fixes, prose edits, etc.).
+
+---
+
 ## [7.7.2] — 2026-05-12
 
 ### Changed
