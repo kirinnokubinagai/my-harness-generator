@@ -4,6 +4,57 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.10.0] — 2026-05-12
+
+### Added
+
+- **`tests/bats/`** — bats (Bash Automated Testing System) suite for
+  the harness's own shell scripts. 14 tests across 3 files, all
+  passing:
+    - `ensure-codex-effort.bats` (6 tests) — validates the
+      `model_reasoning_effort` writer: invalid level rejection,
+      every valid level accepted, fresh-file write, idempotency
+      (existing value preserved), top-level placement above `[section]`
+      headers.
+    - `ensure-codex-project-trust.bats` (4 tests) — validates the
+      `[projects."<root>"] trust_level = "trusted"` appender:
+      empty-file append, idempotency, preservation of unrelated
+      sections, refusal to overwrite an existing `untrusted` entry.
+    - `find-existing-state.bats` (4 tests) — validates the
+      `.my-harness/init-state.json` walker: exits 1 when absent,
+      finds at depth 0, depth 1, depth 3.
+- **`tests/run-bats.sh`** — convenience runner. Auto-discovers all
+  `*.bats` files; accepts a pattern arg to filter (`run-bats.sh
+  ensure-codex` runs only the matching files); accepts `--tap` and
+  other bats flags. Checks for `bats` on PATH and gives a helpful
+  message if it isn't.
+- **`flake.nix`** — added `pkgs.bats` to `buildInputs` so the dev
+  shell ships bats out of the box. No env-var override, no PATH
+  surgery — just `nix develop` and `bats` is there.
+
+### macOS path note
+
+bats tests that create temp directories and then invoke scripts that
+use `cd $ROOT && pwd -P` (which `ensure-codex-project-trust.sh` does
+to resolve the absolute path) must themselves run `pwd -P` on the
+mktemp output. macOS's `mktemp -d` returns `/var/folders/...` but
+`pwd -P` returns `/private/var/folders/...` (the underlying physical
+path of the `/var` symlink). The test helper does this normalization
+in setup().
+
+### Why bats, not bash-only
+
+- Per-test isolation (each `@test` has its own `setup` / `teardown`)
+- Assertion failures point to the exact line that failed, not just
+  "exit 1 somewhere"
+- TAP output for CI integration is one flag away
+- `nix develop` has bats by default now
+
+The legacy `tests/spawn-lane-decision.sh` (custom PASS/FAIL format)
+stays in place — bats is for new tests, not a forced migration.
+
+---
+
 ## [7.9.2] — 2026-05-12
 
 ### Added

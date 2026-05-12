@@ -77,6 +77,10 @@
             gnugrep
             gawk
             findutils
+
+            # bats — Bash Automated Testing System. Used by tests/bats/*.bats
+            # to unit-test the harness's own shell scripts. Cross-platform.
+            bats
           ];
 
           shellHook = ''
