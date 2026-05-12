@@ -4,6 +4,20 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.11.1] — 2026-05-12
+
+### Changed
+
+- **`templates/husky/pre-push`** — tightened `pnpm audit` from
+  `--audit-level high` to `--audit-level low`. Push is now blocked
+  by **any** advisory at severity `low` / `moderate` / `high` /
+  `critical`; only purely-informational notices (`info`) pass.
+  Rationale per user: "high 以外も禁止させてほしい" — moderate / low
+  vulnerabilities should be resolved at push time rather than
+  accumulating async-managed by Renovate / Dependabot.
+
+---
+
 ## [7.11.0] — 2026-05-12
 
 ### Discovered (no work needed)

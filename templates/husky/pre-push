@@ -35,8 +35,9 @@ nix develop "$ROOT" --command sh -c "
   pnpm exec vitest run
 
   echo '[pre-push] pnpm audit (依存パッケージの脆弱性)'
-  # --audit-level high で high 以上のみ失敗扱い。moderate 以下は noise として
-  # 無視 (= Renovate / Dependabot に逐次対応させる)。high 以上が見つかった
-  # 時点で push を遮断して即対応を促す。
-  pnpm audit --audit-level high
+  # --audit-level low で low / moderate / high / critical のすべてを失敗扱い。
+  # info のみ通す (info は advisory ではなく純粋な情報通知)。
+  # 「high 以外も禁止」のポリシー — moderate / low も含めて push 前に
+  # 一度全部解消させる方が、後でまとめて対応するより安く済む。
+  pnpm audit --audit-level low
 "
