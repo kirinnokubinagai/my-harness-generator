@@ -4,6 +4,59 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.11.0] — 2026-05-12
+
+### Discovered (no work needed)
+
+- **OWASP ZAP `stage → main` PR gate is already implemented** —
+  `templates/github/workflows/_reusable-security.yml` runs
+  `zaproxy/action-baseline@v0.13.0` against `vars.STAGE_URL` whenever
+  `pr-to-main.yml`'s `security` job fires (`github.head_ref == 'stage'`),
+  with `fail_action: true` (HIGH severity blocks the PR merge) and
+  `allow_issue_writing: true` (findings auto-file GitHub issues), plus
+  a follow-up `maybeCreateIssue` step that adds `[security:zap]
+  baseline failed` issue with labels `security` and `priority/p1`.
+  User's request for "stage → main で ZAP / 問題があれば issue 自動作成
+  / その issue を最優先" was already met by this existing template.
+
+### Added
+
+- **`flake.nix`** — added `pkgs.zap` to `buildInputs` via
+  `lib.optionals stdenv.isLinux [ zap ]`. Means GitHub Actions runners
+  (= Linux) and Linux developers get ZAP via `nix develop --command
+  zap.sh ...` without leaving the Nix-managed environment. macOS
+  developers don't need ZAP locally (the workflow runs against the
+  staged URL in CI); the `optionals` gate avoids the
+  `meta.platforms = linux only` build failure on darwin without needing
+  `NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1`.
+- **`templates/husky/pre-push`** — added `pnpm audit --audit-level high`
+  step. The pre-push hook now covers: gitleaks (history scan) +
+  forbidden-patterns + biome (lint/format) + tsc (typecheck) + vitest
+  (tests) + **pnpm audit (dependency vulnerabilities, high+)**. Lower
+  severity vulnerabilities (moderate/low) intentionally don't block —
+  Renovate / Dependabot handle them async.
+
+### Changed
+
+- **`skills/harness-team-lead/scripts/list-pending-issues.sh`** —
+  pending issues are now sorted so anything with `priority/p1` or
+  `priority:highest` label appears at the top of the dispatch queue,
+  ahead of normal feature issues. This lets the ZAP / MobSF
+  security-scan workflows file findings that the lead picks up
+  immediately on the next session, ahead of regular feature work.
+  Sort is stable: within the same priority bucket, ascending issue
+  number (= roughly chronological).
+
+### Verified
+
+- `flake check` passes on aarch64-darwin (the dev shell still builds
+  with the conditional zap; on darwin the `lib.optionals` evaluates to
+  `[]` so no unsupported package gets pulled).
+- All 14 bats tests + 11 spawn-lane tests still pass.
+- `bash -n` clean on `pre-push` and `list-pending-issues.sh`.
+
+---
+
 ## [7.10.0] — 2026-05-12
 
 ### Added

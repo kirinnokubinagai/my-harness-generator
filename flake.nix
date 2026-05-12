@@ -81,6 +81,15 @@
             # bats — Bash Automated Testing System. Used by tests/bats/*.bats
             # to unit-test the harness's own shell scripts. Cross-platform.
             bats
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            # OWASP ZAP — Java-based DAST scanner. nixpkgs lists `zap` as
+            # `platforms = [...]-linux only`, so we only include it on
+            # Linux (= GitHub Actions runners and Linux developer machines).
+            # macOS developers don't need ZAP locally: scans run against
+            # the staged URL in CI (templates/github/workflows/_reusable-security.yml).
+            # If a macOS dev wants to run ZAP locally anyway, install it
+            # via Docker or `brew install --cask zap`.
+            zap
           ];
 
           shellHook = ''

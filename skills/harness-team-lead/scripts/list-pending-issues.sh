@@ -49,6 +49,10 @@ if [ "$USE_GITHUB" = "yes" ]; then
     echo "::error:: USE_GITHUB_ISSUES=yes but \`gh\` CLI not in PATH" >&2
     exit 2
   fi
+  # Sort: issues with any "highest priority" label go first. The ZAP /
+  # MobSF security-scan workflows file findings with `priority/p1`, so
+  # those get dispatched ahead of regular feature work. We prepend a
+  # numeric priority column (0 = highest, 9 = normal) for sort, then strip it.
   gh issue list --label ready --state open --json number,title,labels,body --limit 200 \
     --jq '.[] |
       . as $i |
@@ -60,7 +64,10 @@ if [ "$USE_GITHUB" = "yes" ]; then
         | (.[0] // "")
         | sub(".*\\*\\*(ファイル所有|Owned files)\\*\\*:\\s*"; "")
       ) as $owned |
-      [($i.number | tostring), $lane, $owned, ($i.title // "")] | @tsv' 2>/dev/null
+      (if ($i.labels // [] | map(.name) | any(. == "priority/p1" or . == "priority:highest")) then "0" else "9" end) as $prio |
+      [$prio, ($i.number | tostring), $lane, $owned, ($i.title // "")] | @tsv' 2>/dev/null \
+    | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n \
+    | cut -f2-
   exit 0
 fi
 

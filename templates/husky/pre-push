@@ -2,7 +2,7 @@
 . "$(dirname -- "$0")/_/husky.sh"
 
 # 概要: push 直前ゲート。保護ブランチへの直接 push を遮断し、
-#       全体の整合（format/lint/test/typecheck/secrets スキャン）を再確認する。
+#       全体の整合（format/lint/test/typecheck/secrets スキャン/依存監査）を再確認する。
 
 set -e
 ROOT="$(git rev-parse --show-toplevel)"
@@ -33,4 +33,10 @@ nix develop "$ROOT" --command sh -c "
 
   echo '[pre-push] vitest'
   pnpm exec vitest run
+
+  echo '[pre-push] pnpm audit (依存パッケージの脆弱性)'
+  # --audit-level high で high 以上のみ失敗扱い。moderate 以下は noise として
+  # 無視 (= Renovate / Dependabot に逐次対応させる)。high 以上が見つかった
+  # 時点で push を遮断して即対応を促す。
+  pnpm audit --audit-level high
 "
