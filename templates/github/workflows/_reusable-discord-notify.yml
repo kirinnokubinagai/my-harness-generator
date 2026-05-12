@@ -1,0 +1,76 @@
+# 概要: 再利用可能な Discord 通知ジョブ。
+#       他の workflow から `uses: ./.github/workflows/_reusable-discord-notify.yml`
+#       で呼ぶ。`secrets.DISCORD_WEBHOOK_URL` が未設定なら何もせず exit 0
+#       (= Discord を使わないプロジェクトを壊さない optional 設計)。
+
+name: Reusable - Discord notify
+
+on:
+  workflow_call:
+    inputs:
+      title:
+        description: Embed のタイトル (例 "🔥 ZAP baseline failed")
+        type: string
+        required: true
+      body:
+        description: Embed の説明本文 (markdown 最小限、コードブロック不可)
+        type: string
+        required: true
+      color:
+        description: Embed の色 (10進数、例 16711680=赤 / 5814783=青 / 3066993=緑)
+        type: number
+        default: 16711680  # 赤 = エラー / 失敗のデフォルト
+      mention_role_id:
+        description: 任意 — メンションする Discord role の ID (例 オンコール)。空ならメンションなし
+        type: string
+        default: ''
+    secrets:
+      DISCORD_WEBHOOK_URL:
+        description: Discord webhook URL (= Discord server → Integrations → Webhooks)
+        required: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discord webhook 経由で投稿
+        if: ${{ env.WEBHOOK != '' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          COLOR: ${{ inputs.color }}
+          MENTION: ${{ inputs.mention_role_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # ロールメンション (任意)
+          content=""
+          if [ -n "$MENTION" ]; then
+            content="<@&${MENTION}>"
+          fi
+          payload=$(jq -n \
+            --arg content "$content" \
+            --arg title "$TITLE" \
+            --arg body  "$BODY" \
+            --arg run   "$RUN_URL" \
+            --argjson color "$COLOR" \
+            '{
+              content: $content,
+              embeds: [{
+                title: $title,
+                description: ($body + "\n\n[Workflow run](" + $run + ")"),
+                color: $color,
+                timestamp: (now | todateiso8601)
+              }]
+            }')
+          curl -fsS -X POST -H 'Content-Type: application/json' \
+            -d "$payload" \
+            "$WEBHOOK"
+
+      - name: Webhook 未設定をスキップとして記録
+        if: ${{ env.WEBHOOK == '' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          echo "[discord-notify] DISCORD_WEBHOOK_URL 未設定のためスキップ"

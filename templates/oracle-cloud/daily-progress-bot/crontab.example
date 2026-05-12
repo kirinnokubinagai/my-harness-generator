@@ -10,5 +10,10 @@
 
 PATH=/usr/local/bin:/usr/bin:/bin:/home/opc/.npm-global/bin
 
-# Daily at 18:00 JST (= 09:00 UTC).
+# (1) 18:00 JST = 09:00 UTC に日次まとめを Discord へ投稿。
 0 9 * * * /home/opc/daily-progress-bot/daily-progress.sh >> /home/opc/daily-progress-bot/cron.log 2>&1
+
+# (2) 1 時間ごとに GitHub の新規イベント (priority/p1 issue, CI failure,
+#     新規 PR など) を Claude が要約 → 注目すべきものがあれば Discord 投稿。
+#     何も変化がなければ静かにスキップ (= 通知 noise を抑える設計)。
+0 * * * * /home/opc/daily-progress-bot/event-watch.sh >> /home/opc/daily-progress-bot/cron.log 2>&1

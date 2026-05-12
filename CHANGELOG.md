@@ -4,6 +4,55 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.13.0] — 2026-05-12
+
+### Added — three Discord notification routes
+
+(1) **GitHub Actions → Discord (event-driven, instant)**
+  - `templates/github/workflows/_reusable-discord-notify.yml` — reusable
+    workflow that posts a Discord embed via `secrets.DISCORD_WEBHOOK_URL`.
+    When the secret is missing, exits 0 silently (optional design — the
+    workflow runs on every project but only acts when the user opts in).
+  - Supports optional `mention_role_id` for on-call role pings.
+  - `pr-to-main.yml` now invokes `_reusable-discord-notify.yml` from a
+    new `discord-on-failure` job that triggers when **quality / e2e /
+    security** gates fail. Body line includes which gate failed.
+
+(2) **OCI VM → Discord — hourly event-watch (Claude-judged)**
+  - `templates/oracle-cloud/daily-progress-bot/event-watch.sh` — runs
+    every hour, collects GitHub events since last invocation (state
+    file `~/daily-progress-bot/.last-event-watch`), asks Claude to
+    decide if anything is notable. Discord post only happens when
+    Claude judges there's something worth saying (= ignores routine
+    commits, normal PRs). Stays silent when the project is quiet to
+    avoid notification noise.
+  - Always reminds about open `priority/p1` issues, even if no new
+    activity — keeps urgent work visible.
+  - `crontab.example` updated with `0 * * * *` entry alongside the
+    existing `0 9 * * *` daily entry.
+
+(3) **OCI VM → Discord — daily progress (already existed in 7.12.0)**
+  - `daily-progress.sh` unchanged.
+
+### Updated
+
+- `templates/oracle-cloud/daily-progress-bot/README.md` — added "2 つの
+  cron が動きます" section documenting daily-progress vs event-watch
+  responsibilities, and the silent-skip condition for event-watch.
+
+### Division of labor (intentional)
+
+  - **Real-time / latency-sensitive** (CI failure, security alarm) →
+    GitHub Actions side, via `_reusable-discord-notify.yml`. Fires
+    seconds after the failure.
+  - **Judgment-required / noise-suppressed** (which of these new
+    events actually matters?) → OCI VM `event-watch.sh`. 1-hour delay
+    is acceptable for these; Claude's filtering is the value.
+  - **Daily wrap-up** → OCI VM `daily-progress.sh`. Always posts at
+    18:00 JST.
+
+---
+
 ## [7.12.0] — 2026-05-12
 
 ### Added

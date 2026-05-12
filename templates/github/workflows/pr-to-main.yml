@@ -68,3 +68,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr merge ${{ github.event.pull_request.number }} --auto --merge --repo ${{ github.repository }}
+
+  # ゲート (quality / e2e / security) のどれか1つでも失敗したら Discord 通知。
+  # secrets.DISCORD_WEBHOOK_URL 未設定なら _reusable-discord-notify.yml 側で
+  # 黙ってスキップされる (optional 設計)。
+  discord-on-failure:
+    if: always() && (needs.quality.result == 'failure' || needs.e2e.result == 'failure' || needs.security.result == 'failure')
+    needs: [quality, e2e, security]
+    uses: ./.github/workflows/_reusable-discord-notify.yml
+    with:
+      title: "🔥 PR #${{ github.event.pull_request.number }} の main マージ前ゲート失敗"
+      body: "**${{ github.event.pull_request.title }}** (${{ github.head_ref }} → main)\nquality=${{ needs.quality.result }} / e2e=${{ needs.e2e.result }} / security=${{ needs.security.result }}\n対応してください。"
+      color: 16711680
+    secrets: inherit

@@ -7,6 +7,24 @@ Oracle Cloud Always-Free VM 上で Claude Pro/Max subscription を使って、
 - **時刻精度: 数秒以内** (= cron + 専用 VM、GitHub Actions の ~15 分遅延問題なし)
 - **Anthropic 公式に許可された使い方** ([Pro/Max で Claude Code を CI/cron で使う](https://support.claude.com/en/articles/11145838))
 
+## 2 つの cron が動きます
+
+| script | cron | 役割 |
+|---|---|---|
+| `daily-progress.sh` | `0 9 * * *` (UTC 09:00 = JST 18:00) | 過去 24h の活動を Claude が要約して Discord に **必ず** 投稿 (= 日次まとめ) |
+| `event-watch.sh` | `0 * * * *` (毎正時) | 過去 1h の新規イベント (priority/p1 issue, CI failure, 新規 PR 等) を Claude が判断、**通知すべき変化があった時のみ** Discord 投稿。何もなければ静かに skip |
+
+これに加えて GitHub Actions 側で workflow が失敗した際は `_reusable-discord-notify.yml` 経由で即時 Discord 通知 (= リアルタイム性が必要なものは Actions 側、Claude の判断が要るものは OCI 側に分業)。
+
+### event-watch.sh が何もしないケース
+
+過去 1h で:
+- 新規 issue / PR / workflow 結果が一切ない
+- かつ open な priority/p1 が 1 件もない
+- かつ Claude が「特筆すべき変化なし」と判断
+
+これらをすべて満たす時は Discord 投稿せず exit (= noise 抑制)。
+
 ## 全体構成
 
 ```
