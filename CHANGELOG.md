@@ -4,6 +4,48 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.7.0] — 2026-05-12
+
+Phase 5 is now a clean **three-stage** flow at the user's request:
+
+```
+Stage 1  PNG + crop, all screens (gen-page-auto.sh per screen)
+Stage 2  HTML, all (form-factor, screen) pairs (gen-html-all.sh once)
+Stage 3  Claude polish of every HTML
+```
+
+### Added
+
+- **`scripts/gen-html-all.sh`** — second-stage batch driver. Reads
+  `.config`, scans `dev/docs/design/parts/*/*/manifest.json` to discover
+  every settled (form-factor, screen) pair, then calls `gen-page-html.sh`
+  on each. Sort order is **PC before Mobile, then by screen-slug** so
+  HTMLs open side-by-side in the same order as the PNGs. Auto-opens every
+  produced HTML together at the end. Skips silently when `USE_CODEX != yes`.
+
+### Changed
+
+- **`gen-page-auto.sh` no longer generates HTML inline.** Previously each
+  per-screen invocation did `page → crop → html` end-to-end; now it does
+  `page → crop` only, deferring HTML to the batch stage. This satisfies
+  the user's preference for "all PNGs first, all HTMLs second" — the
+  entire project's visual identity is reviewed/approved across every
+  screen before any markup is committed. Stage-2's Codex HTML session
+  also benefits because it sees the FINAL set of mocks + style_guide
+  rather than the work-in-progress state.
+- **SKILL.md Phase 5 documents the three stages explicitly.** Stage 1
+  (PNG + crop per screen), Stage 2 (HTML batch via gen-html-all.sh),
+  Stage 3 (Claude polish per HTML).
+
+### Migration
+
+For mid-Phase-5 projects: nothing automatic, but the new flow expects
+`gen-page-auto.sh` to be re-runnable without producing HTML, so any old
+HTML output stays valid. Run `gen-html-all.sh` once when ready to
+batch-generate HTML for the whole project.
+
+---
+
 ## [7.6.0] — 2026-05-12
 
 ### Added

@@ -32,7 +32,6 @@ USE_WEB=$(get_flag USE_WEB)
 USE_IOS=$(get_flag USE_IOS)
 USE_ANDROID=$(get_flag USE_ANDROID)
 USE_DESKTOP=$(get_flag USE_DESKTOP)
-USE_CODEX=$(get_flag USE_CODEX)
 
 NEED_PC=no
 NEED_MOBILE=no
@@ -88,21 +87,11 @@ for FF in pc mobile; do
       echo "::warning:: crop-parts.sh failed for form factor '$FF'" >&2
     fi
 
-    # === Codex HTML generation (only when USE_CODEX=yes) ===
-    # When Codex is disabled, HTML is the user/Claude's responsibility (see
-    # SKILL.md Phase 5). With Codex available, we round-trip the page PNG +
-    # style_guide invariants through it to produce page-<ff>-<screen>.html
-    # automatically — no manual hand-off needed.
-    if [ "$USE_CODEX" = "yes" ]; then
-      echo
-      echo "    [html] generating Tailwind HTML via Codex..."
-      if HARNESS_SKIP_OPEN=1 bash "$HARNESS_DIR/scripts/gen-page-html.sh" "$ROOT" "$FF" "$SCREEN_SLUG" "$PROJECT_NAME"; then
-        OPEN_LIST+=("$ROOT/dev/docs/design/page-${FF}-${SCREEN_SLUG}.html")
-      else
-        FAILED+=("${FF}/html")
-        echo "::warning:: gen-page-html.sh failed for form factor '$FF'" >&2
-      fi
-    fi
+    # HTML generation is intentionally NOT done here.
+    # The user's preferred flow is "all PNGs first, all HTMLs second" so
+    # the entire visual identity is locked in across every screen before
+    # any HTML is written. Run gen-html-all.sh once after every
+    # gen-page-auto.sh in the project is done.
   else
     FAILED+=("$FF")
     echo "::warning:: gen-page-parts.sh failed for form factor '$FF'" >&2

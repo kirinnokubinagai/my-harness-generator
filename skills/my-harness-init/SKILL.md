@@ -914,9 +914,19 @@ Both paths run the same 3-question post-mock drill. Technical specifics live in 
 
 Trust Codex. No prescriptive palette / icon / layout instructions in the prompt — Codex chooses on the first artifact, the user picks, every subsequent artifact (next screen, other form factor) inherits via the locked-in style_guide.
 
-### Page + parts grid generation (per screen, automatic form-factor fan-out)
+### Phase 5 has THREE stages — do them in order
 
-For each screen the user listed, run **one command** — `gen-page-auto.sh` handles which form factor(s) to produce based on `.config`:
+```
+Stage 1  PNG + crop, all screens (one gen-page-auto.sh per screen)
+Stage 2  HTML, all (form-factor, screen) pairs at once (one gen-html-all.sh for the whole project)
+Stage 3  Claude polish of every HTML — read PNG, open HTML, fix layout defects
+```
+
+Stages must be done in this order: don't generate HTML for screen A before screen B's PNGs exist, because B's mocks influence the project's settled style_guide and Codex's edit-mode context for HTML.
+
+### Stage 1 — Page + parts grid generation (per screen, automatic form-factor fan-out)
+
+For each screen the user listed, run **one command** — `gen-page-auto.sh` handles which form factor(s) to produce based on `.config`. Loop through every screen first; **do not** invoke any HTML generation in this stage.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-page-auto.sh" \
@@ -927,8 +937,26 @@ What this does internally:
 
 1. Reads `USE_WEB`, `USE_IOS`, `USE_ANDROID`, `USE_DESKTOP` from `$ROOT/.my-harness/.config`.
 2. Derives `NEED_PC` and `NEED_MOBILE` (see the table above).
-3. For each needed form factor in order **PC then Mobile**, calls `gen-page-parts.sh "$ROOT" <ff> "<screen-name>" "$PROJECT_NAME"`. PC is always first when both are needed, so Mobile inherits PC's locked-in `style_guide` via the project-wide Codex session AND via prior-manifest discovery.
+3. For each needed form factor in order **PC then Mobile**, calls `gen-page-parts.sh` (page + grid in image-edit-mode chain) followed by `crop-parts.sh` (chroma-key cropping into transparent parts). PC is always first when both are needed, so Mobile inherits PC's locked-in `style_guide` via the project-wide Codex session AND via prior-manifest discovery.
 4. Suppresses per-form-factor auto-open via `HARNESS_SKIP_OPEN=1`, then opens **all** produced PNGs together at the end so the user sees PC + Mobile side by side.
+5. **Does NOT** generate HTML. HTML happens in Stage 2 after every screen's PNGs are settled.
+
+### Stage 2 — Batch HTML generation (one command, all screens × all form factors)
+
+After every `gen-page-auto.sh` call has finished (= every screen's PNGs are locked in), run **once**:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/gen-html-all.sh" "$ROOT"
+```
+
+What this does:
+
+1. Reads `USE_CODEX` from `.config`. If `no`, exits 0 immediately (HTML is then Claude's job — see USE_CODEX=no path below).
+2. Walks `dev/docs/design/parts/*/*/manifest.json` to discover every (form-factor, screen-slug) pair that has a settled PNG mock.
+3. For each pair, calls `gen-page-html.sh` on the shared `design-html-<project-slug>` Codex session. The session sees every page-mock PNG via `--context` attachment and inherits the locked-in `style_guide` from each manifest.
+4. Suppresses per-pair auto-open, then opens **all** produced HTML files together so the user can scan the batch.
+
+Why batch rather than per-screen-inline: the user said so explicitly (PNGs first, HTML second). It also means the whole visual identity has been reviewed/approved across every screen before any markup is committed.
 
 **Style consistency across the project** is enforced two ways:
 
@@ -1003,11 +1031,11 @@ Decide when to upscale based on the page mock: if a part is rendered larger than
 
 There are **two paths** depending on `USE_CODEX`:
 
-#### USE_CODEX=yes — Codex writes the initial HTML, Claude polishes it (TWO STEPS, BOTH REQUIRED)
+#### USE_CODEX=yes — Codex writes the initial HTML (Stage 2), Claude polishes it (Stage 3, BOTH REQUIRED)
 
-**Step 1 — Codex writes the first cut** (automatic, part of `gen-page-auto.sh`):
+**Step 1 — Codex writes the first cut** (Stage 2 of Phase 5, batch-driven by `gen-html-all.sh`):
 
-`gen-page-auto.sh` invokes `gen-page-html.sh` per form factor right after `crop-parts.sh`. The Codex HTML session is `design-html-<project-slug>`, separate from the image session, and receives:
+After every screen's PNGs are settled (Stage 1 complete), `gen-html-all.sh` walks the manifest tree and calls `gen-page-html.sh` once per (form-factor, screen). The Codex HTML session is `design-html-<project-slug>`, separate from the image session, and each call receives:
 
 - The page-mock PNG as a `--context` attachment (so Codex must visually reference it to fulfill the prompt).
 - The full `manifest.json` as inline JSON (so Codex knows every available cropped part).
@@ -1015,7 +1043,7 @@ There are **two paths** depending on `USE_CODEX`:
 
 Output lands at `$ROOT/dev/docs/design/page-<form-factor>-<screen-slug>.html`. Source: `scripts/gen-page-html.sh` + `prompts/codex-page-to-html.md`.
 
-**Step 2 — Claude polishes the layout (MANDATORY)** ⛔️
+**Step 2 — Claude polishes the layout (Stage 3 of Phase 5, MANDATORY)** ⛔️
 
 Codex's HTML is a first cut, not a finished deliverable. Its `file_write` tool cannot iterate on layout — it commits one snapshot. Common defects in the Codex output:
 
