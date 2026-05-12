@@ -442,6 +442,13 @@ if [ ! -d "dev/oracle-cloud/daily-progress-bot" ]; then
   cp -r "$HARNESS_DIR/templates/oracle-cloud/daily-progress-bot" "dev/oracle-cloud/" 2>/dev/null || true
 fi
 
+# pnpm settings — minimum-release-age + audit hardening.
+# Only place .npmrc when pnpm is the chosen package manager AND the
+# project doesn't already have one (= don't clobber user customization).
+if [ "${PACKAGE_MANAGER:-pnpm}" = "pnpm" ] && [ ! -f "dev/.npmrc" ]; then
+  cp "$HARNESS_DIR/templates/dotnpmrc" dev/.npmrc 2>/dev/null || true
+fi
+
 
 # ===== 5. Copy harness itself to dev/.my-harness =====
 mkdir -p dev/.my-harness

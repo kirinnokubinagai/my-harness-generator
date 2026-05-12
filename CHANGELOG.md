@@ -4,6 +4,42 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.14.2] — 2026-05-12
+
+### Added
+
+- **`templates/dotnpmrc`** — `.npmrc` template that bootstrap.sh
+  installs as `dev/.npmrc` for new projects whose package manager is
+  `pnpm`. Settings:
+  - **`minimum-release-age=4320`** (= 4320 minutes = 3 days) — refuses
+    to install package versions that have been on the registry for
+    less than 3 days. Blocks typosquats, retracted releases, and
+    malicious publications that get taken down within hours.
+  - `frozen-lockfile=true` — installs from lockfile only; force a
+    deliberate `pnpm install --no-frozen-lockfile` to add/update deps.
+  - `audit-level=high` — quiet install-time advisories below `high`
+    (the `husky pre-push` hook runs `pnpm audit --audit-level low`
+    which is stricter; both gates working in concert).
+- **`scripts/bootstrap.sh`** — copies `dotnpmrc` to `dev/.npmrc` when
+  `PACKAGE_MANAGER=pnpm` and no existing `.npmrc` is present (= won't
+  clobber a user-edited file).
+
+### Why 3 days
+
+Most supply-chain attacks on npm get reported and the package
+unpublished within hours to days. A 3-day quarantine window blocks
+the dangerous initial-release period while staying short enough to
+not strand projects on outdated security patches.
+
+### Scope
+
+`.npmrc` is only placed in **generated projects** (`dev/`), not in
+the harness root (`my-harness-generator/`). The harness itself has
+no `package.json` and never runs `pnpm install` against its own
+directory — only the generated projects do.
+
+---
+
 ## [7.14.1] — 2026-05-12
 
 ### Added — Step B of the Phase-1-init notification rework

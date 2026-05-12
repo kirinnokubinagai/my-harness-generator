@@ -1,0 +1,25 @@
+# pnpm settings shared by the project.
+#
+# Distributed by /my-harness-init (bootstrap.sh) as `dev/.npmrc`.
+# Edit there for project-specific overrides.
+
+# ---- supply-chain safety -----------------------------------------------
+#
+# Only install package versions that have been on the registry for at
+# least this many MINUTES. 4320 minutes = 3 days. This blocks:
+#   - freshly-published typosquatted packages
+#   - malicious releases that get taken down within hours of publication
+#   - accidental bad releases by maintainers (often retracted < 1 day)
+#
+# Pin to a higher value (e.g. 10080 = 7 days) for stricter postures.
+# Set to 0 to disable (NOT recommended for production projects).
+minimum-release-age=4320
+
+# A few hardening defaults that pair well with the age gate.
+# Reject installs whose lockfile would be modified — forces explicit
+# `pnpm install` to update the lock instead of silent drift in CI.
+frozen-lockfile=true
+
+# Audit by default at install time. Lower-severity advisories don't
+# fail; husky pre-push runs `pnpm audit --audit-level low` which does.
+audit-level=high
