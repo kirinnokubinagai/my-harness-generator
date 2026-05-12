@@ -4,6 +4,83 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.15.0] — 2026-05-12
+
+### Added — Steps C + D of the notification rework (4 new scripts + 9 bats tests)
+
+These scripts are the building blocks; SKILL.md will orchestrate them
+with `AskUserQuestion` in the next commit.
+
+#### `scripts/ensure-notification-webhook.sh`
+Persists `NOTIFICATION_SERVICE` + `NOTIFICATION_WEBHOOK_URL` to
+`<root>/.my-harness/.notification.env` (chmod 600). Validates URL shape
+per service:
+  - Discord: `https://discord.com/api/webhooks/<id>/<token>`
+  - Slack: `https://hooks.slack.com/services/T.../B.../xxx`
+  - Teams: `https://*.office.com/...` or `https://*.webhook.office.com/...`
+Exit codes: 0=saved, 1=bad service, 2=bad URL shape, 3=no URL supplied
+(= signals SKILL.md to AskUserQuestion). Service `none` wipes the file
+cleanly (= opt-out).
+
+#### `scripts/ensure-github-pat.sh`
+Appends/updates `GH_TOKEN` in the same `.notification.env`. Validates
+PAT shape: `ghp_*` / `github_pat_*` / legacy 40-hex classic. Exit 3
+when no PAT supplied (= SKILL.md prompts).
+
+#### `scripts/ensure-oci-vm.sh`
+Idempotent OCI VM provisioner via the `oci` CLI:
+  1. SSH key auto-generation (`ssh-keygen -t ed25519`) if not present
+  2. `~/.oci/config` existence check (multi-line setup guide on miss)
+  3. Discovers an Always-Free A1.Flex AD in `<region>` (tries up to
+     3 ADs with `Out of Host Capacity` retry loop)
+  4. Discovers latest Oracle Linux 9 ARM image
+  5. Reuses or creates default VCN+subnet
+  6. Launches `VM.Standard.A1.Flex` with 4 OCPU + 24 GB RAM (the
+     Always-Free maximum) with `--wait-for-state RUNNING`
+  7. Persists state to `.my-harness/.oci-vm.env`
+  8. Idempotency: if `.oci-vm.env` exists AND the instance is still
+     `RUNNING`, skip everything
+
+#### `scripts/setup-oci-vm.sh`
+After `ensure-oci-vm.sh` completes, SSH into the VM and bootstrap the
+daily-progress bot end-to-end:
+  1. SSH connectivity test (`ssh -o ConnectTimeout=10`)
+  2. Install Node LTS + Claude CLI + gh + jq + curl on the VM
+  3. Read user's local `~/.claude/.credentials.json` for the OAuth
+     token (errors with `claude login` hint if missing)
+  4. Detects `REPO_OWNER`/`REPO_NAME` from `git -C $ROOT remote get-url
+     origin`
+  5. `scp` the daily-progress-bot/ directory to the VM
+  6. Build the bot's `.env` on the VM (CLAUDE_CODE_OAUTH_TOKEN +
+     NOTIFICATION_* + GH_TOKEN + REPO_*) with chmod 600
+  7. Smoke test `daily-progress.sh` on the VM
+  8. Install the crontab from crontab.example
+  9. Print success summary with SSH command
+
+### Added — `tests/bats/ensure-notification-webhook.bats` (9 tests)
+
+  - rejects invalid service
+  - service=none with prior config → wipes file
+  - service=none with no prior config → exits 0
+  - discord with valid URL writes file with **chmod 600** (verified
+    via `stat` — `ls -l` is unreliable on macOS due to `@`/`+`)
+  - discord with malformed URL → exit 2
+  - slack with valid URL writes file
+  - teams with both URL formats writes file
+  - no URL provided → exit 3 (signals AskUserQuestion needed)
+
+### Total test suite
+
+23 bats tests (was 14) + 11 spawn-lane tests, all passing.
+
+### Remaining
+
+Next commit: `skills/my-harness-init/SKILL.md` Phase 1 questions
+(N-1/N-2/N-3 + O-1〜O-5), invocation of these scripts, and the
+"existing-config detected → confirm or re-prompt" behavior (option α).
+
+---
+
 ## [7.14.2] — 2026-05-12
 
 ### Added
