@@ -26,6 +26,37 @@ These are all code suggestions. The boundary is **executable code**, not prose.
 
 The principle: Claude carries the *requirements* and the *verification result*; Codex carries the *code*.
 
+## Spec changes vs implementation — the higher-level split
+
+Beyond the code-vs-prose boundary, there's a layer above it: **decisions vs execution**.
+
+| Type of change | Owner |
+|---|---|
+| **Spec changes** — requirements, API contracts, data model, UI flow, scope add/remove, "do X instead of Y" decisions, security posture, performance budgets | **Claude** edits the spec file directly (`dev/docs/spec/*.md`, `init-state.json`, `.config`, `rules/*.md`) |
+| **Implementation** — writing the code that fulfills the spec | **Codex** via `codex-ask.sh` / engineer subagent |
+| Refactors, bug fixes, perf tuning, test additions, log additions, error messages, formatting / lint | **Codex** |
+| Documentation that describes existing code (README sections, JSDoc, in-code comments explaining what an exported function does) | Whoever wrote the code = usually **Codex** |
+| Documentation that drives the spec (architecture decisions / ADRs, runbooks for not-yet-built systems, design language docs) | **Claude** |
+
+### The rule of thumb
+
+> If changing this would change **WHAT** the system does → spec change → **Claude**.
+> If it only changes **HOW** the system achieves the existing WHAT → **Codex**.
+
+Examples:
+
+- "Add 2FA to the Login flow" → spec change (= new requirement). Claude edits `dev/docs/spec/04-features.md`, then asks Codex to implement.
+- "The login button doesn't activate on first click" → implementation bug (= existing requirement is "button activates on click", code doesn't honor that). Codex implements the fix.
+- "Move the email-sending logic out of the controller into a service layer" → refactor (= same behavior, new structure). Codex.
+- "Switch from password auth to OAuth only" → spec change. Claude edits the spec; Codex re-implements auth.
+- "Add unit tests for the existing pricing service" → execution (= test what's already specified). Codex.
+- "We need to GDPR-classify every entity in the data model" → spec change (= new contract on the data). Claude edits the data-model spec; Codex updates the schema / annotations.
+- "Tighten the rate limit on /api/auth from 100/min to 10/min" → spec change (= changes WHAT happens at 11 requests/min). Claude edits the spec.
+
+When a Codex implementation turn discovers the spec is incomplete or contradictory, Codex does NOT silently invent the missing decision. Codex reports "spec incomplete: <question>" back through the lane and waits for Claude to extend the spec.
+
+---
+
 ## ✅ When this rule does NOT apply
 
 These are explicit exceptions where Claude writes code directly:

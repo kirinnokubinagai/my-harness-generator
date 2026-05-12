@@ -4,6 +4,34 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.9.1] — 2026-05-12
+
+### Added
+
+- **rules/codex-handoff.md — "Spec changes vs implementation" section**.
+  Beyond the existing code-vs-prose boundary, there's a higher layer:
+  **decisions vs execution**. Claude owns decisions (requirements / API
+  contracts / data model / UI flow / scope / security posture / perf
+  budgets — anything that changes WHAT the system does), Codex owns
+  execution (anything that changes HOW the system achieves the existing
+  WHAT — refactors, bug fixes, tests, formatting, log additions, code
+  documentation).
+
+  Rule of thumb: **WHAT** changes → Claude; **HOW** changes → Codex.
+
+  Concrete examples table covers the typical confusing cases ("add 2FA",
+  "button doesn't activate on click", "move logic to a service",
+  "switch password→OAuth", "add tests for pricing service", "GDPR-
+  classify every entity", "tighten rate limit") and shows which side
+  owns each.
+
+  When a Codex turn discovers the spec is incomplete or contradictory,
+  Codex does NOT invent the missing decision — it reports "spec
+  incomplete: <question>" back through the lane and waits for Claude
+  to extend the spec.
+
+---
+
 ## [7.9.0] — 2026-05-12
 
 ### Changed
