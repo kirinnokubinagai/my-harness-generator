@@ -7,6 +7,29 @@ Read the attached spec for what the screen does, then design with full creative 
 
 <PRIOR_STYLE_GUIDE_BLOCK>
 
+---
+
+## SHARED CHROME — header / footer / sidebar / bottom-nav must be IDENTICAL across screens
+
+The project's "chrome" — the navigation and frame elements that wrap each page's main content — must be visually identical on every screen of this project. Specifically, these are SHARED, not per-screen:
+
+- **Header**: logo (position, size, mark vs wordmark), top-level nav labels and their order, right-side action area (search, notifications, profile avatar), any top-of-page utility band.
+- **Footer**: column structure, link groups and their order, copyright line, social icon row.
+- **Sidebar** (when present on pc): logo / brand block at top, primary nav item list and order, active-state visual, collapse / expand affordance, secondary footer block at bottom.
+- **Bottom-nav** (when present on mobile): tab count, labels, icon style, active-state visual.
+
+Rules for THIS turn:
+
+- **If this is the FIRST screen of the project** (no prior style_guide / chrome exists): design the chrome thoughtfully, knowing every later screen will inherit it pixel-for-pixel. Pick choices that read well on BOTH `pc` AND `mobile` layouts. Avoid form-factor-specific tropes unless the brand demands them.
+
+- **If a prior screen exists in this Codex session** (you can see its page mock in your edit-mode context, OR `<PRIOR_STYLE_GUIDE_BLOCK>` is non-empty): the chrome from that screen is LAW. Reproduce it pixel-for-pixel in this screen — same logo, same nav order, same labels, same right-side actions, same footer columns, same sidebar / bottom-nav. The ONLY area you may redesign is the **main content region** between the chrome elements. Drift in any chrome detail (a renamed nav item, a moved icon, a different footer link, a recolored sidebar selection) breaks project-wide design consistency and is a failure of this turn.
+
+If you cannot recall an exact chrome detail from the prior screen, re-examine its page image in edit-mode context BEFORE drawing — that is the entire point of edit-mode chaining.
+
+Per-form-factor adaptation is permitted ONLY for affordances that are intrinsically per-form-factor (e.g. mobile collapses the desktop sidebar into a hamburger; mobile uses a bottom-nav where desktop uses a left-side nav). The CONTENT of those navs (labels, order, icons) must still match between form factors.
+
+---
+
 This turn produces ONE artifact: the full page mock PNG at the <FORM_FACTOR> layout. Subsequent turns in this same Codex session will produce the parts grid (via image_gen **edit mode** against this page) and — if applicable — the OTHER form factor's page mock (also inheriting these invariants). Everything you decide here gets locked in for the whole project, so be deliberate.
 
 ---

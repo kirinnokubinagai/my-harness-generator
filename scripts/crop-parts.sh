@@ -51,19 +51,26 @@ fi
 # This single per-pixel calculation:
 #   - drives pure magenta (r=1, g=0, b=1) to alpha=0 (fully transparent)
 #   - leaves every non-magenta pixel at alpha=1 (fully opaque)
-#   - lets anti-aliased rim pixels (e.g. r=1, g=0.5, b=1) become alpha=0.5,
-#     producing a natural fade rather than a hard halo
+#   - produces low alpha (~0–30%) on magenta-tinted edge pixels and high
+#     alpha (~70–100%) on real asset edges, with a fade in between
 #   - never touches the RGB channels, so asset-internal colors (white,
-#     pink, purple, anything that is not pure magenta) are preserved.
+#     pink, purple — anything that is not pure magenta) are preserved.
 #
-# CHROMA_THRESHOLD cuts the half-transparent fade to fully transparent.
-# Default 50% means "anything ≤50% opaque becomes 100% transparent",
-# guaranteeing zero magenta residue. Raise (e.g. 70%) for an even
-# stricter cut at the cost of slightly tighter edges; lower (e.g. 25%)
-# to preserve more of the anti-aliased fade.
+# CHROMA_FLOOR controls the cut for residual magenta WITHOUT hardening
+# real asset edges. The pipeline applies `-channel A -level <floor>x100%`:
+#   - pixels with computed alpha ≤ floor become fully transparent
+#     (this is where magenta-tinted edge pixels get killed)
+#   - pixels with alpha ≥ 100% stay fully opaque
+#   - the band in between is LINEARLY STRETCHED from 0% to 100%, so the
+#     anti-aliased fade on real asset edges is preserved (just shifted
+#     and steepened, not binarized).
+#
+# Default 30% works for typical gpt-image-2 output. Raise toward 50%
+# for stricter magenta-residue removal at the cost of slightly tighter
+# edges; lower toward 15% to preserve more anti-aliasing.
 #
 # Reference: https://ar.al/2021/11/23/how-to-apply-a-chroma-key-using-imagemagick/
-CHROMA_THRESHOLD="${CHROMA_THRESHOLD:-50%}"
+CHROMA_FLOOR="${CHROMA_FLOOR:-30%}"
 
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 ASSET_DIR="$ROOT/dev/docs/design/parts/${PLATFORM}/${SCREEN_SLUG}"
@@ -147,7 +154,7 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
     -alpha set \
     -channel alpha -fx '1.0*g - min(r,b) + 1.0' +channel \
     -alpha on \
-    -channel A -threshold "$CHROMA_THRESHOLD" +channel \
+    -channel A -level "$CHROMA_FLOOR"x100% +channel \
     -strip \
     "$OUT"
 

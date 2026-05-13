@@ -4,6 +4,22 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.19.0] — 2026-05-13
+
+### Added
+- `prompts/codex-page-mock.md` "SHARED CHROME" section. The first generated screen establishes header / footer / sidebar / bottom-nav (labels, order, icons, active states); every subsequent screen must reproduce them pixel-for-pixel via Codex image-edit-mode context. Only the main content region is redesigned per screen.
+- `skills/my-harness-init/SKILL.md` Phase 5 description now calls out that **shared chrome** is inherited alongside `style_guide` across screens and form factors.
+- env var `CHROMA_FLOOR` (default `30%`). Raise toward 50% for stricter magenta cut at the cost of tighter edges; lower toward 15% to preserve more anti-aliasing.
+
+### Changed
+- `scripts/crop-parts.sh` chroma-key cut switched from `-threshold` (hard binarization at 50%) to `-level <floor>x100%` (cuts ≤ floor to fully transparent, linearly stretches the rest). This preserves anti-aliased softness on real asset edges while still killing magenta-tinted edge pixels.
+
+### Removed
+- env var `CHROMA_THRESHOLD` (replaced by `CHROMA_FLOOR`).
+
+### Rationale
+User wants both "magenta absolutely never remains" AND "asset edges still look natural (not stair-stepped from binarization)". `-threshold` could only do the former at the cost of the latter; `-level <floor>x100%` does both because the Aral Balkan formula naturally separates magenta pixels into the low-alpha band and real asset pixels into the high-alpha band with a fade between them.
+
 ## [7.18.1] — 2026-05-13
 
 ### Changed
