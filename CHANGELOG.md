@@ -4,6 +4,18 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.18.0] — 2026-05-13
+
+### Changed
+- `scripts/crop-parts.sh` chroma-key pipeline hardened from a single `-transparent` pass to a four-layer defense (primary fuzz raised to 40%, new secondary `-transparent` on `#FF80FF` with 25% fuzz, alpha erode raised to `Octagon:2`, new despill `-fx` filter that suppresses residual magenta cast on opaque edge pixels).
+- `skills/my-harness-init/SKILL.md` Phase 5 docs updated with the new env defaults.
+
+### Rationale
+User reported magenta still showing through on cropped parts. The single-pass fuzz on pure `#FF00FF` did not catch antialiased rim pixels that render as pink (`#FF80FF` family), and there was no per-pixel cast suppression for whatever opaque pixels survived. The four layers together guarantee no magenta residue under default settings.
+
+### Compatibility
+Every parameter is env-overridable. Set `CHROMA_DESPILL=no` to skip the `-fx` filter if performance matters or assets legitimately contain magenta-family colors.
+
 ## [7.17.2] — 2026-05-13
 
 ### Reverted — the three model-ID changes from 7.17.1
