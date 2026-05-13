@@ -62,12 +62,23 @@ validate_url() {
 
 write_env() {
   local out="$1" service="$2" url="$3"
+  # Preserve other keys (= GH_TOKEN written by ensure-github-pat.sh) by
+  # filtering them out before re-appending. Without this merge step,
+  # running ensure-notification-webhook.sh after ensure-github-pat.sh
+  # would wipe GH_TOKEN.
+  local tmp
+  tmp="$(mktemp)"
+  if [ -f "$out" ]; then
+    grep -vE '^(NOTIFICATION_SERVICE=|NOTIFICATION_WEBHOOK_URL=|# Auto-written by scripts/ensure-notification-webhook.sh|# Re-run /my-harness-init)' "$out" > "$tmp" || true
+  fi
   {
     echo "# Auto-written by scripts/ensure-notification-webhook.sh — do not edit by hand."
     echo "# Re-run /my-harness-init or scripts/ensure-notification-webhook.sh to change."
     echo "NOTIFICATION_SERVICE=$service"
     echo "NOTIFICATION_WEBHOOK_URL=$url"
+    cat "$tmp"
   } > "$out"
+  rm -f "$tmp"
   chmod 600 "$out"
 }
 

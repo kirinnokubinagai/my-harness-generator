@@ -11,7 +11,9 @@
 #   1. Loads .notification.env + .oci-vm.env
 #   2. SSH-pings the VM
 #   3. Installs Node LTS, gh, jq, curl, claude CLI on the VM
-#   4. Reads CLAUDE_CODE_OAUTH_TOKEN from local ~/.claude/.credentials.json
+#   4. Reads CLAUDE_CODE_OAUTH_TOKEN from .my-harness/.notification.env
+#      (populated by ensure-claude-oauth-token.sh — same value as the
+#      `claude setup-token` output, ~1 year lifetime, no refresh needed)
 #   5. Derives REPO_OWNER/REPO_NAME from `git remote get-url origin`
 #   6. scp's templates/oracle-cloud/daily-progress-bot/ to the VM
 #   7. Writes ~/daily-progress-bot/.env on the VM (chmod 600)
@@ -52,13 +54,18 @@ set +a
 
 # Verify all required vars are present.
 missing=()
-for v in NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN \
+for v in NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN \
          OCI_VM_NAME OCI_VM_REGION OCI_VM_INSTANCE_ID OCI_VM_PUBLIC_IP OCI_VM_SSH_KEY; do
   eval "val=\${$v:-}"
   [ -n "$val" ] || missing+=("$v")
 done
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "::error:: missing required env: ${missing[*]}" >&2
+  case " ${missing[*]} " in
+    *" CLAUDE_CODE_OAUTH_TOKEN "*)
+      echo "  → run \`claude setup-token\` on this Mac, then \`bash ensure-claude-oauth-token.sh <root> <token>\` to save it." >&2
+      ;;
+  esac
   exit 1
 fi
 
@@ -79,9 +86,11 @@ SSH_OPTS=(
 SSH_TARGET="opc@$OCI_VM_PUBLIC_IP"
 
 echo "[setup-vm] testing SSH to $SSH_TARGET..."
-ssh_out="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "echo ok" 2>&1)" || {
-  echo "::error:: SSH connectivity failed:" >&2
-  echo "$ssh_out" >&2
+# Discard stderr — ssh prints "Warning: Permanently added '...' to known hosts"
+# on first connect, which would contaminate the strict "ok" string match below.
+ssh_out="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "echo ok" 2>/dev/null)" || {
+  echo "::error:: SSH connectivity failed (re-running with stderr visible):" >&2
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "echo ok" >&2 || true
   echo "  Check: VM running, public IP reachable, security list allows port 22, key matches." >&2
   exit 2
 }
@@ -166,31 +175,16 @@ claude --version || true
 REMOTE_INSTALL
 
 # -----------------------------------------------------------------------------
-# Step 5: Claude OAuth token from local credentials.
+# Step 5: Claude OAuth token from .notification.env.
+# The token is the value `claude setup-token` prints on a desktop Mac.
+# It is saved by scripts/ensure-claude-oauth-token.sh into the same
+# .notification.env that holds the webhook URL + GH_TOKEN. ~1 year
+# lifetime, no refresh required, no Mac involvement after first save.
+# This is the SAME token GitHub's claude-code-action consumes via
+# `${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` — one token, two consumers.
 # -----------------------------------------------------------------------------
-CRED_FILE="$HOME/.claude/.credentials.json"
-if [ ! -f "$CRED_FILE" ]; then
-  echo "::error:: $CRED_FILE not found." >&2
-  echo "  Run \`claude login\` on this machine first (a browser will open)." >&2
-  exit 3
-fi
-
-if ! command -v jq >/dev/null 2>&1; then
-  echo "::error:: jq not on local PATH — needed to parse $CRED_FILE" >&2
-  echo "  Enter the dev shell:  nix develop" >&2
-  exit 3
-fi
-
-CLAUDE_TOKEN="$(jq -r '
-    (.access_token // .claudeAiOauth.accessToken // .oauthAccount.accessToken // empty)
-  ' "$CRED_FILE" 2>/dev/null || true)"
-
-if [ -z "$CLAUDE_TOKEN" ] || [ "$CLAUDE_TOKEN" = "null" ]; then
-  echo "::error:: could not extract Claude OAuth access token from $CRED_FILE" >&2
-  echo "  Try \`claude login\` again on this machine." >&2
-  exit 3
-fi
-echo "[setup-vm] Claude OAuth token: ${CLAUDE_TOKEN:0:10}... (length ${#CLAUDE_TOKEN})"
+CLAUDE_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"
+echo "[setup-vm] Claude OAuth token from .notification.env: ${CLAUDE_TOKEN:0:14}... (length ${#CLAUDE_TOKEN})"
 
 # -----------------------------------------------------------------------------
 # Step 6: derive REPO_OWNER / REPO_NAME from git remote.

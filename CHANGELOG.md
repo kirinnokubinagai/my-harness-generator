@@ -4,6 +4,73 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.17.0] — 2026-05-13
+
+### Added — `scripts/ensure-claude-oauth-token.sh`
+
+New bash building block (mirrors `ensure-notification-webhook.sh` and
+`ensure-github-pat.sh`). Accepts `<root> [<token>]`, validates token
+shape (no whitespace, length ≥ 30, alphabet `[A-Za-z0-9_=+/.~-]`),
+and merges `CLAUDE_CODE_OAUTH_TOKEN=<token>` into
+`<root>/.my-harness/.notification.env` (chmod 600, preserving all
+other keys). Exit 0 = saved; exit 2 = bad shape; exit 3 = token empty.
+
+### Added — Setup Q9.5 in `skills/my-harness-init/SKILL.md`
+
+New question group inserted between Q9 (OCI VM) and the Phase 1
+wrap-up. Runs when Q9 resulted in actual VM provisioning or
+"Already have one — connect to it". Captures the 1-year OAuth token
+produced by `claude setup-token` and stores it in `.notification.env`
+so both the daily-progress bot (OCI VM) and the GitHub claude-code-action
+can consume it from a single source.
+
+Follows the same pattern as Q6/Q8: already-configured detection (option α)
+shows current token length with a Keep / Change prompt; new-token path
+explains `claude setup-token`, accepts a paste, and validates via
+`ensure-claude-oauth-token.sh` with exit-code loop on bad shape. Fully
+bilingual (EN/JA).
+
+Decision 11 (Phase 6) updated with a reuse note: when `CLAUDE_AUTH=oauth`
+and `.notification.env` already contains `CLAUDE_CODE_OAUTH_TOKEN`,
+`setup-secrets.sh` auto-fills without prompting.
+
+### Changed — `scripts/setup-oci-vm.sh`
+
+No longer reads the macOS Keychain or `~/.claude/.credentials.json`.
+Requires `CLAUDE_CODE_OAUTH_TOKEN` from `.my-harness/.notification.env`
+only, which is guaranteed to be present after Q9.5 completes.
+
+### Changed — `scripts/setup-secrets.sh`
+
+Added `auto_secret()` helper for non-interactive GitHub Secret pushes.
+The Claude Action block now checks `.my-harness/.notification.env` for
+a saved `CLAUDE_CODE_OAUTH_TOKEN` before prompting: if found, calls
+`auto_secret` and prints which path was taken; if absent, falls through
+to the existing `ask_secret` interactive prompt.
+
+### Changed — `templates/oracle-cloud/daily-progress-bot/.env.example`
+
+Header comment updated to describe `claude setup-token` (~1 year
+lifetime) instead of `claude login` (90-day access token).
+
+### Removed — `scripts/sync-claude-creds-to-vm.sh`
+
+Deleted. This script was a workaround for short-lived 90-day access
+tokens that required hourly Mac→VM syncs. The 1-year token from
+`claude setup-token` makes it unnecessary: once written to
+`.notification.env` and pushed to the VM during `setup-oci-vm.sh`,
+no further Mac involvement is required until the token expires.
+
+### Rationale
+
+`claude setup-token` produces the same `CLAUDE_CODE_OAUTH_TOKEN` that
+GitHub's claude-code-action consumes. One capture during Q9.5 serves
+both consumers — the daily-progress bot on the OCI VM and the PR-review
+Action in CI. No refresh daemon, no hourly cron, no Keychain dependency.
+Mac involvement after the first capture is zero.
+
+---
+
 ## [7.16.0] — 2026-05-12
 
 ### Added — Phase 1 Setup orchestration for notifications + OCI VM (Step E)

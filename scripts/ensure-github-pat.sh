@@ -21,9 +21,12 @@ PROVIDED_PAT="${2:-}"
 
 validate_pat() {
   local pat="$1"
-  if [[ "$pat" =~ ^ghp_[A-Za-z0-9_]{36,251}$ ]]; then return 0; fi      # fine-grained / classic w/ prefix
-  if [[ "$pat" =~ ^github_pat_[A-Za-z0-9_]{30,300}$ ]]; then return 0; fi
-  if [[ "$pat" =~ ^[a-f0-9]{40}$ ]]; then return 0; fi                  # legacy classic (no prefix)
+  # NOTE: macOS bash 3.2 rejects 3-digit repetition counts like {30,300},
+  # so we keep the upper bound 2-digit. The real GitHub tokens are
+  # well under 100 characters past the prefix, so this is safe.
+  if [[ "$pat" =~ ^ghp_[A-Za-z0-9_]{36,99}$ ]]; then return 0; fi          # fine-grained / classic w/ prefix
+  if [[ "$pat" =~ ^github_pat_[A-Za-z0-9_]{30,99}$ ]]; then return 0; fi   # fine-grained
+  if [[ "$pat" =~ ^[a-f0-9]{40}$ ]]; then return 0; fi                     # legacy classic (no prefix)
   echo "::error:: PAT shape not recognized. Expected ghp_..., github_pat_..., or 40-hex classic." >&2
   return 1
 }

@@ -35,7 +35,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 : "${REPO_NAME:?must be set}"
 : "${GH_TOKEN:=${GITHUB_TOKEN:-}}"
 LANG_TAG="${LANG_TAG:-ja}"
-LOOKBACK_HOURS="${LOOKBACK_HOURS:-24}"
+# REPORT_TIMEZONE = which timezone defines the calendar-day boundary.
+# Default Asia/Tokyo (= JST 00:00–24:00 of yesterday is the report window).
+REPORT_TIMEZONE="${REPORT_TIMEZONE:-Asia/Tokyo}"
 
 # Pull in the multi-service notification helper.
 # shellcheck disable=SC1091
@@ -51,42 +53,69 @@ export GH_TOKEN
 # ---- 1. Collect GitHub activity ----
 # Last N hours of: commits on the default branch, opened/closed issues + PRs,
 # latest CI workflow run status.
-since=$(date -u -d "${LOOKBACK_HOURS} hours ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
-        || date -u -v-${LOOKBACK_HOURS}H +%Y-%m-%dT%H:%M:%SZ)   # GNU vs BSD date
+# Report window = "yesterday" in REPORT_TIMEZONE (calendar day, 00:00–24:00).
+# Computed as the half-open interval [since, until) so today's events are
+# excluded even when the script runs late in the day.
+#
+# Implementation note: GNU date ignores `TZ=` when `-u` is also set unless the
+# input date string itself names the timezone. We therefore go in two steps:
+#   1. compute the date label (= yesterday in JST)
+#   2. parse "<date> 00:00:00 JST" / "<date+1> 00:00:00 JST" → UTC
+# This makes the boundary conversion explicit and works on both GNU and BSD date.
+
+if REPORT_DATE=$(TZ="$REPORT_TIMEZONE" date -d 'yesterday' +%Y-%m-%d 2>/dev/null) && [ -n "$REPORT_DATE" ]; then
+  # GNU date (Linux / OCI VM, primary path)
+  next_day=$(TZ="$REPORT_TIMEZONE" date -d 'today' +%Y-%m-%d)
+  # Resolve the named-timezone "$REPORT_TIMEZONE" abbreviation (e.g. JST)
+  # — `date -d "Y-M-D 00:00:00 JST"` does the actual TZ conversion. We
+  #   pass the IANA name first; if `date` doesn't accept it (rare), fall
+  #   back to the short abbreviation from `date +%Z`.
+  tz_label=$(TZ="$REPORT_TIMEZONE" date +%Z)
+  since=$(date -u -d "${REPORT_DATE} 00:00:00 ${tz_label}" +%Y-%m-%dT%H:%M:%SZ)
+  until=$(date -u -d "${next_day} 00:00:00 ${tz_label}" +%Y-%m-%dT%H:%M:%SZ)
+else
+  # BSD/macOS fallback (= dev machine).
+  REPORT_DATE=$(TZ="$REPORT_TIMEZONE" date -v-1d +%Y-%m-%d)
+  next_day=$(TZ="$REPORT_TIMEZONE" date +%Y-%m-%d)
+  since=$(TZ="$REPORT_TIMEZONE" date -j -f '%Y-%m-%d %H:%M:%S' "${REPORT_DATE} 00:00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+  until=$(TZ="$REPORT_TIMEZONE" date -j -f '%Y-%m-%d %H:%M:%S' "${next_day} 00:00:00" -u +%Y-%m-%dT%H:%M:%SZ)
+fi
 
 ACTIVITY_FILE="$(mktemp)"
 trap 'rm -f "$ACTIVITY_FILE"' EXIT
 
 {
   echo "## Repo: $REPO_OWNER/$REPO_NAME"
-  echo "## Window: since $since"
+  echo "## Window: $since → $until  (= yesterday in $REPORT_TIMEZONE)"
   echo
   echo "### Commits (default branch)"
-  gh api "repos/$REPO_OWNER/$REPO_NAME/commits?since=$since&per_page=50" \
+  gh api "repos/$REPO_OWNER/$REPO_NAME/commits?since=$since&until=$until&per_page=50" \
     --jq '.[] | "- \(.commit.author.name): \(.commit.message | split("\n") | .[0]) [\(.sha[0:7])]"' 2>/dev/null \
     || echo "(no commits or API unreachable)"
   echo
   echo "### Issues opened in window"
-  gh issue list --repo "$REPO_OWNER/$REPO_NAME" --search "created:>=$since" --state open \
+  gh issue list --repo "$REPO_OWNER/$REPO_NAME" --search "created:$since..$until" --state open \
     --json number,title,labels --jq '.[] | "- #\(.number) \(.title) (labels: \([.labels[].name] | join(", ")))"' 2>/dev/null \
     || echo "(none)"
   echo
   echo "### Issues closed in window"
-  gh issue list --repo "$REPO_OWNER/$REPO_NAME" --search "closed:>=$since" --state closed \
+  gh issue list --repo "$REPO_OWNER/$REPO_NAME" --search "closed:$since..$until" --state closed \
     --json number,title --jq '.[] | "- #\(.number) \(.title)"' 2>/dev/null \
     || echo "(none)"
   echo
   echo "### PRs in window"
-  gh pr list --repo "$REPO_OWNER/$REPO_NAME" --search "updated:>=$since" --state all \
+  gh pr list --repo "$REPO_OWNER/$REPO_NAME" --search "updated:$since..$until" --state all \
     --json number,title,state,isDraft --jq '.[] | "- #\(.number) [\(.state)\(if .isDraft then "/draft" else "" end)] \(.title)"' 2>/dev/null \
     || echo "(none)"
   echo
-  echo "### Latest workflow runs (top 5)"
-  gh run list --repo "$REPO_OWNER/$REPO_NAME" --limit 5 \
-    --json name,status,conclusion,createdAt --jq '.[] | "- \(.name): \(.status)/\(.conclusion) at \(.createdAt)"' 2>/dev/null \
+  echo "### Workflow runs in window"
+  gh run list --repo "$REPO_OWNER/$REPO_NAME" --limit 50 \
+    --json name,status,conclusion,createdAt \
+    --jq --arg since "$since" --arg until "$until" \
+        '.[] | select(.createdAt >= $since and .createdAt < $until) | "- \(.name): \(.status)/\(.conclusion) at \(.createdAt)"' 2>/dev/null \
     || echo "(none)"
   echo
-  echo "### Open issues with priority/p1 (= security or other top-priority work)"
+  echo "### Open issues with priority/p1 (= security or other top-priority work, snapshot now)"
   gh issue list --repo "$REPO_OWNER/$REPO_NAME" --label "priority/p1" --state open \
     --json number,title --jq '.[] | "- #\(.number) \(.title)"' 2>/dev/null \
     || echo "(none)"
@@ -94,12 +123,12 @@ trap 'rm -f "$ACTIVITY_FILE"' EXIT
 
 # ---- 2. Ask Claude to summarize ----
 if [ "$LANG_TAG" = "ja" ]; then
-  PROMPT_INSTRUCTION="次のリポジトリ活動データを元に、日次進捗を 3〜5 個の箇条書きで日本語で要約してください。
+  PROMPT_INSTRUCTION="次のリポジトリ活動データは ${REPORT_DATE} (${REPORT_TIMEZONE}) の 1 日分です。この日の進捗を 3〜5 個の箇条書きで日本語で要約してください。
 重要事項 (priority/p1 issue, CI failure, 大きな機能追加, セキュリティ問題など) を最初に。
 箇条書きは絵文字で始めて (✅成功 / 🚧進行中 / 🔥要対応 / ✨新規 など)、簡潔に。
 Discord に投稿するので Markdown は最小限 (太字 ** のみ可)、コードブロックは使わない。"
 else
-  PROMPT_INSTRUCTION="Based on the repository activity below, summarize today's progress as 3-5 bullet points.
+  PROMPT_INSTRUCTION="The repository activity below covers ${REPORT_DATE} (${REPORT_TIMEZONE}) — yesterday's calendar day. Summarize that day's progress as 3-5 bullet points.
 Start with anything urgent (priority/p1 issues, CI failures, major features, security findings).
 Prefix each bullet with an emoji (✅ done / 🚧 in-progress / 🔥 needs attention / ✨ new).
 Keep it concise — this will be posted to Discord. Minimal markdown (only **bold**), no code blocks."
@@ -119,8 +148,7 @@ $(cat "$ACTIVITY_FILE")" \
 [ -z "$SUMMARY" ] && SUMMARY="(本日の活動なし、または取得不可)"
 
 # ---- 3. Post notification ----
-TODAY=$(date +"%Y-%m-%d")
-TITLE="📊 $TODAY の進捗 ($REPO_OWNER/$REPO_NAME)"
+TITLE="📊 $REPORT_DATE の進捗 ($REPO_OWNER/$REPO_NAME)"
 post_notification "$TITLE" "$SUMMARY" 5814783
 
 NOW=$(date)

@@ -997,9 +997,168 @@ Handle exit codes:
 
 On success (Exit 0) call `bash scripts/setup-oci-vm.sh "$ROOT"` to install dependencies, deploy the bot, and register the crontab inside the VM.
 
+### Setup Q9.5: Claude Code subscription OAuth token
+
+Run this question only when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".
+
+> **Security note:** This token grants approximately 1 year of inference access on your Claude Pro/Max subscription. Treat it like a password. It is stored in `.my-harness/.notification.env` (gitignored, chmod 600) and never leaves this machine except when `setup-secrets.sh` pushes it to GitHub Secrets.
+
+**Already-configured detection (option α) for Q9.5:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_TOKEN="$(grep '^CLAUDE_CODE_OAUTH_TOKEN=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)"
+  TOKEN_LEN="${#CURRENT_TOKEN}"
+fi
+```
+
+If a non-empty `CLAUDE_CODE_OAUTH_TOKEN` is already saved, ask first:
+
+- **LANG=en:** "Current OAuth token already saved (length: `$TOKEN_LEN`). Change it?"
+- **LANG=ja:** "OAuth トークンは保存済みです（長さ: `$TOKEN_LEN`）。変更しますか?"
+
+Options: `Keep` / `保持する` → skip Q9.5 entirely. `Change` / `変更する` → ask the original question below.
+
+**Q9.5 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide your Claude subscription OAuth token?",
+    "header": "Claude OAuth token",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "I already ran `claude setup-token` on this Mac and have the token ready. I'll paste it on the next prompt." },
+      { "label": "Walk me through generating it",
+        "description": "Show me the steps to run `claude setup-token` and obtain the token." },
+      { "label": "Skip for now",
+        "description": "The daily-progress bot will fail to call Claude until a token is set. Run `bash scripts/ensure-claude-oauth-token.sh <root> <token>` manually later." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Claude サブスクリプション OAuth トークンの入力方法を選んでください:",
+    "header": "Claude OAuth トークン",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "この Mac で既に `claude setup-token` を実行済みで、トークンが手元にある。次のプロンプトで貼り付ける。" },
+      { "label": "生成方法を案内してほしい",
+        "description": "`claude setup-token` の実行手順とトークンの取得方法を画面で案内する。" },
+      { "label": "あとでやる",
+        "description": "トークンが設定されるまでボットは Claude を呼び出せません。後で `bash scripts/ensure-claude-oauth-token.sh <root> <token>` を手動実行してください。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "Skip for now" / 「あとでやる」
+
+Continue to the Phase 1 wrap-up without saving a token.
+
+#### "Walk me through generating it" / 「生成方法を案内してほしい」
+
+Print the following step-by-step guidance to the screen verbatim, then wait for the user to acknowledge with `continue` / `done` / 完了 before proceeding to the paste step below.
+
+**LANG=en — display this text to the user:**
+
+```
+To generate a 1-year Claude OAuth token, do the following on THIS Mac:
+
+  1. Open a new terminal window/tab (Cmd+T in iTerm / Terminal.app), or
+     run the next command from inside this Claude Code session by
+     prefixing it with `!` so it runs in the host shell:
+
+         ! claude setup-token
+
+     Running it as a normal shell command in a separate terminal works
+     equally well.
+
+  2. Your browser will open to claude.ai for authorization. Sign in to
+     the SAME Claude.ai account that holds your Pro / Max / Team /
+     Enterprise subscription. Approve the access prompt.
+
+  3. The terminal where you ran `claude setup-token` will print a
+     single long line starting with `sk-ant-oat01-`. That entire line
+     is the token. Select and copy it.
+
+  4. Return here and type `continue`. I'll then ask you to paste the
+     token, validate its shape, and save it to
+     `.my-harness/.notification.env` (chmod 600, gitignored). The
+     token is valid for ~1 year and does not need to be refreshed.
+
+Security note: this token grants ~1 year of inference access on your
+subscription. Do NOT commit it, do NOT paste it into public chat. If
+it leaks, regenerate via `claude setup-token` again (the new token
+invalidates the old one on first use).
+```
+
+**LANG=ja — display this text to the user:**
+
+```
+1 年有効な Claude OAuth トークンを生成する手順 (この Mac で実行):
+
+  1. 新しいターミナル (iTerm / Terminal.app で Cmd+T) を開いて
+     実行してください。あるいはこの Claude Code セッション内で
+     次のコマンドの先頭に `!` を付けてホストシェルで実行しても OK:
+
+         ! claude setup-token
+
+     どちらでも結果は同じです。
+
+  2. ブラウザが claude.ai に開いて認可を求めます。Pro / Max /
+     Team / Enterprise サブスクリプションを契約している Claude.ai
+     アカウントでサインインし、アクセスを承認してください。
+
+  3. `claude setup-token` を実行したターミナルに `sk-ant-oat01-`
+     で始まる長い 1 行が出力されます。その 1 行全体がトークン
+     です。選択してコピーしてください。
+
+  4. ここに戻り `continue` と入力してください。次にトークンの
+     貼り付けを求めますので、検証後に
+     `.my-harness/.notification.env` (chmod 600、.gitignore 済み)
+     に保存します。トークンは約 1 年有効でリフレッシュは不要です。
+
+セキュリティ注意: このトークンは約 1 年間サブスクリプションを使った
+推論アクセスを許可します。git にコミットしない / 公開チャットに貼らない
+ようにしてください。万一漏洩した場合は `claude setup-token` を再実行し
+て新しいトークンを発行すれば、新トークンの初回使用時に古いトークンは
+無効化されます。
+```
+
+After the user types `continue` (or any acknowledgement), drop into the paste step described below.
+
+#### "I have it — I will paste" / 「持っているので貼り付ける」
+
+Ask for the token via a follow-up freeform `AskUserQuestion`:
+
+- **LANG=en** question: "Paste the OAuth token (`sk-ant-oat01-...`):"
+- **LANG=ja** question: "OAuth トークン (`sk-ant-oat01-...`) を貼り付けてください:"
+
+Then validate:
+
+```bash
+bash scripts/ensure-claude-oauth-token.sh "$ROOT" "$TOKEN"
+```
+
+Exit codes:
+
+- **Exit 0:** token saved. Proceed to Phase 1 wrap-up.
+- **Exit 2:** bad shape (whitespace, length < 30, or disallowed characters). Show the script's error output, then reprompt for the token only (do NOT loop back through Q9.5's three options).
+- **Exit 3:** token was empty (should not reach here). Treat as "Skip for now".
+
 ### Phase 1 wrap-up
 
-After Q6-Q9 answered (or skipped via Q6=Disable / Q9=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6-Q9.5 answered (or skipped via Q6=Disable / Q9=Skip / Q9.5=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 
@@ -1909,6 +2068,8 @@ If `USE_CLAUDE_ACTION=yes`, follow up with auth method via `AskUserQuestion`:
 ```
 
 Persist `CLAUDE_AUTH=api|oauth`.
+
+**Token reuse note:** If `USE_CLAUDE_ACTION=yes` and `CLAUDE_AUTH=oauth`, check whether `.my-harness/.notification.env` already contains a non-empty `CLAUDE_CODE_OAUTH_TOKEN` (written by Q9.5 during Phase 1). If present, skip any further OAuth token collection here — `setup-secrets.sh` will read and push the saved value automatically. Only prompt the user if the key is absent.
 
 ### After Phase 6
 

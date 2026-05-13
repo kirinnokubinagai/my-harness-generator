@@ -17,6 +17,11 @@ ask_secret() {
   printf "[secret] %s (%s)\n  Enter value (empty to skip): " "$name" "$description"
   gh secret set "$name" --repo "$REPO" || echo "  → $name skipped"
 }
+auto_secret() {
+  local name="$1"; local value="$2"; local description="$3"
+  printf "[secret] %s (%s) — auto-filling from .notification.env\n" "$name" "$description"
+  gh secret set "$name" --repo "$REPO" --body "$value" && echo "  → $name set" || echo "  → $name failed"
+}
 ask_var() {
   local name="$1"; local description="$2"
   printf "[var]    %s (%s)\n  Enter value (empty to skip): " "$name" "$description"
@@ -35,7 +40,16 @@ ask_var "PROD_URL"  "Production URL"
 # Claude Code Action
 if [ "$USE_CLAUDE_ACTION" = "yes" ]; then
   if [ "$CLAUDE_AUTH" = "oauth" ]; then
-    ask_secret "CLAUDE_CODE_OAUTH_TOKEN" "OAuth token for Claude Pro/Max subscription"
+    NOTIF_FILE=".my-harness/.notification.env"
+    _saved_token=""
+    if [ -f "$NOTIF_FILE" ]; then
+      _saved_token="$(grep '^CLAUDE_CODE_OAUTH_TOKEN=' "$NOTIF_FILE" | cut -d= -f2-)"
+    fi
+    if [ -n "$_saved_token" ]; then
+      auto_secret "CLAUDE_CODE_OAUTH_TOKEN" "$_saved_token" "OAuth token for Claude Pro/Max subscription (from .notification.env)"
+    else
+      ask_secret "CLAUDE_CODE_OAUTH_TOKEN" "OAuth token for Claude Pro/Max subscription"
+    fi
   else
     ask_secret "ANTHROPIC_API_KEY" "Anthropic API key"
   fi

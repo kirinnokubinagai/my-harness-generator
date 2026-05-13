@@ -158,10 +158,10 @@ echo "[oci-vm] discovering availability domains..."
 ADS_JSON="$(oci iam availability-domain list \
               --compartment-id "$TENANCY_OCID" \
               --region "$REGION" \
+              --all \
               --query 'data[*].name' \
-              --raw-output 2>&1)" || {
-  echo "::error:: failed to list ADs in $REGION:" >&2
-  echo "$ADS_JSON" >&2
+              --raw-output 2>/dev/null)" || {
+  echo "::error:: failed to list ADs in $REGION." >&2
   exit 2
 }
 
@@ -192,9 +192,8 @@ IMAGE_ID="$(oci compute image list \
               --sort-order DESC \
               --limit 1 \
               --query 'data[0].id' \
-              --raw-output 2>&1)" || {
-  echo "::error:: failed to query Oracle Linux 9 ARM image:" >&2
-  echo "$IMAGE_ID" >&2
+              --raw-output 2>/dev/null)" || {
+  echo "::error:: failed to query Oracle Linux 9 ARM image" >&2
   exit 2
 }
 
@@ -212,6 +211,7 @@ echo "[oci-vm] discovering VCN/subnet..."
 VCN_ID="$(oci network vcn list \
             --compartment-id "$TENANCY_OCID" \
             --region "$REGION" \
+            --all \
             --query 'data[0].id' \
             --raw-output 2>/dev/null || true)"
 
@@ -225,26 +225,128 @@ if [ -z "$VCN_ID" ] || [ "$VCN_ID" = "null" ]; then
               --dns-label "harness$(date +%s | tail -c5)" \
               --wait-for-state AVAILABLE \
               --query 'data.id' \
-              --raw-output 2>&1)" || {
+              --raw-output 2>/dev/null)" || {
     echo "::error:: failed to create VCN — fix manually in OCI Console and re-run." >&2
-    echo "$VCN_ID" >&2
     exit 2
   }
 fi
 echo "[oci-vm] VCN: $VCN_ID"
 
+# Look for an existing public subnet in this VCN.
 SUBNET_ID="$(oci network subnet list \
                --compartment-id "$TENANCY_OCID" \
                --region "$REGION" \
                --vcn-id "$VCN_ID" \
+               --all \
                --query 'data[?"prohibit-public-ip-on-vnic"==`false`] | [0].id' \
                --raw-output 2>/dev/null || true)"
 
 if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" = "null" ]; then
-  echo "::error:: no public subnet found in VCN $VCN_ID" >&2
-  echo "  Create one in the OCI Console (Networking → Virtual Cloud Networks →" >&2
-  echo "  $VCN_ID → Subnets → Create Subnet — must allow public IPs) and re-run." >&2
-  exit 2
+  echo "[oci-vm] no public subnet found in VCN — provisioning network stack..."
+
+  # ---- 1. Internet Gateway -------------------------------------------------
+  IGW_ID="$(oci network internet-gateway list \
+              --compartment-id "$TENANCY_OCID" \
+              --region "$REGION" \
+              --vcn-id "$VCN_ID" \
+              --all \
+              --query 'data[0].id' \
+              --raw-output 2>/dev/null || true)"
+
+  if [ -z "$IGW_ID" ] || [ "$IGW_ID" = "null" ]; then
+    echo "[oci-vm] creating internet gateway..."
+    IGW_ID="$(oci network internet-gateway create \
+                --compartment-id "$TENANCY_OCID" \
+                --region "$REGION" \
+                --vcn-id "$VCN_ID" \
+                --is-enabled true \
+                --display-name "${VM_NAME}-igw" \
+                --wait-for-state AVAILABLE \
+                --query 'data.id' \
+                --raw-output 2>/dev/null)" || {
+      echo "::error:: failed to create internet gateway." >&2
+      exit 2
+    }
+  fi
+  echo "[oci-vm] IGW: $IGW_ID"
+
+  # ---- 2. Route table: ensure 0.0.0.0/0 -> IGW rule on default RT ----------
+  RT_ID="$(oci network vcn get \
+             --vcn-id "$VCN_ID" \
+             --region "$REGION" \
+             --query 'data."default-route-table-id"' \
+             --raw-output 2>/dev/null)" || {
+    echo "::error:: failed to get default route table id." >&2
+    exit 2
+  }
+  echo "[oci-vm] route table: $RT_ID"
+
+  RT_HAS_DEFAULT="$(oci network route-table get \
+                      --rt-id "$RT_ID" \
+                      --region "$REGION" \
+                      --query 'data."route-rules"[?"destination"==`0.0.0.0/0`] | [0]."network-entity-id"' \
+                      --raw-output 2>/dev/null || true)"
+
+  if [ -z "$RT_HAS_DEFAULT" ] || [ "$RT_HAS_DEFAULT" = "null" ]; then
+    echo "[oci-vm] adding 0.0.0.0/0 -> IGW route..."
+    oci network route-table update \
+      --rt-id "$RT_ID" \
+      --region "$REGION" \
+      --route-rules "[{\"cidrBlock\":\"0.0.0.0/0\",\"networkEntityId\":\"$IGW_ID\"}]" \
+      --force >/dev/null 2>&1 || {
+      echo "::error:: failed to update route table with default route." >&2
+      exit 2
+    }
+  else
+    echo "[oci-vm] default route already present — skipping."
+  fi
+
+  # ---- 3. Security list: open SSH (port 22) from 0.0.0.0/0 -----------------
+  SL_ID="$(oci network vcn get \
+             --vcn-id "$VCN_ID" \
+             --region "$REGION" \
+             --query 'data."default-security-list-id"' \
+             --raw-output 2>/dev/null)" || {
+    echo "::error:: failed to get default security list id." >&2
+    exit 2
+  }
+  echo "[oci-vm] security list: $SL_ID"
+
+  SL_HAS_SSH="$(oci network security-list get \
+                  --security-list-id "$SL_ID" \
+                  --region "$REGION" \
+                  --query 'data."ingress-security-rules"[?"tcp-options"."destination-port-range".min==`22` && "tcp-options"."destination-port-range".max==`22`] | [0].source' \
+                  --raw-output 2>/dev/null || true)"
+
+  if [ -z "$SL_HAS_SSH" ] || [ "$SL_HAS_SSH" = "null" ]; then
+    echo "[oci-vm] opening SSH ingress (port 22) from 0.0.0.0/0..."
+    oci network security-list update \
+      --security-list-id "$SL_ID" \
+      --region "$REGION" \
+      --ingress-security-rules '[{"source":"0.0.0.0/0","protocol":"6","tcpOptions":{"destinationPortRange":{"min":22,"max":22}},"isStateless":false}]' \
+      --force >/dev/null 2>&1 || {
+      echo "::error:: failed to update security list with SSH ingress." >&2
+      exit 2
+    }
+  else
+    echo "[oci-vm] SSH ingress rule already present — skipping."
+  fi
+
+  # ---- 4. Public subnet ----------------------------------------------------
+  echo "[oci-vm] creating public subnet (10.0.1.0/24)..."
+  SUBNET_ID="$(oci network subnet create \
+                 --compartment-id "$TENANCY_OCID" \
+                 --region "$REGION" \
+                 --vcn-id "$VCN_ID" \
+                 --cidr-block "10.0.1.0/24" \
+                 --display-name "${VM_NAME}-subnet" \
+                 --prohibit-public-ip-on-vnic false \
+                 --wait-for-state AVAILABLE \
+                 --query 'data.id' \
+                 --raw-output 2>/dev/null)" || {
+    echo "::error:: failed to create subnet." >&2
+    exit 2
+  }
 fi
 echo "[oci-vm] subnet: $SUBNET_ID"
 
@@ -253,7 +355,9 @@ echo "[oci-vm] subnet: $SUBNET_ID"
 # -----------------------------------------------------------------------------
 launch_in_ad() {
   local ad="$1"
-  echo "[oci-vm] launching $VM_NAME in AD '$ad'..."
+  echo "[oci-vm] launching $VM_NAME in AD '$ad'..." >&2
+  # NOTE: stderr is kept on the pipeline so callers can grep for
+  # "Out of Host Capacity"; stdout carries the OCID on success.
   oci compute instance launch \
     --availability-domain "$ad" \
     --compartment-id "$TENANCY_OCID" \
@@ -278,8 +382,10 @@ for ad in "${ADS[@]}"; do
     break
   fi
   out="$(launch_in_ad "$ad" || true)"
-  if [[ "$out" =~ ^ocid1\.instance ]]; then
-    INSTANCE_ID="$out"
+  # Strip OCI CLI pagination WARNINGs so the OCID match is robust.
+  ocid_line="$(printf '%s\n' "$out" | grep -v '^WARNING:' | grep -E '^ocid1\.instance' | head -n1 || true)"
+  if [ -n "$ocid_line" ]; then
+    INSTANCE_ID="$ocid_line"
     echo "[oci-vm] launched: $INSTANCE_ID"
     break
   fi
@@ -304,10 +410,10 @@ echo "[oci-vm] resolving public IP..."
 PUBLIC_IP="$(oci compute instance list-vnics \
                --instance-id "$INSTANCE_ID" \
                --region "$REGION" \
+               --all \
                --query 'data[0]."public-ip"' \
-               --raw-output 2>&1)" || {
-  echo "::error:: failed to fetch public IP:" >&2
-  echo "$PUBLIC_IP" >&2
+               --raw-output 2>/dev/null)" || {
+  echo "::error:: failed to fetch public IP." >&2
   exit 2
 }
 
