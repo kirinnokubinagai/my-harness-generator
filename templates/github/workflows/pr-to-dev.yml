@@ -55,7 +55,7 @@ jobs:
             - Lucide 以外のアイコン / 絵文字 / ハードコード機密値
             - 説明文が日本語以外
             違反は ファイル:行 の形でリスト化してください。
-          claude_args: '{"model": "claude-opus-4-7"}'
+          claude_args: '{"model": "claude-opus-4-6"}'
         env:
           # bootstrap で oauth を選んだ場合は CLAUDE_CODE_OAUTH_TOKEN、
           # api を選んだ場合は ANTHROPIC_API_KEY が configure-claude-action.sh で書き換わる

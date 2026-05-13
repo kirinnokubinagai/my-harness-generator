@@ -4,6 +4,27 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.17.1] — 2026-05-13
+
+### Changed — default model for daily-progress-bot summaries switched from `claude-sonnet-4-6` to `claude-opus-4-6`
+
+Both `templates/oracle-cloud/daily-progress-bot/daily-progress.sh` and
+`event-watch.sh` now call `claude --model claude-opus-4-6`. This matches the
+`scripts/bootstrap.sh:529` `DEFAULT_PROJECT_MODEL` constant, making the
+daily-progress bot consistent with the rest of the harness default.
+
+### Changed — default model for generated `templates/github/workflows/pr-to-dev.yml` Claude Action PR review switched from `claude-opus-4-7` to `claude-opus-4-6`
+
+The `claude_args` field in the generated GitHub Actions workflow now references
+`claude-opus-4-6` for PR review, consistent with the project-wide default.
+
+### Rationale
+
+User prefers Opus 4.6 as the project-wide default. The dateless
+`claude-opus-4-6` ID is the official pinned snapshot per
+`platform.claude.com/docs/en/about-claude/models/overview` (Legacy section,
+still available; same alias, same pricing as 4.7).
+
 ## [7.17.0] — 2026-05-13
 
 ### Added — `scripts/ensure-claude-oauth-token.sh`
