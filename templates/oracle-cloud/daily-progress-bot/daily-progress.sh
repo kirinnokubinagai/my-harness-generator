@@ -141,7 +141,7 @@ SUMMARY=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" claude \
 
 $(cat "$ACTIVITY_FILE")" \
   --output-format text \
-  --model claude-opus-4-6 2>/dev/null) || {
+  --model claude-sonnet-4-6 2>/dev/null) || {
   SUMMARY="⚠️ daily-progress: Claude の要約取得に失敗しました。VM の log を確認してください。"
 }
 

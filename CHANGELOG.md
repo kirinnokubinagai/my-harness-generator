@@ -4,6 +4,27 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.17.2] — 2026-05-13
+
+### Reverted — the three model-ID changes from 7.17.1
+
+`templates/oracle-cloud/daily-progress-bot/daily-progress.sh` and
+`event-watch.sh` are back to `--model claude-sonnet-4-6` (cheap batch
+summaries are the right call for an hourly / daily cron job).
+`templates/github/workflows/pr-to-dev.yml` is back to
+`claude_args: '{"model": "claude-opus-4-7"}'` (PR review benefits from
+the strongest available model).
+
+### Rationale
+
+7.17.1 was a misread of the user's intent. The user wanted Claude Code
+itself (their interactive editor) to default to Opus 4.6, not the
+harness's per-script hardcoded models. That preference belongs in
+`~/.claude/settings.json`'s `"model"` field, not in this repository.
+
+`scripts/bootstrap.sh:529` `DEFAULT_PROJECT_MODEL=claude-opus-4-6`
+was untouched in 7.17.1 and remains unchanged here.
+
 ## [7.17.1] — 2026-05-13
 
 ### Changed — default model for daily-progress-bot summaries switched from `claude-sonnet-4-6` to `claude-opus-4-6`

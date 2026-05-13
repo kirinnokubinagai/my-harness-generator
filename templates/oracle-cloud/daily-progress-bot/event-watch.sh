@@ -117,7 +117,7 @@ SUMMARY=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" claude \
 
 $(cat "$EVENTS_FILE")" \
   --output-format text \
-  --model claude-opus-4-6 2>/dev/null) || {
+  --model claude-sonnet-4-6 2>/dev/null) || {
   echo "[event-watch] Claude call failed — skip this hour"
   echo "$now" > "$STATE_FILE"
   exit 0
