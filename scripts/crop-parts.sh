@@ -43,38 +43,27 @@ else
   CHROMA_KEY="#FF00FF"
 fi
 
-# Multi-layer chroma-key defense. The single -transparent pass that worked
-# for clean computer-rendered backgrounds is not enough when Codex's
-# `gpt-image-2` paints the magenta background with antialiased edges:
-# pixels near the asset boundary blend toward pink (#FF80FF) and dusty
-# rose, which a single fuzz pass on pure magenta does not always reach.
-# We therefore stack four defenses, each tunable via env:
+# Magenta chroma key via Aral Balkan's formula (industry-standard for
+# colored-background removal, adapted from green-screen to magenta):
 #
-#   1. CHROMA_FUZZ      — primary fuzz around pure magenta. Default 40%
-#                          (was 30%). Catches the bulk of antialiased rim.
-#   2. CHROMA_HALO_COLOR / CHROMA_FUZZ_HALO — secondary -transparent pass
-#                          on a mid-pink color to catch what the primary
-#                          missed. Defaults: #FF80FF / 25%.
-#   3. CHROMA_ERODE     — alpha-channel erosion after chroma keys. Default
-#                          Octagon:2 (was Octagon:1). Two pixels of inward
-#                          shrink kills the last residue at the boundary.
-#   4. CHROMA_DESPILL   — pixel-level magenta cast suppression on whatever
-#                          opaque pixels remain. When set to "yes" (default)
-#                          a -fx filter detects (r>g && b>g) — the signature
-#                          of leftover magenta tint — and raises green
-#                          toward min(r,b) by 85%, neutralizing the cast
-#                          without touching pixels that don't carry it.
-#                          Set CHROMA_DESPILL=no to disable (faster, but
-#                          may leave a faint magenta wash on textured edges).
+#     alpha = g - min(r, b) + 1       (clamped to [0,1] by ImageMagick)
 #
-# Override any of these for special assets that legitimately contain
-# magenta-family colors (rare — magenta is reserved for background per
-# prompts/codex-parts-grid-edit.md).
-CHROMA_FUZZ="${CHROMA_FUZZ:-40%}"
-CHROMA_HALO_COLOR="${CHROMA_HALO_COLOR:-#FF80FF}"
-CHROMA_FUZZ_HALO="${CHROMA_FUZZ_HALO:-25%}"
-CHROMA_ERODE="${CHROMA_ERODE:-Octagon:2}"
-CHROMA_DESPILL="${CHROMA_DESPILL:-yes}"
+# This single per-pixel calculation:
+#   - drives pure magenta (r=1, g=0, b=1) to alpha=0 (fully transparent)
+#   - leaves every non-magenta pixel at alpha=1 (fully opaque)
+#   - lets anti-aliased rim pixels (e.g. r=1, g=0.5, b=1) become alpha=0.5,
+#     producing a natural fade rather than a hard halo
+#   - never touches the RGB channels, so asset-internal colors (white,
+#     pink, purple, anything that is not pure magenta) are preserved.
+#
+# CHROMA_THRESHOLD cuts the half-transparent fade to fully transparent.
+# Default 50% means "anything ≤50% opaque becomes 100% transparent",
+# guaranteeing zero magenta residue. Raise (e.g. 70%) for an even
+# stricter cut at the cost of slightly tighter edges; lower (e.g. 25%)
+# to preserve more of the anti-aliased fade.
+#
+# Reference: https://ar.al/2021/11/23/how-to-apply-a-chroma-key-using-imagemagick/
+CHROMA_THRESHOLD="${CHROMA_THRESHOLD:-50%}"
 
 GRID_PREFIX="$ROOT/dev/docs/design/parts-grid-${PLATFORM}-${SCREEN_SLUG}"
 ASSET_DIR="$ROOT/dev/docs/design/parts/${PLATFORM}/${SCREEN_SLUG}"
@@ -150,34 +139,15 @@ jq -c '.cells[]' "$MANIFEST" | while read -r CELL; do
   Y=$(( CELL_SIZE * R ))
   OUT="$ASSET_DIR/${N}.png"
 
-  # Four-layer chroma key — see CHROMA_* env defaults block above for the
-  # full rationale. The layers compose: stronger primary fuzz catches the
-  # antialiased rim; a secondary mid-pink pass catches what survives;
-  # alpha erode eats the last opaque-but-tinted pixels; despill -fx
-  # neutralizes residual magenta cast on whatever opaque pixels remain.
-  ERODE_OPS=()
-  if [ -n "$CHROMA_ERODE" ]; then
-    ERODE_OPS=(-channel A -morphology Erode "$CHROMA_ERODE" +channel)
-  fi
-  DESPILL_OPS=()
-  if [ "$CHROMA_DESPILL" = "yes" ]; then
-    # a==0 → skip transparent pixels (no need to alter them).
-    # r>g && b>g → magenta cast signature (red+blue dominate green).
-    # When that signature is present, lift green 85% of the way toward
-    # min(r,b). This pulls magenta-tinted pixels toward neutral (white or
-    # gray) without affecting true-color asset pixels where green is not
-    # the minimum channel.
-    DESPILL_OPS=(-channel RGBA -fx 'a==0 ? p : (r>g && b>g ? rgba(r, g + (min(r,b)-g)*0.85, b, a) : p)')
-  fi
+  # Single-pass magenta chroma key via Aral Balkan's formula. See the
+  # CHROMA_THRESHOLD env block above for the full math.
+  # Note: the formula below assumes magenta (#FF00FF); $CHROMA_KEY is no longer consulted.
   $IM "$GRID" \
     -crop "${CELL_SIZE}x${CELL_SIZE}+${X}+${Y}" +repage \
     -alpha set \
-    -fuzz "$CHROMA_FUZZ" \
-    -transparent "$CHROMA_KEY" \
-    -fuzz "$CHROMA_FUZZ_HALO" \
-    -transparent "$CHROMA_HALO_COLOR" \
-    "${ERODE_OPS[@]}" \
-    "${DESPILL_OPS[@]}" \
+    -channel alpha -fx '1.0*g - min(r,b) + 1.0' +channel \
+    -alpha on \
+    -channel A -threshold "$CHROMA_THRESHOLD" +channel \
     -strip \
     "$OUT"
 

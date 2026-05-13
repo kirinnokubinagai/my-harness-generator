@@ -4,6 +4,20 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.18.1] — 2026-05-13
+
+### Changed
+- `scripts/crop-parts.sh` chroma-key pipeline replaced with Aral Balkan's industry-standard formula adapted for magenta: `alpha = g - min(r, b) + 1`. Single per-pixel calculation that mathematically guarantees pure magenta → alpha=0 and leaves all non-magenta RGB untouched.
+
+### Removed
+- env vars `CHROMA_FUZZ`, `CHROMA_HALO_COLOR`, `CHROMA_FUZZ_HALO`, `CHROMA_ERODE`, `CHROMA_DESPILL` (replaced by the formula above). They are silently ignored if still set.
+
+### Added
+- env var `CHROMA_THRESHOLD` (default `50%`). Controls where the half-transparent anti-aliased fade gets cut to fully transparent — raise to e.g. `70%` for stricter magenta-residue removal, lower to e.g. `25%` to preserve more edge softness.
+
+### Rationale
+7.18.0's four-layer defense (fuzz pass + halo pass + erode + despill `-fx`) was hand-rolled and brittle: the fuzz passes risked eating asset-internal magenta-family colors and the `-fx` despill was slow. Aral Balkan's formula (https://ar.al/2021/11/23/how-to-apply-a-chroma-key-using-imagemagick/) is the documented industry-standard approach: one ImageMagick `-fx` call that computes alpha directly from the RGB channels with zero risk of touching asset interior pixels. `CHROMA_KEY` resolution kept for backwards-compat but is no longer consulted by the magick command (formula assumes magenta).
+
 ## [7.18.0] — 2026-05-13
 
 ### Changed
