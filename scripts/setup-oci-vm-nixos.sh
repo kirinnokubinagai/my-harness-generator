@@ -198,6 +198,78 @@ EOF
 chmod 600 "\$HOME/daily-progress-bot/.env"
 REMOTE_ENV
 
+# -----------------------------------------------------------------------------
+# Hermes Agent deploy (optional — gated on HERMES_AGENT_ENABLED=yes)
+# Set in .notification.env by /my-harness-init Q12.5.
+# -----------------------------------------------------------------------------
+if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
+  echo "[setup-vm-nixos] deploying Hermes Agent..."
+
+  HERMES_CONFIG="$ROOT/.my-harness/.hermes-config.json"
+  [ -f "$HERMES_CONFIG" ] || {
+    echo "::error:: $HERMES_CONFIG missing — run scripts/ensure-hermes-config.sh first" >&2
+    exit 1
+  }
+
+  # Read values from the JSON config.
+  HERMES_BOT_TOKEN="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['DISCORD_BOT_TOKEN'])")"
+  HERMES_AI_PROVIDER="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['HERMES_AI_PROVIDER'])")"
+  HERMES_OPENAI_KEY="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('OPENAI_API_KEY',''))")"
+  HERMES_BASE_URL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_BASE_URL'])")"
+  HERMES_MODEL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_MODEL'])")"
+
+  # Create directory structure on VM.
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
+
+  # Render config.example.yaml → config.yaml (substitute placeholders).
+  HERMES_TMPL="$HARNESS_DIR/templates/oracle-cloud/hermes-agent/config.example.yaml"
+  RENDERED_CONFIG="$(mktemp /tmp/hermes-config-XXXXXX.yaml)"
+  python3 - <<PYEOF
+import re
+
+with open("$HERMES_TMPL") as f:
+    content = f.read()
+
+replacements = {
+    "\${OPENAI_MODEL}":    "$HERMES_MODEL",
+    "\${OPENAI_BASE_URL}": "$HERMES_BASE_URL",
+}
+for k, v in replacements.items():
+    content = content.replace(k, v)
+
+with open("$RENDERED_CONFIG", "w") as f:
+    f.write(content)
+PYEOF
+
+  scp -q -i "$OCI_VM_SSH_KEY" "$RENDERED_CONFIG" "$SSH_TARGET:~/hermes-agent/config.yaml"
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/hermes-agent/config.yaml"
+  rm -f "$RENDERED_CONFIG"
+
+  # Write the .env on the VM (read by hermes-agent.service via EnvironmentFile).
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<REMOTE_HERMES_ENV
+set -eu
+umask 077
+{
+  echo "# Auto-written by scripts/setup-oci-vm-nixos.sh — do not edit by hand."
+  echo "DISCORD_BOT_TOKEN=$HERMES_BOT_TOKEN"
+  echo "HERMES_AI_PROVIDER=$HERMES_AI_PROVIDER"
+$([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_API_KEY=$HERMES_OPENAI_KEY\"" || true)
+$([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_BASE_URL=https://api.openai.com/v1\"" || true)
+$([ "$HERMES_AI_PROVIDER" = "gemma4" ] && echo "  echo \"OPENAI_BASE_URL=http://localhost:11434/v1\"" || true)
+  echo "OPENAI_MODEL=$HERMES_MODEL"
+} > "\$HOME/hermes-agent/.env"
+chmod 600 "\$HOME/hermes-agent/.env"
+echo "[remote] hermes-agent .env written (chmod 600)"
+REMOTE_HERMES_ENV
+
+  # Enable + start the systemd service (managed by NixOS hermes-agent.nix).
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now hermes-agent.service" || {
+    echo "::warning:: hermes-agent.service failed to start; check: journalctl -u hermes-agent -n 50" >&2
+  }
+
+  echo "[setup-vm-nixos] Hermes Agent deployed. First-run downloads Whisper Tiny (~75 MB) + NeuTTS Air (~500 MB); allow 5-10 min."
+fi
+
 # Start timers
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now daily-progress.timer event-watch.timer"
 

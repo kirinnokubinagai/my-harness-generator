@@ -4,6 +4,35 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.25.0] — 2026-05-14
+
+### Added
+- Hermes Agent (NousResearch's personal AI gateway) integration with **Voice Mode enabled out-of-the-box**. Hermes runs as a systemd service on the OCI VM and bridges Discord (both Auto Voice Reply for voice messages in chat AND Discord Voice Channels where the bot joins and speaks) to the chosen AI backend. STT = local Whisper Tiny (~75 MB, no external API). TTS = NeuTTS Air (~0.5B params, on-device, no external API). Both fully free forever and ARM64-compatible.
+- `templates/oracle-cloud/nixos/services/hermes-agent.nix` (new) — declarative NixOS systemd service for Hermes. Installs via the official install.sh, pip-installs `hermes-agent[voice,messaging]` + `faster-whisper` + `neutts[all]`, symlinks config and .env, runs `hermes gateway start --foreground`.
+- `templates/oracle-cloud/hermes-agent/config.example.yaml` (new) — config template with `${OPENAI_MODEL}` and `${OPENAI_BASE_URL}` substitution placeholders. Voice settings hardcoded: STT = local Whisper Tiny, TTS = NeuTTS Air, Auto Voice Reply + Discord Voice Channels enabled, CLI Interactive Voice disabled (headless VM).
+- `templates/oracle-cloud/hermes-agent/SETUP.md` (new) — bilingual Discord bot creation walkthrough (Developer Portal, Privileged Intents, OAuth2 invite URL, smoke tests, troubleshooting table, token rotation).
+- `scripts/ensure-hermes-config.sh` (new) — captures Discord bot token (validated via `MT[A-Za-z0-9_.-]{50,}` regex), Hermes AI provider (codex|gemma4), OpenAI API key (when codex). Saves to `.my-harness/.hermes-config.json` (chmod 600). Exits 3 when called with no args (signals SKILL.md to use AskUserQuestion).
+- `skills/my-harness-init/SKILL.md` Q12.5 (additional AI agent: None / Hermes Agent / OpenClaw-placeholder) and follow-up sub-questions Q12.6 (Hermes AI provider — codex or gemma4; re-uses Q11 selection when compatible) / Q12.7 (Discord bot token with walk-me-through and paste options) / Q12.8 (OpenAI API key when codex, with portal link). Bilingual (EN + JA).
+
+### Changed
+- `scripts/setup-oci-vm-nixos.sh` now deploys Hermes Agent when `HERMES_AGENT_ENABLED=yes` in `.notification.env`. Reads `.my-harness/.hermes-config.json`, renders config.yaml (substituting model + base URL), writes `~/hermes-agent/.env` on the VM (chmod 600), enables `hermes-agent.service` via systemd.
+- `scripts/setup-oci-vm.sh` (Oracle Linux legacy path) similarly deploys Hermes Agent when `HERMES_AGENT_ENABLED=yes`: installs Python 3 + pip + ffmpeg via dnf if missing, runs the official Hermes install.sh idempotently, pip-installs voice+messaging extras, writes a `/etc/systemd/system/hermes-agent.service` unit, and `systemctl enable --now`.
+- `skills/my-harness-init/SKILL.md` Phase 1 wrap-up updated: "After Q6-Q12.x answered..." to reflect new questions.
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` bumped to 7.25.0.
+
+### Rationale
+User wants voice chat capability without ongoing costs. Hermes Agent's `local` STT (Whisper Tiny) and `neutts` TTS providers were chosen specifically because both are first-class Hermes-supported, both run on-device on ARM CPU, and both are permanent-free. We considered Kokoro TTS (higher MOS, but no Hermes integration), Moonshine v2 STT (ultra-lightweight, but Hermes doesn't ship support), and Edge/ElevenLabs/OpenAI TTS (all involve external dependencies). The chosen pair gives the best "Hermes-native + free + ARM" intersection.
+
+Hermes is a Python CLI installed via official install.sh (not npm) — the install.sh creates a venv at `~/.hermes/venv/` and places the binary at `~/.hermes/bin/hermes`. The NixOS service module installs it idempotently in ExecStartPre and runs `hermes gateway start --foreground` as a simple systemd service.
+
+OpenClaw integration ships in 7.26.0 (mutually exclusive with Hermes — the Q12.5 option exists as a placeholder for now).
+
+### Known limitations
+- First Hermes deploy downloads Whisper Tiny (~75 MB) and NeuTTS Air model (~500 MB). Allow 5-10 min on slow links. The service has `TimeoutStartSec=15min` to accommodate this.
+- Hermes config schema may shift between releases; the generated config is a best-effort snapshot of the docs at 2026-05-14. If Hermes upgrades break it, regenerate via `bash scripts/ensure-hermes-config.sh <root>`.
+- `AI_PROVIDER=claude` is incompatible with Hermes (Hermes wants an OpenAI-compatible endpoint). Q12.6 forces a separate codex or gemma4 choice.
+- `hermes gateway start --foreground` flag must exist in the installed Hermes version. If upstream drops it, change `Type=simple` to `Type=forking` in `hermes-agent.nix` / the OL systemd unit and remove `--foreground`.
+
 ## [7.24.0] — 2026-05-14
 
 ### Added

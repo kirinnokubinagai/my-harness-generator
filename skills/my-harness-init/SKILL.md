@@ -1406,9 +1406,357 @@ daily-progress の要約 1 回は通常 30-60 秒で完了します。
 
 Persist `AI_PROVIDER=gemma4` to `.notification.env` (same merge snippet).
 
+### Setup Q12.5: Additional AI agent (Hermes / OpenClaw / None)
+
+Run this question ONLY when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".
+
+**Already-configured detection (option α) for Q12.5:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^HERMES_AGENT_ENABLED=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_HERMES=$(grep '^HERMES_AGENT_ENABLED=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+fi
+```
+
+If `HERMES_AGENT_ENABLED` is already saved, ask first:
+
+- **LANG=en:** "Additional AI agent already configured (HERMES_AGENT_ENABLED=`$CURRENT_HERMES`). Change it?"
+- **LANG=ja:** "追加 AI エージェントは設定済みです（HERMES_AGENT_ENABLED=`$CURRENT_HERMES`）。変更しますか?"
+
+Options: `Keep` / `保持する` → skip Q12.5 entirely. `Change` / `変更する` → ask the original question below.
+
+**Q12.5 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Would you like to add an AI agent to the OCI VM for voice and chat?",
+    "header": "Additional AI agent",
+    "multiSelect": false,
+    "options": [
+      { "label": "None",
+        "description": "Skip — no additional agent. The daily-progress bot runs as before." },
+      { "label": "Hermes Agent (Voice Mode enabled)",
+        "description": "NousResearch's personal AI gateway. Connects to Discord (text + voice channels). STT = local Whisper Tiny (free, no API). TTS = NeuTTS Air (free, on-device). Both ARM64-compatible, no ongoing costs. Requires a Discord bot token." },
+      { "label": "OpenClaw (coming in 7.26.0)",
+        "description": "Implementation ships in 7.26.0. Selecting this is a no-op for now — you will be prompted again after upgrade." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "OCI VM に音声・チャット対応の追加 AI エージェントを導入しますか?",
+    "header": "追加 AI エージェント",
+    "multiSelect": false,
+    "options": [
+      { "label": "なし",
+        "description": "スキップ — 追加エージェントなし。daily-progress ボットはこれまで通り動作します。" },
+      { "label": "Hermes Agent（Voice Mode 有効）",
+        "description": "NousResearch 製パーソナル AI ゲートウェイ。Discord（テキスト + ボイスチャンネル）に接続。STT = ローカル Whisper Tiny（無料、API 不要）、TTS = NeuTTS Air（無料、オンデバイス）。両方 ARM64 対応、継続コストなし。Discord ボットトークンが必要。" },
+      { "label": "OpenClaw（7.26.0 で実装予定）",
+        "description": "実装は 7.26.0 でリリース予定。現時点でこのオプションを選んでも何も起きません — アップグレード後に再度案内されます。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "None" / 「なし」
+
+Persist `HERMES_AGENT_ENABLED=no` to `.notification.env`:
+
+```bash
+NOTIF="$ROOT/.my-harness/.notification.env"
+{ grep -v '^HERMES_AGENT_ENABLED=' "$NOTIF" 2>/dev/null || true; echo "HERMES_AGENT_ENABLED=no"; } > "$NOTIF.tmp"
+mv "$NOTIF.tmp" "$NOTIF"
+chmod 600 "$NOTIF"
+```
+
+Skip Q12.6–Q12.8 entirely. Proceed to Phase 1 wrap-up.
+
+#### "OpenClaw (coming in 7.26.0)" / 「OpenClaw（7.26.0 で実装予定）」
+
+Display bilingual notice:
+
+**LANG=en:**
+```
+OpenClaw integration ships in 7.26.0. Your selection has been noted but is
+a no-op in the current version. After upgrading to 7.26.0, re-run
+/my-harness-init and you will be prompted here again.
+```
+
+**LANG=ja:**
+```
+OpenClaw の統合は 7.26.0 でリリース予定です。選択は記録されましたが、
+現バージョンでは何も設定されません。7.26.0 にアップグレード後、
+/my-harness-init を再実行するとここで再度案内されます。
+```
+
+Persist `HERMES_AGENT_ENABLED=no` (same snippet as "None"). Skip Q12.6–Q12.8. Proceed to Phase 1 wrap-up.
+
+#### "Hermes Agent" / 「Hermes Agent」
+
+Persist `HERMES_AGENT_ENABLED=yes` to `.notification.env` (same merge snippet with `yes`).
+
+Then continue to Q12.6.
+
+---
+
+### Setup Q12.6: AI provider for Hermes
+
+Run only when Q12.5 = "Hermes Agent".
+
+Default selection logic:
+
+```bash
+# Re-use the Q11 selection if it was codex or gemma4.
+if [ "$AI_PROVIDER" = "codex" ] || [ "$AI_PROVIDER" = "gemma4" ]; then
+  HERMES_AI_PROVIDER_DEFAULT="$AI_PROVIDER"
+else
+  # claude is incompatible with Hermes — must ask explicitly.
+  HERMES_AI_PROVIDER_DEFAULT=""
+fi
+```
+
+If `HERMES_AI_PROVIDER_DEFAULT` is non-empty, ask the user to confirm or change:
+
+- **LANG=en:** "Hermes AI provider: re-use `$HERMES_AI_PROVIDER_DEFAULT` from Q11?"
+- **LANG=ja:** "Hermes の AI provider: Q11 で選んだ `$HERMES_AI_PROVIDER_DEFAULT` を再利用しますか?"
+
+Options: `Yes, reuse` / `はい、再利用する` → use that value. `No, change` / `いいえ、変更する` → show Q12.6 full question.
+
+**Q12.6 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which AI provider should Hermes use for Discord replies?",
+    "header": "Hermes AI provider",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex (ChatGPT Plus/Pro)",
+        "description": "Calls OpenAI API (https://api.openai.com/v1). Requires an OpenAI API key (sk-...). You will be asked for it in Q12.8." },
+      { "label": "Gemma 4 (local Ollama)",
+        "description": "Uses the Ollama instance already running on the VM (http://localhost:11434/v1). No API key needed. Inference is 3-6 tok/s on A1.Flex ARM cores. Fully free forever." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Hermes が Discord 返答に使う AI provider を選んでください:",
+    "header": "Hermes AI provider",
+    "multiSelect": false,
+    "options": [
+      { "label": "Codex（ChatGPT Plus/Pro）",
+        "description": "OpenAI API を呼び出します（https://api.openai.com/v1）。OpenAI API キー（sk-...）が必要。Q12.8 で入力します。" },
+      { "label": "Gemma 4（ローカル Ollama）",
+        "description": "VM 上で稼働中の Ollama インスタンスを使用（http://localhost:11434/v1）。API キー不要。A1.Flex ARM コアで 3-6 tok/s。完全無料。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+- `codex` → persist `HERMES_AI_PROVIDER=codex` to `.notification.env`. Proceed to Q12.7.
+- `gemma4` → persist `HERMES_AI_PROVIDER=gemma4` to `.notification.env`. Proceed to Q12.7 (skip Q12.8).
+
+Persist snippet:
+
+```bash
+NOTIF="$ROOT/.my-harness/.notification.env"
+{ grep -v '^HERMES_AI_PROVIDER=' "$NOTIF" 2>/dev/null || true; echo "HERMES_AI_PROVIDER=$HERMES_AI_PROVIDER"; } > "$NOTIF.tmp"
+mv "$NOTIF.tmp" "$NOTIF"
+chmod 600 "$NOTIF"
+```
+
+---
+
+### Setup Q12.7: Discord bot token
+
+Run only when Q12.5 = "Hermes Agent".
+
+**Q12.7 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide the Discord bot token for Hermes?",
+    "header": "Discord bot token",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "I already created a Discord bot and have the token ready. I'll paste it on the next prompt." },
+      { "label": "Walk me through creating the bot",
+        "description": "Show me the step-by-step guide to create a Discord bot, enable Privileged Intents, and get the token. Opens templates/oracle-cloud/hermes-agent/SETUP.md." },
+      { "label": "Skip for now",
+        "description": "Hermes will not start until a valid token is set. Run `bash scripts/ensure-hermes-config.sh <root> <token> <provider>` manually later." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Hermes 用 Discord ボットトークンの入力方法を選んでください:",
+    "header": "Discord ボットトークン",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "すでに Discord ボットを作成済みでトークンが手元にある。次のプロンプトで貼り付ける。" },
+      { "label": "ボット作成手順を案内してほしい",
+        "description": "Discord ボットの作成・Privileged Intents の有効化・トークン取得の手順を画面で案内する。templates/oracle-cloud/hermes-agent/SETUP.md を表示します。" },
+      { "label": "あとでやる",
+        "description": "有効なトークンが設定されるまで Hermes は起動しません。後で `bash scripts/ensure-hermes-config.sh <root> <token> <provider>` を手動実行してください。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "Walk me through creating the bot" / 「ボット作成手順を案内してほしい」
+
+Display the contents of `templates/oracle-cloud/hermes-agent/SETUP.md` (Section 1-3) inline, then ask:
+
+- **LANG=en:** "When you have your bot token, paste it here:"
+- **LANG=ja:** "ボットトークンを取得したら、ここに貼り付けてください:"
+
+#### "I have it — I will paste" / 「持っているので貼り付ける」
+
+Ask for the token via a follow-up freeform `AskUserQuestion`:
+
+- **LANG=en** question: "Paste the Discord bot token (starts with `MT...`):"
+- **LANG=ja** question: "Discord ボットトークンを貼り付けてください（`MT...` で始まります）:"
+
+Then validate and persist:
+
+```bash
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}"
+```
+
+Exit codes:
+- **Exit 0:** token saved. Proceed to Q12.8 (if codex) or Phase 1 wrap-up (if gemma4).
+- **Exit 2:** bad token shape. Show the error, reprompt for the token only.
+- **Exit 3:** empty args — should not reach here.
+
+#### "Skip for now" / 「あとでやる」
+
+Persist `HERMES_AGENT_ENABLED=yes` remains but `ensure-hermes-config.sh` is not run. Surface a warning:
+
+- **LANG=en:** "Hermes Agent is enabled but no bot token is saved. The deploy step will fail. Run `bash scripts/ensure-hermes-config.sh <root> <token> <provider>` before running setup-oci-vm.sh."
+- **LANG=ja:** "Hermes Agent は有効ですがボットトークンが保存されていません。デプロイ時に失敗します。setup-oci-vm.sh 実行前に `bash scripts/ensure-hermes-config.sh <root> <token> <provider>` を手動実行してください。"
+
+Proceed to Phase 1 wrap-up.
+
+---
+
+### Setup Q12.8: OpenAI API key for Hermes (Codex only)
+
+Run only when Q12.5 = "Hermes Agent" AND Q12.6 = "codex".
+
+**Q12.8 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide the OpenAI API key for Hermes?",
+    "header": "OpenAI API key (Hermes / Codex)",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "I already have an OpenAI API key (sk-...). I'll paste it on the next prompt." },
+      { "label": "Walk me through getting one",
+        "description": "Opens https://platform.openai.com/api-keys in your browser. Create a key, copy it, then come back and paste." },
+      { "label": "Skip for now",
+        "description": "Hermes in codex mode will fail without a key. Set it later by re-running scripts/ensure-hermes-config.sh." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Hermes（Codex モード）用の OpenAI API キーの入力方法を選んでください:",
+    "header": "OpenAI API キー（Hermes / Codex）",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "OpenAI API キー（sk-...）が手元にある。次のプロンプトで貼り付ける。" },
+      { "label": "取得方法を案内してほしい",
+        "description": "https://platform.openai.com/api-keys をブラウザで開く。キーを作成してコピーし、ここに貼り付けてください。" },
+      { "label": "あとでやる",
+        "description": "Codex モードの Hermes はキーなしでは動作しません。後で scripts/ensure-hermes-config.sh を再実行して設定してください。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "Walk me through getting one" / 「取得方法を案内してほしい」
+
+Display:
+
+**LANG=en:**
+```
+1. Open https://platform.openai.com/api-keys in your browser.
+2. Click "Create new secret key" → give it a name (e.g. "hermes-oci-vm").
+3. Copy the key (starts with sk-...). You cannot view it again after closing the dialog.
+4. Return here and paste it.
+```
+
+**LANG=ja:**
+```
+1. ブラウザで https://platform.openai.com/api-keys を開く。
+2. 「Create new secret key」をクリック → 名前を入力（例: "hermes-oci-vm"）。
+3. キーをコピー（sk-... で始まります）。ダイアログを閉じると二度と表示されません。
+4. ここに貼り付けてください。
+```
+
+Then ask for the key via follow-up freeform `AskUserQuestion`.
+
+#### "I have it — I will paste" / 「持っているので貼り付ける」
+
+Ask for the key:
+
+- **LANG=en:** "Paste the OpenAI API key (`sk-...`):"
+- **LANG=ja:** "OpenAI API キーを貼り付けてください（`sk-...`）:"
+
+Then run:
+
+```bash
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "codex" "$OPENAI_API_KEY"
+```
+
+Exit 0 → proceed to Phase 1 wrap-up. Exit 1 → show error, reprompt key only.
+
+#### "Skip for now" / 「あとでやる」
+
+Warn and proceed to Phase 1 wrap-up.
+
+---
+
 ### Phase 1 wrap-up
 
-After Q6-Q11 answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6-Q12.x answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip / Q12.5=None), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 

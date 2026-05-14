@@ -359,6 +359,137 @@ REMOTE_LOGROTATE
 fi
 
 # -----------------------------------------------------------------------------
+# Hermes Agent deploy (Oracle Linux path — gated on HERMES_AGENT_ENABLED=yes)
+# Set in .notification.env by /my-harness-init Q12.5.
+# -----------------------------------------------------------------------------
+if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
+  echo "[setup-vm] deploying Hermes Agent (Oracle Linux path)..."
+
+  HERMES_CONFIG_LOCAL="$ROOT/.my-harness/.hermes-config.json"
+  [ -f "$HERMES_CONFIG_LOCAL" ] || {
+    echo "::error:: $HERMES_CONFIG_LOCAL missing — run scripts/ensure-hermes-config.sh first" >&2
+    exit 1
+  }
+
+  HERMES_BOT_TOKEN="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['DISCORD_BOT_TOKEN'])")"
+  HERMES_AI_PROVIDER_VAL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['HERMES_AI_PROVIDER'])")"
+  HERMES_OPENAI_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('OPENAI_API_KEY',''))")"
+  HERMES_BASE_URL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_BASE_URL'])")"
+  HERMES_MODEL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_MODEL'])")"
+
+  HARNESS_DIR_VM="$(cd "$(dirname "$0")/.." && pwd)"
+
+  # Create directory structure on VM.
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
+
+  # Render config.example.yaml → config.yaml (substitute placeholders).
+  HERMES_TMPL="$HARNESS_DIR_VM/templates/oracle-cloud/hermes-agent/config.example.yaml"
+  RENDERED_CONFIG="$(mktemp /tmp/hermes-config-XXXXXX.yaml)"
+  python3 - <<PYEOF
+with open("$HERMES_TMPL") as f:
+    content = f.read()
+content = content.replace("\${OPENAI_MODEL}",    "$HERMES_MODEL")
+content = content.replace("\${OPENAI_BASE_URL}", "$HERMES_BASE_URL")
+with open("$RENDERED_CONFIG", "w") as f:
+    f.write(content)
+PYEOF
+
+  scp -q -i "$OCI_VM_SSH_KEY" -o StrictHostKeyChecking=accept-new \
+    "$RENDERED_CONFIG" "$SSH_TARGET:~/hermes-agent/config.yaml"
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/hermes-agent/config.yaml"
+  rm -f "$RENDERED_CONFIG"
+
+  # Write .env on VM (EnvironmentFile for hermes-agent.service).
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<REMOTE_HERMES_ENV_OL
+set -eu
+umask 077
+{
+  echo "# Auto-written by scripts/setup-oci-vm.sh — do not edit by hand."
+  echo "DISCORD_BOT_TOKEN=$HERMES_BOT_TOKEN"
+  echo "HERMES_AI_PROVIDER=$HERMES_AI_PROVIDER_VAL"
+  [ "$HERMES_AI_PROVIDER_VAL" = "codex" ]  && echo "OPENAI_API_KEY=$HERMES_OPENAI_KEY" || true
+  echo "OPENAI_BASE_URL=$HERMES_BASE_URL"
+  echo "OPENAI_MODEL=$HERMES_MODEL"
+} > "\$HOME/hermes-agent/.env"
+chmod 600 "\$HOME/hermes-agent/.env"
+echo "[remote] hermes-agent .env written (chmod 600)"
+REMOTE_HERMES_ENV_OL
+
+  # Install Python 3, pip, ffmpeg if not present, then install Hermes.
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<'REMOTE_HERMES_INSTALL'
+set -eu
+# Ensure Python 3 + pip + ffmpeg (Oracle Linux 9 / dnf).
+if ! command -v python3 >/dev/null 2>&1; then
+  sudo dnf install -y python3 python3-pip
+fi
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  sudo dnf install -y ffmpeg || sudo dnf install -y ffmpeg-free || true
+fi
+
+HERMES_BIN="$HOME/.hermes/bin/hermes"
+if [ ! -x "$HERMES_BIN" ]; then
+  echo "[remote] installing Hermes Agent via official install.sh..."
+  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+fi
+
+# Install voice + messaging extras (idempotent).
+HERMES_PYTHON="$HOME/.hermes/venv/bin/python"
+if [ -x "$HERMES_PYTHON" ]; then
+  "$HERMES_PYTHON" -m pip install --quiet --upgrade \
+    "hermes-agent[voice,messaging]" faster-whisper "neutts[all]" \
+  || echo "[remote] pip install extras failed; core gateway may still work"
+fi
+
+# Symlink config so Hermes finds it.
+mkdir -p "$HOME/.hermes"
+[ -f "$HOME/hermes-agent/config.yaml" ] && \
+  [ ! -f "$HOME/.hermes/config.yaml" ] && \
+  ln -sf "$HOME/hermes-agent/config.yaml" "$HOME/.hermes/config.yaml" || true
+[ -f "$HOME/hermes-agent/.env" ] && \
+  [ ! -f "$HOME/.hermes/.env" ] && \
+  ln -sf "$HOME/hermes-agent/.env" "$HOME/.hermes/.env" || true
+
+echo "[remote] Hermes installed: $HERMES_BIN"
+REMOTE_HERMES_INSTALL
+
+  # Write systemd unit (Oracle Linux path — not managed by NixOS).
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<'REMOTE_HERMES_UNIT'
+set -eu
+sudo tee /etc/systemd/system/hermes-agent.service >/dev/null <<UNIT
+[Unit]
+Description=Hermes Agent — NousResearch personal AI gateway (Voice + Discord)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/hermes-agent
+EnvironmentFile=/home/opc/hermes-agent/.env
+ExecStart=/home/opc/.hermes/bin/hermes gateway start --foreground
+Restart=on-failure
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hermes-agent
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now hermes-agent.service || {
+  echo "::warning:: hermes-agent.service failed to start; check: journalctl -u hermes-agent -n 50" >&2
+}
+echo "[remote] hermes-agent.service enabled and started."
+REMOTE_HERMES_UNIT
+
+  echo "[setup-vm] Hermes Agent deployed (Oracle Linux). First-run downloads ~575 MB of models; allow 5-10 min."
+fi
+
+# -----------------------------------------------------------------------------
 # Step 9: smoke test — run daily-progress.sh once.
 # -----------------------------------------------------------------------------
 echo "[setup-vm] running smoke test (daily-progress.sh)..."
