@@ -100,3 +100,27 @@ After the image_gen call, output exactly one fenced ` ```json ` block — no com
 - Standard typography (headings, body, labels)
 - Icons from Lucide / Heroicons / similar libraries
 - Any element that is "a colored box with text" — that is HTML
+
+---
+
+## NON-NEGOTIABLE QUALITY BAR — no compromise, no Claude fill-in
+
+This page mock is the visual source of truth for the entire project. Downstream tooling (parts-grid generation, HTML generation, implementation) will reproduce whatever you decide here pixel-for-pixel. There is no human design review later that magically fixes weak choices, and there is no "Claude polish" step that silently corrects partial output.
+
+Rules:
+
+1. **Maximum completion on the first call.** Treat this as your only shot. Use the highest-quality setting your tool exposes. Render the full page at its natural aspect ratio with every region populated by realistic content — no "Title goes here", no Lorem Ipsum, no greyed-out placeholders for "TBD" sections. If the screen has a header / footer / sidebar / bottom-nav, render all of them fully.
+
+2. **No silent omissions.** Every field of the JSON manifest must be filled with a real value. `style_guide.palette` must list 5 distinct roles, each with a real 6-digit hex. `illustration_style`, `line_weight`, `character_design`, and `decorative_motifs` must each be a concrete phrase, not "TBD" or "n/a unless …" — even when there are no characters, write "n/a — no characters in this project" so downstream tooling sees an explicit decision.
+
+3. **No fabricated cells.** Every entry in `cells[]` must correspond to an actual non-HTML asset you rendered on the page. If you list a cell, it must point to a pixel-region in the page mock you can re-render in a subsequent parts-grid turn. Phantom cells (listed but never drawn) break cropping.
+
+4. **No fabricated counts.** `image_count` is `ceil(non_html_asset_count / 28)`. Count carefully. If `image_count` is 0, `cells` must be omitted and `rows_per_image` must be `[]`.
+
+5. **No Claude completion assumed.** Do NOT think "Claude will normalize this later". There is no Claude normalization step. Whatever fields you leave blank, ambiguous, or wrong will propagate verbatim into the next prompt and corrupt the parts-grid turn.
+
+6. **If you cannot honor a constraint, ABORT — do not ship partial.** If the screen's complexity genuinely exceeds what you can render at the required completeness, output ONE plain-text line beginning with `ABORT:` followed by the specific reason (e.g. `ABORT: cannot fit the requested sidebar nav items into 1280px wide without overlapping the main content area — need narrower or fewer items`). Do NOT generate a partial page and a partial manifest hoping Claude will glue it together — that is the failure mode we are explicitly forbidding.
+
+7. **No "I'll do better next turn" deferrals.** This turn produces the page that locks in the project's visual identity. Every later turn — every other screen, every other form factor, every parts-grid, every HTML conversion — inherits from this one. There is no "next turn" to redo this.
+
+If you understand this, proceed. If anything in the spec or prior style_guide is ambiguous enough that you would have to guess, ABORT with a specific question.

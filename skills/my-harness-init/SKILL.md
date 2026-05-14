@@ -1665,6 +1665,8 @@ There are **two paths** depending on `USE_CODEX`:
 
 #### USE_CODEX=yes — Codex writes the initial HTML (Stage 2), Claude polishes it (Stage 3, BOTH REQUIRED)
 
+**Important — Claude's role in Stage 3 is verification + iteration, NOT silent rewriting.** All three Codex prompts (`codex-page-mock.md`, `codex-parts-grid-edit.md`, `codex-page-to-html.md`) now end with a "NON-NEGOTIABLE QUALITY BAR" section that forbids Codex from shipping partial output and requires it to emit `ABORT: <reason>` instead of glossing over a gap. When reviewing Codex output, Claude's job is to **read carefully**, surface any drift between the mock and the HTML to the user, and call `refine-design.sh` / `gen-page-html.sh` again with explicit feedback — NOT to quietly patch the HTML and pretend it was Codex's output. The user's explicit instruction (7.21.0): Claude must not make its own interpretations; Codex is responsible for the deliverable, and if Codex's output is wrong, Codex re-does it with stronger guidance.
+
 **Step 1 — Codex writes the first cut** (Stage 2 of Phase 5, batch-driven by `gen-html-all.sh`):
 
 After every screen's PNGs are settled (Stage 1 complete), `gen-html-all.sh` walks the manifest tree and calls `gen-page-html.sh` once per (form-factor, screen). The Codex HTML session is `design-html-<project-slug>`, separate from the image session, and each call receives:

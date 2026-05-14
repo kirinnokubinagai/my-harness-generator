@@ -59,3 +59,25 @@ Cell (row, col) coordinates are 0-indexed. Each asset is the asset of the **same
 - One short text confirmation line ("Saved parts-grid-...-<IMAGE_INDEX>.png with N cells."). No long commentary.
 
 If you cannot honor every style invariant, abort and say so plainly — do NOT generate a divergent image.
+
+---
+
+## NON-NEGOTIABLE QUALITY BAR — no compromise, no Claude fill-in
+
+The cropper that consumes this grid is deterministic and unforgiving: it reads cells by row/column index, removes magenta via a mathematical alpha formula, and bakes the result into per-asset PNGs the implementation phase imports directly. There is no "Claude visual cleanup" step that fixes partial output. Defects ship.
+
+Rules:
+
+1. **Pure `<CHROMA_KEY>` background, every pixel.** Not "approximately magenta", not "magenta with subtle gradient texture", not "magenta everywhere except near the cells where it transitions". Every background pixel = exact `<CHROMA_KEY>` hex. The cropper's alpha formula `alpha = g - min(r, b) + 1` is mathematically only zero on pure (1, 0, 1) magenta — anything else leaves residue, and Claude will NOT clean that residue.
+
+2. **Zero anti-aliasing at the magenta-asset boundary.** Every pixel along that boundary must be EITHER pure magenta OR a definite asset color, never an in-between blended pixel. If your renderer's default is to anti-alias, override it — render the boundary aliased / "pixelated". The cropper preserves softness INSIDE the asset (anti-aliased curves on asset interior are fine and desired), but the OUTER edge against magenta must be hard.
+
+3. **No drop shadows, no glows, no soft halos around assets.** These produce semi-transparent pixels at the asset rim that the cropper either keeps (= visible glow on transparent background, looks broken) or eats (= visible asset truncation). Both are failure modes. Render assets as flat-edged objects with no atmospheric effects.
+
+4. **Every listed cell must contain its named asset, faithfully reproduced from the page.** If `<CELLS_JSON>` lists 17 cells, the grid contains 17 cells — not 15 with "I forgot", not 20 with two extras "for completeness". Same name, same visual identity, same `kind`. The page mock in your edit-mode context IS the reference — match it exactly. If you cannot recall an asset's exact appearance, re-examine the page image before drawing.
+
+5. **Exact 4-column × `<ROWS_IN_THIS_IMAGE>`-row layout, exact 256x256 cells.** Image width = 1024 px. Image height = `<ROWS_IN_THIS_IMAGE> × 256` px. Cell (r, c) occupies pixels `(256*c, 256*r)` to `(256*c+255, 256*r+255)`. Every asset fits inside the central 224x224 area; surrounding 16 px is padding. The cropper hardcodes these — drift = cropping picks up wrong pixels.
+
+6. **No Claude completion assumed.** There is no step where Claude redraws a missing asset, fixes a misaligned cell, or repaints a shadow-corrupted boundary. Whatever you produce is what ships.
+
+7. **If you cannot honor every constraint, ABORT.** Output ONE plain-text line `ABORT:` plus the specific reason (e.g. `ABORT: my renderer cannot disable anti-aliasing on shape boundaries; cropping will leave magenta-tinted rim pixels`). Do NOT ship a partially-compliant grid expecting downstream tooling to compensate.

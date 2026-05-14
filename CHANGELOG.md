@@ -4,6 +4,15 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.21.0] — 2026-05-14
+
+### Changed
+- Three Codex prompts (`prompts/codex-page-mock.md`, `prompts/codex-parts-grid-edit.md`, `prompts/codex-page-to-html.md`) end with a new NON-NEGOTIABLE QUALITY BAR section. Codex is now explicitly told: no compromise, no partial output expecting Claude to fill in gaps, and if a constraint cannot be honored, emit `ABORT: <specific reason>` instead of shipping defective work.
+- `skills/my-harness-init/SKILL.md` Stage 3 description clarifies that Claude's role is verification + iteration (calling `refine-design.sh` / `gen-page-html.sh` again with explicit feedback), NOT silently rewriting Codex output.
+
+### Rationale
+User feedback: "Claude must not make its own interpretations — Codex should be made to do its maximum effort." Earlier rounds of Phase 5 had Claude silently smoothing over partial Codex output, which masked Codex defects and produced inconsistent design quality. Pushing every "quality decision" onto Codex itself, and pushing every failure into an `ABORT: <reason>` that surfaces to the user, makes the quality bar explicit and removes Claude's interpretive layer.
+
 ## [7.20.0] — 2026-05-14
 
 ### Added

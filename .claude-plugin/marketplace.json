@@ -5,16 +5,16 @@
     "name": "my-harness-generator"
   },
   "description": "Production-grade multi-agent harness for Claude Code + Codex CLI. /my-harness-init bootstraps a fresh project with security headers, rate limiting, structured logging, idempotency, health endpoints, Sentry, audit log, feature flags, CodeQL, SBOM, license audit, k6, Lighthouse, Renovate, Dependabot, and six runbook templates already wired in. /my-harness-adopt is idempotent. /harness-team-lead drives up to MAX_LANES (1..4) lanes with per-lane RAM/swap/compressor gating + OS-aware recommendation that accounts for macOS memory compression. /harness-deploy is idempotent (setup + staged dev → stage → main release with canary).",
-  "version": "7.20.0",
+  "version": "7.21.0",
   "metadata": {
-    "version": "7.20.0"
+    "version": "7.21.0"
   },
   "plugins": [
     {
       "name": "my-harness",
       "source": "./",
       "description": "Production-grade harness generator. /my-harness-init scaffolds a Hono/Cloudflare project with security/observability/operations wired in (Hono middleware suite, CodeQL, SBOM, Renovate, Dependabot, runbooks, audit log, feature flags). /my-harness-adopt (idempotent), /harness-team-lead (parallel lanes with OS-aware gating that accounts for macOS memory compression), /harness-deploy (setup + staged release). Four lane roles individually delegable to Codex. One rule set (rules/*.md including production.md) shared across Claude / Codex / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md. Live observability + watchdog. Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1.",
-      "version": "7.20.0",
+      "version": "7.21.0",
       "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",
       "repository": "https://github.com/kirinnokubinagai/my-harness-generator",
       "license": "MIT",

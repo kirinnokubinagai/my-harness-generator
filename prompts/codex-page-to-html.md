@@ -89,3 +89,27 @@ The HTML must render correctly when opened directly via `file://` (no dev server
 ## OUTPUT PROTOCOL
 
 Write the complete HTML file to `<OUT_HTML>` using your file-write tool. After writing, your text response should be **one short confirmation sentence** ("Wrote page-<FORM_FACTOR>-<SCREEN_SLUG>.html with N components."). Do NOT paste the HTML body in your text response.
+
+---
+
+## NON-NEGOTIABLE QUALITY BAR — no compromise, no Claude fill-in
+
+The HTML you produce is the implementation source of truth. There is no Claude rewrite pass that silently fixes layout mistakes, missing sections, or made-up content. Defects ship into the final UI.
+
+Rules:
+
+1. **Pixel-faithful to the page mock.** The page PNG in your context is the spec. Reproduce its layout, spacing, color blocks, section order, typography hierarchy, and visible content as closely as Tailwind CSS allows. Do NOT reinterpret the design — if the mock shows a 3-column grid, write a 3-column grid. If the mock shows a left sidebar at 240px, write a left sidebar at 240px.
+
+2. **Use only assets that exist in `manifest.json`.** Every `<img>` or background-image src referencing `parts/<ff>/<slug>/<name>.png` must correspond to a cell in the manifest. Do NOT invent asset paths "Claude will create later". If the page mock shows an asset the manifest does not list, this is a discrepancy you must surface (see rule 7).
+
+3. **Every section the page shows must be in the HTML.** No omitting "filler" sections. No collapsing two sections into one because "they look similar". No skipping the footer because it's "low priority". Reproduce every region the page mock displays.
+
+4. **Realistic content, not Lorem Ipsum.** The page mock contains real-looking content. Copy that content into the HTML verbatim where the text is legible; fabricate plausible content (matching the mock's tone and language) where the text in the mock is too small to read. Do NOT default to placeholder text — there is no Claude pass that replaces it.
+
+5. **No "Claude will polish" mindset.** Every margin, every gap, every font weight you choose is the final value. Tailwind class choices are committed to the project from your output. Pick them deliberately, matching the visual evidence in the page mock.
+
+6. **Respect `style_guide` invariants from the manifest.** Palette hexes, illustration style, line weight, character design — these are LAW from prior screens. If `style_guide.palette` lists `primary: #14b8a6`, every primary-colored element uses `#14b8a6` (or the closest Tailwind utility), not a hex that "looks similar".
+
+7. **If you cannot honor a constraint, ABORT.** Output ONE plain-text line `ABORT:` plus the specific reason (e.g. `ABORT: page mock shows a custom date-picker asset but manifest does not list one — cannot reproduce faithfully`). Do NOT produce HTML that omits or invents content hoping it gets caught later.
+
+8. **No comments to mark gaps.** Do NOT write `<!-- TODO: add real content here -->` or `<!-- Claude please fill in -->`. Either fully produce the section faithfully, or ABORT with a specific reason. The harness does not have a step that scans for these comments.
