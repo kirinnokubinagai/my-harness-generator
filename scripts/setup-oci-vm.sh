@@ -72,8 +72,8 @@ set +a
 
 : "${AI_PROVIDER:=claude}"
 case "$AI_PROVIDER" in
-  claude|codex|gemma4) : ;;
-  *) echo "::error:: unknown AI_PROVIDER '$AI_PROVIDER' in $NOTIF_FILE (expected claude|codex|gemma4)" >&2; exit 1 ;;
+  claude|codex) : ;;
+  *) echo "::error:: unknown AI_PROVIDER '$AI_PROVIDER' in $NOTIF_FILE (expected claude|codex)" >&2; exit 1 ;;
 esac
 echo "[setup-vm] AI_PROVIDER=$AI_PROVIDER"
 
@@ -199,23 +199,6 @@ case "$AI_PROVIDER" in
     npm install -g @openai/codex
     mkdir -p "$HOME/.codex"
     ;;
-  gemma4)
-    echo "[remote] installing Ollama + pulling gemma4:e4b..."
-    if ! command -v ollama >/dev/null 2>&1; then
-      curl -fsSL https://ollama.com/install.sh | sh
-    fi
-    sudo systemctl enable --now ollama || true
-    # Wait for daemon up to 30s
-    for i in $(seq 1 30); do
-      curl -sS --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1 && break
-      sleep 1
-    done
-    if ! curl -sS http://localhost:11434/api/tags >/dev/null 2>&1; then
-      echo "::error:: Ollama daemon did not come up within 30s" >&2
-      exit 1
-    fi
-    ollama pull gemma4:e4b
-    ;;
 esac
 
 echo "[remote] versions:"
@@ -223,7 +206,6 @@ node --version 2>/dev/null || true
 case "$AI_PROVIDER" in
   claude) claude --version 2>/dev/null || true ;;
   codex)  codex --version 2>/dev/null || true ;;
-  gemma4) ollama --version 2>/dev/null || true ;;
 esac
 REMOTE_INSTALL
 
@@ -383,7 +365,6 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('home_channel_name',''))")"
   DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('app_channel_name',''))")"
 
-  # Validate provider (gemma4 removed from Hermes in 7.26.0).
   case "$HERMES_AI_PROVIDER_VAL" in
     codex|claude-code|openrouter|claude-api) : ;;
     *)
@@ -633,6 +614,18 @@ echo "[remote] hermes-agent.service enabled and started."
 REMOTE_HERMES_UNIT
 
   echo "[setup-vm] Hermes Agent deployed (Oracle Linux). First-run downloads ~575 MB of models; allow 5-10 min."
+
+  # Register the daily-report cron job inside Hermes (session-aware, persistent memory across days).
+  HARNESS_DIR_REG="$(cd "$(dirname "$0")/.." && pwd)"
+  echo "[setup-vm] registering daily-report cron in Hermes..."
+  bash "$HARNESS_DIR_REG/scripts/register-agent-daily-report.sh" "$ROOT" hermes "$SSH_TARGET" "$OCI_VM_SSH_KEY"
+
+  # Remove daily-progress and event-watch lines from the opc crontab so they
+  # don't fire alongside the Hermes internal cron.
+  # The .sh scripts remain on disk for emergency manual invocation.
+  echo "[setup-vm] removing shell-cron daily-progress/event-watch lines from crontab (Hermes cron handles the daily report now)..."
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+    "crontab -l 2>/dev/null | grep -v 'daily-progress\.sh\|event-watch\.sh' | crontab - || true"
 fi
 
 # -----------------------------------------------------------------------------

@@ -345,20 +345,21 @@ bash ~/my-harness-generator/scripts/check-codex-auth.sh
 
 `CODEX_SESSION = <PROJECT_SLUG>-init`. Never asked.
 
-##### Q2b: Who runs the engineer (implementation) subagent?
+##### Q2b: Which subagent roles should Codex handle?
 
-Use `AskUserQuestion` (do NOT phrase as y/n):
+Use a single `AskUserQuestion` with `multiSelect: true`. Selecting none means all three stay in Claude.
 
 **LANG=en — payload:**
 ```json
 {
   "questions": [{
-    "question": "Who should run the engineer (implementation) subagent?",
-    "header": "Engineer runner",
-    "multiSelect": false,
+    "question": "Which subagent roles should Codex handle? (select none to keep everything in Claude)",
+    "header": "Codex roles",
+    "multiSelect": true,
     "options": [
-      { "label": "Codex", "description": "Routes implementation work to Codex. Trade-off: separate AI surface, additional API round-trip, but Codex's coding model can differ from Claude's." },
-      { "label": "Claude", "description": "Keep implementation in Claude. Trade-off: single AI surface, no Codex round-trip, but no second-opinion code generation." }
+      { "label": "Engineer (implementation)", "description": "Routes implementation work to Codex for second-opinion code generation. Adds an API round-trip per task." },
+      { "label": "E2E reviewer (failure report)", "description": "Claude runs Playwright/Maestro; Codex composes the failure-report write-up afterward for independent synthesis." },
+      { "label": "Reviewer (convention review)", "description": "Convention/style review runs in Codex as a second AI surface." }
     ]
   }]
 }
@@ -368,92 +369,21 @@ Use `AskUserQuestion` (do NOT phrase as y/n):
 ```json
 {
   "questions": [{
-    "question": "エンジニア（実装）サブエージェントは誰が担当しますか？",
-    "header": "実装担当",
-    "multiSelect": false,
+    "question": "Codex に委任するサブエージェントの役割を選んでください（何も選ばなければ全て Claude が担当）:",
+    "header": "Codex 担当",
+    "multiSelect": true,
     "options": [
-      { "label": "Codex", "description": "実装を Codex に委任。AI サーフェスが分離し API ラウンドトリップが増えるが、Codex のコーディングモデルは Claude と異なる挙動を持つ。" },
-      { "label": "Claude", "description": "実装は Claude のまま。AI サーフェスを 1 つに統一でき Codex ラウンドトリップ無し。コード生成のセカンドオピニオンは得られない。" }
+      { "label": "エンジニア（実装）", "description": "実装を Codex に委任してセカンドオピニオンのコード生成を得る。タスクごとに API ラウンドトリップが増える。" },
+      { "label": "E2E レビュー（失敗レポート）", "description": "Playwright/Maestro の実行は Claude、失敗レポートの合成のみ Codex に委任。独立した視点でのまとめが得られる。" },
+      { "label": "レビュー（規約レビュー）", "description": "規約・スタイルレビューを Codex（別 AI サーフェス）で実施。" }
     ]
   }]
 }
 ```
 
-Map: `Codex` → `USE_CODEX_ENGINEER=yes`. `Claude` → `USE_CODEX_ENGINEER=no`. No default applied.
+Map selected items: `Engineer` / `エンジニア` → `USE_CODEX_ENGINEER=yes`. `E2E reviewer` / `E2E レビュー` → `USE_CODEX_E2E_REVIEWER=yes`. `Reviewer` / `レビュー（規約` → `USE_CODEX_REVIEWER=yes`. Unselected items → `no`.
 
-##### Q2c: Who synthesizes the e2e failure report?
-
-Use `AskUserQuestion`. Note: Playwright/Maestro themselves always run locally under Claude — this question only chooses **who composes the failure-report write-up afterward**.
-
-**LANG=en — payload:**
-```json
-{
-  "questions": [{
-    "question": "Who should synthesize the e2e-reviewer failure report? (Playwright/Maestro always run locally under Claude regardless)",
-    "header": "E2E reviewer",
-    "multiSelect": false,
-    "options": [
-      { "label": "Claude", "description": "Claude both runs the tests and writes the failure-report synthesis. Single tool surface, no Codex round-trip." },
-      { "label": "Codex", "description": "Claude runs the tests; Codex composes the failure-report write-up afterward. Adds a Codex round-trip but gives independent synthesis." }
-    ]
-  }]
-}
-```
-
-**LANG=ja — payload:**
-```json
-{
-  "questions": [{
-    "question": "e2e-reviewer の失敗レポートは誰が合成しますか？（Playwright/Maestro 自体は常に Claude がローカル実行）",
-    "header": "E2Eレビュー担当",
-    "multiSelect": false,
-    "options": [
-      { "label": "Claude", "description": "テスト実行と失敗レポート合成の両方を Claude が担当。AI サーフェスを 1 つに統一でき Codex ラウンドトリップ無し。" },
-      { "label": "Codex", "description": "テストは Claude、失敗レポート合成のみ Codex に委任。Codex ラウンドトリップ 1 回増えるが独立した視点でのまとめが得られる。" }
-    ]
-  }]
-}
-```
-
-Map: `Claude` → `USE_CODEX_E2E_REVIEWER=no`. `Codex` → `USE_CODEX_E2E_REVIEWER=yes`. No default applied.
-
-##### Q2d: Who runs the reviewer (convention review) subagent?
-
-Use `AskUserQuestion`:
-
-**LANG=en — payload:**
-```json
-{
-  "questions": [{
-    "question": "Who should run the reviewer (convention review) subagent?",
-    "header": "Reviewer runner",
-    "multiSelect": false,
-    "options": [
-      { "label": "Codex", "description": "Convention/style review runs in Codex (second AI surface)." },
-      { "label": "Claude", "description": "Convention/style review stays in Claude (single AI surface)." }
-    ]
-  }]
-}
-```
-
-**LANG=ja — payload:**
-```json
-{
-  "questions": [{
-    "question": "reviewer（規約レビュー）サブエージェントは誰が担当しますか？",
-    "header": "レビュー担当",
-    "multiSelect": false,
-    "options": [
-      { "label": "Codex", "description": "規約・スタイルレビューを Codex (別 AI サーフェス) で実施。" },
-      { "label": "Claude", "description": "規約・スタイルレビューを Claude (単一 AI サーフェス) で実施。" }
-    ]
-  }]
-}
-```
-
-Map: `Codex` → `USE_CODEX_REVIEWER=yes`. `Claude` → `USE_CODEX_REVIEWER=no`. No default applied.
-
-If USE_CODEX=no, all three sub-flags forced to `no` (skip Q2b/c/d entirely).
+If USE_CODEX=no, all three sub-flags forced to `no` (skip Q2b entirely).
 
 ### Setup Q3: Inherit global CLAUDE.md
 
@@ -539,49 +469,15 @@ bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-project-trust.sh" "$ROOT"
 
 Why this matters: Codex has TWO independent approval layers. **L2 (action approval — shell exec, file edit)** is set to `"never"` by our `codex-app-server-call.py`, but **L1 (project trust — "may Codex run in this directory?")** is enforced separately from `~/.codex/config.toml` and our `approval_policy="never"` does NOT bypass it. A daemon running in a non-trusted directory raises an L1 approval request that has no UI to answer it, so `thread/start` hangs forever and every `image_gen` call (and every other Codex call) silently times out. The script appends a `[projects."<ROOT>"] trust_level = "trusted"` section to `~/.codex/config.toml` (idempotent — no-op when already present).
 
-**Q5.b — Pin Codex's reasoning effort (ask the user: `xhigh` or `high`)**:
+**Q5.b — Pin Codex's reasoning effort (automatic — no question asked)**:
 
-Ask the user with `AskUserQuestion`. Match `LANG`:
-
-**LANG=en — payload:**
-```json
-{
-  "questions": [{
-    "question": "How deeply should Codex reason on each turn?",
-    "header": "Codex effort",
-    "multiSelect": false,
-    "options": [
-      { "label": "xhigh", "description": "Highest reasoning depth. Best output quality on hard tasks (design / complex implementation). Slower and consumes the Codex usage allowance faster." },
-      { "label": "high", "description": "One step below xhigh. Faster and lighter on usage; slightly less thorough on multi-step reasoning. Adequate for most everyday tasks." }
-    ]
-  }]
-}
-```
-
-**LANG=ja — payload:**
-```json
-{
-  "questions": [{
-    "question": "Codex の推論の深さはどうしますか？",
-    "header": "Codex 推論レベル",
-    "multiSelect": false,
-    "options": [
-      { "label": "xhigh", "description": "最高の推論深度。デザイン / 複雑な実装などハードなタスクで品質が最も高い。時間と Codex 利用枠を多く消費する。" },
-      { "label": "high", "description": "xhigh の 1 段下。速くて軽い。多段の推論はやや劣るが、日常的なタスクには十分。" }
-    ]
-  }]
-}
-```
-
-Map: `xhigh` → `xhigh`, `high` → `high`. No default applied — the user must choose.
-
-Then write the choice to `~/.codex/config.toml`:
+Defaults to `high` (adequate for most tasks, lighter on subscription quota). No user question needed.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-effort.sh" "<chosen-level>"
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/ensure-codex-effort.sh" "high"
 ```
 
-This adds `model_reasoning_effort = "<chosen-level>"` at the top of `~/.codex/config.toml` if the key is not already present. Idempotent: if the user already set a value in a previous session, it's left alone (no overwrite). The script validates the level against the SDK's allowed values (`none|minimal|low|medium|high|xhigh`); anything else is rejected with a clear error.
+This adds `model_reasoning_effort = "high"` at the top of `~/.codex/config.toml` if the key is not already present. Idempotent: if the user already set a value in a previous session, it's left alone (no overwrite).
 
 **Q5.c — Start the shared codex app-server daemon**:
 
@@ -1254,9 +1150,7 @@ Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する
       { "label": "Claude Code (uses Q9.5 OAuth token)",
         "description": "Reuses the Claude OAuth token captured in Q9.5. The VM runs `claude -p` for summaries. No extra setup. Best for Claude Pro/Max subscribers." },
       { "label": "Codex (ChatGPT Plus/Pro subscription)",
-        "description": "Mac runs `codex login` once; harness copies ~/.codex/auth.json to the VM. Refresh token lifetime ~3 months — re-run `codex login` and re-deploy when it expires. No OpenAI API key billing." },
-      { "label": "Gemma 4 (local, no auth)",
-        "description": "Installs Ollama daemon and downloads gemma4:e4b (~5 GB) on the VM. No subscription, no external API calls. Inference is 3-6 tok/s on the A1.Flex's 4 ARM cores; daily-progress 1 run takes 30-60 seconds. Fully free forever." }
+        "description": "Mac runs `codex login` once; harness copies ~/.codex/auth.json to the VM. Refresh token lifetime ~3 months — re-run `codex login` and re-deploy when it expires. No OpenAI API key billing." }
     ]
   }]
 }
@@ -1273,9 +1167,7 @@ Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する
       { "label": "Claude Code(Q9.5 の OAuth トークンを使う)",
         "description": "Q9.5 で保存した Claude OAuth トークンをそのまま使用。VM 上で `claude -p` を実行。追加設定不要。Claude Pro/Max 加入者向け。" },
       { "label": "Codex(ChatGPT Plus/Pro サブスクリプション)",
-        "description": "Mac で `codex login` を 1 回実行 → harness が ~/.codex/auth.json を VM にコピー。refresh トークンは約 3 ヶ月、失効時に `codex login` の再実行と再デプロイが必要。OpenAI API キーの課金は不要。" },
-      { "label": "Gemma 4(ローカル、認証不要)",
-        "description": "VM 上に Ollama daemon をインストールし gemma4:e4b(~5 GB)をダウンロード。サブスクリプション不要、外部 API 呼び出しなし。A1.Flex の 4 ARM コアで推論 3-6 tok/s、daily-progress 1 回 30-60 秒。完全無料、永続。" }
+        "description": "Mac で `codex login` を 1 回実行 → harness が ~/.codex/auth.json を VM にコピー。refresh トークンは約 3 ヶ月、失効時に `codex login` の再実行と再デプロイが必要。OpenAI API キーの課金は不要。" }
     ]
   }]
 }
@@ -1369,42 +1261,6 @@ bash scripts/ensure-codex-auth.sh "$ROOT"
 Exit codes:
 - **Exit 0:** auth captured. Persist `AI_PROVIDER=codex` to `.notification.env` (same merge snippet as Claude path above with `codex` instead of `claude`), then proceed.
 - **Exit 3:** ~/.codex/auth.json missing. Re-display the guidance and re-loop.
-
-#### "Gemma 4" / 「Gemma 4」
-
-Print a bilingual notice and persist `AI_PROVIDER=gemma4`:
-
-**LANG=en:**
-```
-Gemma 4 needs no credentials. setup-oci-vm.sh will:
-
-  1. Install Ollama on the VM (via the official one-line installer).
-  2. Pull `gemma4:e4b` (~5 GB). This first download takes 5-15 minutes
-     depending on your VM's network speed.
-  3. Enable the `ollama` systemd service so it survives reboots.
-
-Inference will run at 3-6 tokens/second on the A1.Flex's 4 ARM cores
-(no GPU). A daily-progress summary typically completes in 30-60 seconds.
-
-Nothing for you to do here — proceed.
-```
-
-**LANG=ja:**
-```
-Gemma 4 は認証情報不要です。setup-oci-vm.sh が次を実行します:
-
-  1. VM 上に Ollama をインストール (公式の 1-line installer)。
-  2. `gemma4:e4b` (~5 GB) をダウンロード。初回は VM のネットワーク
-     速度に応じて 5-15 分かかります。
-  3. `ollama` systemd サービスを enable して再起動後も生存させる。
-
-A1.Flex の 4 ARM コア (GPU 無し) で推論は 3-6 tokens/秒です。
-daily-progress の要約 1 回は通常 30-60 秒で完了します。
-
-ここで人手作業は不要です — 次に進みます。
-```
-
-Persist `AI_PROVIDER=gemma4` to `.notification.env` (same merge snippet).
 
 ### Setup Q12.5: Additional AI agent (Hermes / OpenClaw / None)
 
@@ -1504,6 +1360,10 @@ Persist `HERMES_AGENT_ENABLED=no` (same snippet as "None"). Skip Q12.6–Q12.8. 
 
 Persist `HERMES_AGENT_ENABLED=yes` to `.notification.env` (same merge snippet with `yes`).
 
+**EN:** Selecting Hermes Agent also moves the daily-progress report (Q11) from the systemd shell-cron path into a Hermes internal cron job (session `daily-report-<repo>`, posted to the home channel `{Q12.9}`). The shell-cron timers are auto-disabled.
+
+**JA:** Hermes Agent を選ぶと、日次プログレスレポート(Q11)が systemd の shell cron から Hermes 内部 cron(session `daily-report-<リポジトリ>`、Q12.9 の home channel へ投稿)に移ります。shell-cron の timer は自動で無効化されます。
+
 Then continue to Q12.6.
 
 ---
@@ -1512,16 +1372,11 @@ Then continue to Q12.6.
 
 Run only when Q12.5 = "Hermes Agent".
 
-**Important:** `gemma4` is NOT offered here. Running Ollama + Gemma 4 alongside
-Hermes + Whisper Tiny + NeuTTS Air on the A1.Flex's 24 GB RAM proved too tight in
-practice as of 7.26.0. Gemma 4 remains available for the daily-progress bot (Q11).
-
 Default selection logic:
 
 ```bash
 # Re-use the Q11 selection only if it maps cleanly to a Hermes provider.
 # codex → suggest "codex" (CLIProxyAPI). claude → suggest "claude-code" (CLIProxyAPI).
-# gemma4 → no default (incompatible with Hermes in 7.26.0).
 if [ "$AI_PROVIDER" = "codex" ]; then
   HERMES_AI_PROVIDER_DEFAULT="codex"
 elif [ "$AI_PROVIDER" = "claude" ]; then
@@ -1620,6 +1475,182 @@ chmod 600 "$NOTIF"
 
 ---
 
+### Setup Q12.6a: Model selection for Hermes
+
+Run only when Q12.5 = "Hermes Agent".
+
+Present model choices that match the provider selected in Q12.6. The user may also type a custom model ID.
+
+**Q12.6a — `AskUserQuestion` payload (varies by provider):**
+
+#### When Q12.6 = codex
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which model should Hermes use via CLIProxyAPI (Codex)?",
+    "header": "Hermes model",
+    "multiSelect": false,
+    "options": [
+      { "label": "gpt-5.4-mini (recommended)",
+        "description": "Fast, cheap on quota. Best balance of speed and quality for Discord chat." },
+      { "label": "gpt-5.4",
+        "description": "Full-size GPT-5.4. Higher quality but slower and heavier on subscription quota." },
+      { "label": "o3-mini",
+        "description": "Reasoning model. Slower but strong on complex tasks." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "CLIProxyAPI (Codex) 経由で Hermes が使うモデルを選んでください:",
+    "header": "Hermes モデル",
+    "multiSelect": false,
+    "options": [
+      { "label": "gpt-5.4-mini（推奨）",
+        "description": "高速で利用枠の消費が少ない。Discord チャットに最適なバランス。" },
+      { "label": "gpt-5.4",
+        "description": "フルサイズ GPT-5.4。高品質だが低速、サブスク利用枠の消費が大きい。" },
+      { "label": "o3-mini",
+        "description": "推論モデル。低速だが複雑なタスクに強い。" }
+    ]
+  }]
+}
+```
+
+Map: `gpt-5.4-mini` → `gpt-5.4-mini`, `gpt-5.4` → `gpt-5.4`, `o3-mini` → `o3-mini`. User may type a custom model ID via "Other".
+
+#### When Q12.6 = claude-code
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which model should Hermes use via CLIProxyAPI (Claude Code)?",
+    "header": "Hermes model",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-sonnet-4-6 (recommended)",
+        "description": "Fast and capable. Best balance for Discord chat." },
+      { "label": "claude-opus-4-6",
+        "description": "Most capable Claude model. Slower and heavier on subscription quota." },
+      { "label": "claude-haiku-4-5",
+        "description": "Fastest Claude model. Lower quality but very fast responses." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "CLIProxyAPI (Claude Code) 経由で Hermes が使うモデルを選んでください:",
+    "header": "Hermes モデル",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-sonnet-4-6（推奨）",
+        "description": "高速かつ高性能。Discord チャットに最適なバランス。" },
+      { "label": "claude-opus-4-6",
+        "description": "最高性能の Claude モデル。低速でサブスク利用枠の消費が大きい。" },
+      { "label": "claude-haiku-4-5",
+        "description": "最速の Claude モデル。品質は劣るが応答が非常に速い。" }
+    ]
+  }]
+}
+```
+
+Map: `claude-sonnet-4-6` → `claude-sonnet-4-6`, `claude-opus-4-6` → `claude-opus-4-6`, `claude-haiku-4-5` → `claude-haiku-4-5`.
+
+#### When Q12.6 = openrouter
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which model should Hermes use on OpenRouter?",
+    "header": "Hermes model",
+    "multiSelect": false,
+    "options": [
+      { "label": "anthropic/claude-sonnet-4 (recommended)",
+        "description": "Claude Sonnet via OpenRouter. Good balance of cost and quality." },
+      { "label": "google/gemini-2.5-flash",
+        "description": "Very fast and inexpensive. Good for high-volume Discord usage." },
+      { "label": "openai/gpt-5.4-mini",
+        "description": "GPT-5.4 Mini via OpenRouter." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "OpenRouter 経由で Hermes が使うモデルを選んでください:",
+    "header": "Hermes モデル",
+    "multiSelect": false,
+    "options": [
+      { "label": "anthropic/claude-sonnet-4（推奨）",
+        "description": "OpenRouter 経由の Claude Sonnet。コストと品質のバランスが良い。" },
+      { "label": "google/gemini-2.5-flash",
+        "description": "非常に高速かつ安価。大量の Discord 利用に最適。" },
+      { "label": "openai/gpt-5.4-mini",
+        "description": "OpenRouter 経由の GPT-5.4 Mini。" }
+    ]
+  }]
+}
+```
+
+#### When Q12.6 = claude-api
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which Claude model should Hermes use via the Anthropic API?",
+    "header": "Hermes model",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-sonnet-4-6 (recommended)",
+        "description": "Best balance of cost and quality for Discord chat." },
+      { "label": "claude-haiku-4-5",
+        "description": "Cheapest and fastest. Lower quality but minimal API cost." },
+      { "label": "claude-opus-4-6",
+        "description": "Most capable. Expensive per-token — use only if quality is critical." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Anthropic API 経由で Hermes が使う Claude モデルを選んでください:",
+    "header": "Hermes モデル",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-sonnet-4-6（推奨）",
+        "description": "Discord チャットに最適なコスト・品質バランス。" },
+      { "label": "claude-haiku-4-5",
+        "description": "最安・最速。品質は劣るが API コストを最小化。" },
+      { "label": "claude-opus-4-6",
+        "description": "最高性能。トークン単価が高いため品質が重要な場合のみ推奨。" }
+    ]
+  }]
+}
+```
+
+Store the selected model ID as `$HERMES_MODEL`. This value is passed as the 7th argument to `ensure-hermes-config.sh` in subsequent calls (Q12.7, Q12.9, Q12.10).
+
+---
+
 ### Setup Q12.7: Discord bot token
 
 Run only when Q12.5 = "Hermes Agent".
@@ -1683,11 +1714,11 @@ Ask for the token via a follow-up freeform `AskUserQuestion`:
 Then validate and persist:
 
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "" "" "$HERMES_MODEL"
 ```
 
 Exit codes:
-- **Exit 0:** token saved. Proceed to Q12.8 (if codex) or Phase 1 wrap-up (if gemma4).
+- **Exit 0:** token saved. Proceed to Q12.8 (if openrouter/claude-api) or Q12.9 (if codex/claude-code).
 - **Exit 2:** bad token shape. Show the error, reprompt for the token only.
 - **Exit 3:** empty args — should not reach here.
 
@@ -1781,7 +1812,7 @@ Paste prompt:
 
 Then run:
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "openrouter" "$OPENROUTER_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "openrouter" "$OPENROUTER_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}" "$HERMES_MODEL"
 ```
 Exit 0 → proceed. Exit 1 → show error, reprompt key only.
 
@@ -1861,7 +1892,7 @@ Paste prompt:
 
 Then run:
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "claude-api" "$ANTHROPIC_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "claude-api" "$ANTHROPIC_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}" "$HERMES_MODEL"
 ```
 Exit 0 → proceed. Exit 1 → show error, reprompt key only.
 
@@ -1915,7 +1946,7 @@ Ask for the channel name via a follow-up freeform `AskUserQuestion`:
 Then validate and save by calling `ensure-hermes-config.sh` with all args collected so far:
 
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME" "" "$HERMES_MODEL"
 ```
 
 Exit codes:
@@ -1969,7 +2000,7 @@ Ask for the channel name via a follow-up freeform `AskUserQuestion`:
 Then run with all six args:
 
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME" "$APP_CHANNEL_NAME"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME" "$APP_CHANNEL_NAME" "$HERMES_MODEL"
 ```
 
 Exit codes:

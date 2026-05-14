@@ -4,6 +4,24 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.27.0] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/hermes-agent/prompts/daily-report.md` (new) — the prompt Hermes runs on its internal cron (`0 9 * * *` UTC) to produce the daily progress report. Collects the same 6 GitHub data sources as `daily-progress.sh` but with the agent advantage: runs in session `daily-report-<repo>` so it remembers previous days' reports and writes continuity notes ("継続: 昨日からの priority/p1 issue ...").
+- `scripts/register-agent-daily-report.sh` (new) — registers the cron job inside the running Hermes Agent via its `hermes cronjob add` CLI (with JSON-RPC fallback to `POST /api/cronjobs`). Idempotent (re-registering with the same name updates). Handles `openclaw)` arm with a "planned for 7.28.0" no-op exit.
+- NixOS module option `harness.hermesAgentEnabled` (in `templates/oracle-cloud/nixos/services/daily-progress.nix`) controls whether `daily-progress.timer` and `event-watch.timer` auto-start. Defaults to `false` (= unchanged legacy behavior). `setup-oci-vm-nixos.sh` writes a `harness-overlay.nix` into the staged NixOS config and sets the option to `true` when `HERMES_AGENT_ENABLED=yes`.
+
+### Changed
+- `scripts/setup-oci-vm-nixos.sh` — after `hermes-agent.service` is up, calls `register-agent-daily-report.sh`, then disables `daily-progress.timer` and `event-watch.timer` via `systemctl disable --now` when `HERMES_AGENT_ENABLED=yes`. When `HERMES_AGENT_ENABLED=no` (or unset), the legacy timer-enable path is unchanged.
+- `scripts/setup-oci-vm.sh` (Oracle Linux path) — after Hermes is deployed, calls `register-agent-daily-report.sh`, then strips `daily-progress.sh` and `event-watch.sh` lines from the opc crontab via `crontab -l | grep -v ... | crontab -` when `HERMES_AGENT_ENABLED=yes`.
+- `skills/my-harness-init/SKILL.md` Q12.5 Hermes Agent branch now notes the daily-report cron migration (EN + JA).
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` bumped to 7.27.0.
+
+### Rationale
+The shell-cron path is one-shot AI calls without memory — every day starts from scratch. Moving daily-report into Hermes lets the agent track multi-day patterns (a priority/p1 that has been open 3 days running, a CI flake that keeps recurring, a feature whose PR has been in review since yesterday). Output to the user is identical (Japanese 3-5 bullet summary, emoji prefixes, posted to the same Discord channel). When the user picks "None" for Q12.5, the legacy shell-cron path stays exactly as it was.
+
+OpenClaw is planned for 7.28.0; this release leaves a clean `openclaw)` placeholder in `register-agent-daily-report.sh`.
+
 ## [7.26.0] — 2026-05-14
 
 ### Added
