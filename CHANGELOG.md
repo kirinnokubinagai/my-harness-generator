@@ -4,6 +4,29 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.30.0.1] — 2026-05-15
+
+### Added
+- `skills/my-harness-init/SKILL.md` gains a top-level **HARD RULES** section (4 rules) at the very top of the file — the first thing any Claude session reading SKILL.md encounters. The four rules consolidate the absolute prohibitions established in 7.21.0, 7.29.2.1, 7.29.3.1 and add two new ones:
+  - Rule 3: Never propose `OPENAI_API_KEY` (subscription auth only, per 7.22.0).
+  - Rule 4: Never call `codex exec` / `codex chat` / `codex app-server` directly; always go through `scripts/codex-ask.sh`.
+- `hooks/guard-codex-direct.sh` (new file, first under `hooks/`) — a Claude Code PreToolUse hook that detects and BLOCKS direct codex CLI invocations at the Bash-tool level. Reads the tool input JSON from stdin, matches `codex (exec|chat|run|app-server|message)`, and exits 2 (block) unless `HARNESS_ALLOW_DIRECT_CODEX=yes` is set. Optional install via `~/.claude/settings.json`; instructions in SKILL.md Q12.11.
+- `scripts/codex-ask.sh` auth-error translation: when Codex's stderr mentions `OPENAI_API_KEY` and the command exits non-zero, the wrapper prepends an explicit "IGNORE that hint, refresh subscription auth instead" block — surfacing HARD RULE 3 to Claude on the spot.
+- SKILL.md Q12.11 (new, optional, bilingual) asks the user whether to install the PreToolUse hook. Default = install.
+
+### Rationale
+Two real Claude-session incidents motivated this patch:
+
+1. A session ran `codex exec -s danger-full-access -C <dir> "..."` directly, bypassing every harness defense (reasoning-model guard, retry, error translation).
+2. Another session proposed `! export OPENAI_API_KEY="sk-..."` despite the 7.22.0 user decision against API keys.
+
+Both incidents indicated that documentation in deep SKILL.md subsections wasn't being read. The fix is three-pronged:
+- Move all prohibitions to a top-of-file HARD RULES block that any Claude session must encounter early.
+- Translate Codex's own misleading error hint at the harness wrapper layer.
+- Provide a technical PreToolUse hook for users who want enforcement, not just suggestion.
+
+This concludes 7.30.x. The staged release plan (7.22.0 → 7.30.0) was structured improvements; 7.30.0.1 is the hardening pass for the documented-but-bypassable rules.
+
 ## [7.30.0] — 2026-05-15
 
 ### Added

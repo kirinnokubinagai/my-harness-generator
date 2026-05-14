@@ -5,6 +5,65 @@ description: Runs the full new-project pipeline end-to-end. Phase 0 picks langua
 
 # /my-harness-init
 
+---
+
+## HARD RULES — VIOLATING THESE IS A FAILURE OF THE TASK
+
+These four rules override any local error message, time pressure, or temporary frustration. If you (Claude) catch yourself reasoning "but this specific case is different", **STOP**. These rules have NO exceptions.
+
+### Rule 1: Never substitute when Codex fails
+
+When `gen-page-auto.sh` / `gen-page-parts.sh` / `codex-ask.sh` return non-zero, the right action is `refine-design.sh` (retry with explicit feedback to Codex) — NOT writing the image / HTML / manifest yourself via Pillow, ImageMagick, HTML+CSS, or any other substitute. See Phase 5 Stage 1 "Codex failure modes" for full reasoning. After 3 refine retries fail, STOP and ask the user.
+
+### Rule 2: Never pass `--model` to codex-ask.sh
+
+The Codex CLI's default model (GPT-5 / GPT-4o) is correct. Reasoning models (`o1`, `o3-mini`, `o4-mini`, `o5-mini`, any `-preview`) are text-only and CANNOT call image_gen, silently breaking every Phase 5 turn. `codex-ask.sh` prints a warning when it detects an o-series model — pay attention to that warning. See "Model selection for Codex image generation" in Phase 5.
+
+### Rule 3: Never propose `OPENAI_API_KEY` to the user
+
+The harness is configured to use ChatGPT Plus/Pro **subscription** auth via `~/.codex/auth.json` (captured by `scripts/ensure-codex-auth.sh`, deployed by `setup-oci-vm-nixos.sh`). API-key billing was **explicitly rejected by the user in 7.22.0**.
+
+If you see Codex emit "OPENAI_API_KEY not set" or similar in stderr, the **real** cause is one of:
+
+1. Mac's `~/.codex/auth.json` refresh token expired (~3 month lifetime).
+2. VM's `~/.codex/auth.json` got out of sync (Mac re-login but no re-deploy).
+3. Codex CLI version too old.
+
+The right action is to instruct the user (in plain language) to:
+
+```
+! codex login                                  # on the Mac, refresh OAuth
+! bash <harness>/scripts/ensure-codex-auth.sh <root>     # capture new auth.json
+! bash <harness>/scripts/setup-oci-vm-nixos.sh <root>    # re-deploy to VM
+```
+
+**Never** suggest "export OPENAI_API_KEY=sk-..." or "create an API key at platform.openai.com". That violates the user's standing decision.
+
+### Rule 4: Never call `codex exec` (or `codex chat` / `codex app-server`) directly
+
+ALWAYS go through `scripts/codex-ask.sh`. The wrapper provides:
+
+- Reasoning-model guard (Rule 2)
+- Auth-error translation (Rule 3 backup)
+- Retry / refine-design integration (Rule 1 backup)
+- Session management (`--session <key>` for memory continuity across turns)
+- Error logging to `.my-harness/codex-*.md` for later debugging
+
+Translation table — every direct codex invocation has a wrapper equivalent:
+
+| ❌ Direct (forbidden) | ✅ Via wrapper |
+|---|---|
+| `codex exec -s danger-full-access -C <dir> "<prompt>"` | `bash <harness>/scripts/codex-ask.sh "<prompt>"` (cwd auto-resolved) |
+| `codex exec --skip-git-repo-check "<prompt>"` | `bash <harness>/scripts/codex-ask.sh "<prompt>"` |
+| `codex chat ...` | `bash <harness>/scripts/codex-ask.sh --session <key> "<prompt>"` |
+| `codex app-server ...` (debugging the protocol) | Set `HARNESS_ALLOW_DIRECT_CODEX=yes` and proceed (see Rule 4 escape hatch below) |
+
+Bypassing the wrapper loses every defensive layer. The `hooks/guard-codex-direct.sh` PreToolUse hook (if installed in `~/.claude/settings.json` — see Phase 1 Setup) **blocks** direct codex invocations technically.
+
+**Escape hatch**: when debugging the harness itself, set `HARNESS_ALLOW_DIRECT_CODEX=yes` in the environment. This bypasses the hook AND signals to the wrapper that you know what you're doing. Document why in the next chat turn.
+
+---
+
 ## Installation & Quick start
 
 ### Prerequisites
@@ -2267,9 +2326,69 @@ Exit codes:
 
 ---
 
+### Q12.11 — Install PreToolUse hook to enforce HARD RULE 4 (optional but recommended)
+
+The HARD RULES documented at the top of this SKILL.md rely on Claude reading them. Empirically, Claude sometimes still bypasses them (the 7.30.0.1 motivation). The harness ships a `hooks/guard-codex-direct.sh` PreToolUse hook that **technically blocks** direct `codex exec` invocations at the Claude Code Bash-tool level.
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Install the PreToolUse hook that blocks direct `codex exec` invocations (enforces HARD RULE 4)?",
+    "header": "codex guard hook",
+    "multiSelect": false,
+    "options": [
+      { "label": "Yes, install (recommended)",
+        "description": "Adds an entry to ~/.claude/settings.json that runs hooks/guard-codex-direct.sh before every Bash tool call. Direct `codex exec` / `codex chat` calls get blocked with a clear error; codex-ask.sh calls pass through normally. Escape hatch: HARNESS_ALLOW_DIRECT_CODEX=yes." },
+      { "label": "Skip (rely on the SKILL.md HARD RULES alone)",
+        "description": "The hook is not installed. If a Claude session bypasses codex-ask.sh, the harness defenses (reasoning-model guard, auth translation, etc.) are silently skipped. Choose this only if you don't want any PreToolUse hook in your global Claude Code settings." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "直接 `codex exec` を呼び出しをブロックする PreToolUse フックをインストールしますか（HARD RULE 4 の強制）？",
+    "header": "codex ガードフック",
+    "multiSelect": false,
+    "options": [
+      { "label": "はい、インストールする（推奨）",
+        "description": "~/.claude/settings.json にエントリを追加し、すべての Bash ツール呼び出しの前に hooks/guard-codex-direct.sh を実行します。codex exec / codex chat の直接呼び出しはブロックされ、codex-ask.sh 経由の呼び出しは通常通り通過します。エスケープハッチ: HARNESS_ALLOW_DIRECT_CODEX=yes。" },
+      { "label": "スキップ（SKILL.md の HARD RULES のみに依存する）",
+        "description": "フックはインストールされません。Claude セッションが codex-ask.sh をバイパスした場合、推論モデルガード・認証翻訳などのハーネス防御が静かにスキップされます。グローバルな Claude Code 設定に PreToolUse フックを追加したくない場合のみ選択してください。" }
+    ]
+  }]
+}
+```
+
+If "Yes, install" / "はい、インストールする" — emit this shell snippet for the user to paste (we don't auto-edit `~/.claude/settings.json` because it's a user-global file):
+
+```bash
+# Add to ~/.claude/settings.json under "hooks":
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash ~/my-harness-generator/hooks/guard-codex-direct.sh" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If "Skip" / "スキップ" — acknowledge and continue.
+
+---
+
 ### Phase 1 wrap-up
 
-After Q6 through Q12.10 answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip / Q12.5=None), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6 through Q12.11 answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip / Q12.5=None / Q12.11=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 

@@ -553,4 +553,27 @@ else
   printf '%s\n' "$ASSISTANT_TEXT"
 fi
 
+# Translate "OPENAI_API_KEY not set" hints from Codex into the actual
+# fix (subscription auth refresh). Per HARD RULE 3 — never let the
+# user think API keys are needed.
+if [ "${CODEX_EXIT:-0}" -ne 0 ] && [ -f "$TMP_LOG.err" ]; then
+  if grep -qE '(OPENAI_API_KEY|set OPENAI_API_KEY|missing API key|API key required)' "$TMP_LOG.err" 2>/dev/null; then
+    cat >&2 <<EOF
+
+::translation:: Codex reported an OPENAI_API_KEY-related error.
+                IGNORE that hint. The user has DECIDED against API keys
+                (see HARD RULE 3 in SKILL.md, decided in 7.22.0).
+
+                The real fix is subscription auth refresh:
+
+                  ! codex login                                          # on the Mac
+                  ! bash \$(dirname "$0")/ensure-codex-auth.sh "<root>"   # capture fresh auth.json
+                  ! bash \$(dirname "$0")/setup-oci-vm-nixos.sh "<root>"  # re-deploy to VM
+
+                If you (Claude) are about to suggest creating an
+                \`sk-...\` key — STOP. Re-read HARD RULE 3.
+EOF
+  fi
+fi
+
 exit "${CODEX_EXIT:-0}"

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "my-harness",
-  "version": "7.30.0",
+  "version": "7.30.0.1",
   "description": "Production-grade multi-agent harness for Claude Code + Codex CLI. /my-harness-init bootstraps a fully wired Hono / Cloudflare D1 / Playwright / Maestro project complete with security headers, rate limiting, structured logging, idempotency, health endpoints, Sentry, audit-log, feature flags, CodeQL, SBOM, license audit, k6 smoke, Lighthouse CI, Renovate, Dependabot, and six runbook templates (incident / deploy / rollback / dr-plan / oncall / postmortem). /my-harness-adopt is idempotent (initial adoption + ongoing refresh). /harness-team-lead drives up to MAX_LANES (1..4) lanes × 4 roles with per-lane RAM/swap/compressor gating; OS-aware MAX_LANES recommendation accounts for macOS memory compression and live memory_pressure. /harness-deploy is idempotent (setup + staged release dev → stage → main + canary 10 % → 100 %). One rule set (rules/*.md including production.md) shared across Claude / Codex / Cursor / Aider via dev/CLAUDE.md + dev/AGENTS.md.",
   "homepage": "https://github.com/kirinnokubinagai/my-harness-generator",
   "repository": "https://github.com/kirinnokubinagai/my-harness-generator",
