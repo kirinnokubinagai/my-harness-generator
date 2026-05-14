@@ -4,6 +4,9 @@
   imports = [
     ./services/daily-progress.nix
     ./services/logrotate.nix
+    # cliproxyapi.nix is conditionally injected by setup-oci-vm-nixos.sh when
+    # HERMES_AI_PROVIDER ∈ {codex, claude-code}. Not listed here statically so
+    # the base config evaluates cleanly without it.
   ];
 
   system.stateVersion = "25.05";

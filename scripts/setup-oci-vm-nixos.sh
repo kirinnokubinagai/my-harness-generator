@@ -291,9 +291,13 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   # Create directory structure on VM.
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
 
-  # Deploy CLIProxyAPI when needed (codex or claude-code provider).
+  # Deploy CLIProxyAPI config + auth when needed (codex or claude-code provider).
+  # 7.29.0: The CLIProxyAPI binary is now built by NixOS via pkgs/cliproxyapi.nix
+  # (buildGoModule). nixos-rebuild switch installs it into /nix/store and enables
+  # cliproxyapi.service via wantedBy = [ "multi-user.target" ] — no manual
+  # systemctl enable or tarball download needed here.
   if [ "$HERMES_AI_PROVIDER" = "codex" ] || [ "$HERMES_AI_PROVIDER" = "claude-code" ]; then
-    echo "[setup-vm-nixos] deploying CLIProxyAPI for provider=$HERMES_AI_PROVIDER..."
+    echo "[setup-vm-nixos] deploying CLIProxyAPI config for provider=$HERMES_AI_PROVIDER (binary built by NixOS)..."
 
     # Render cliproxyapi/config.example.yaml with provider enable/disable flags.
     CLIPROXY_TMPL="$HARNESS_DIR/templates/oracle-cloud/cliproxyapi/config.example.yaml"
@@ -317,6 +321,8 @@ with open("$RENDERED_CLIPROXY", "w") as f:
     f.write(content)
 PYEOF
 
+    # The tmpfiles.rules d-entry in cliproxyapi.nix creates this dir on first boot,
+    # but create it here too so scp works before the first nixos-rebuild.
     ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/cliproxyapi && chmod 750 ~/cliproxyapi"
     scp -q -i "$OCI_VM_SSH_KEY" "$RENDERED_CLIPROXY" "$SSH_TARGET:~/cliproxyapi/config.yaml"
     ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/cliproxyapi/config.yaml"
@@ -330,11 +336,7 @@ PYEOF
       ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/.codex/auth.json"
     fi
 
-    # Enable + start CLIProxyAPI (NixOS module in services/cliproxyapi.nix).
-    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now cliproxyapi.service" || {
-      echo "::warning:: cliproxyapi.service failed to start; check: journalctl -u cliproxyapi -n 50" >&2
-    }
-    echo "[setup-vm-nixos] CLIProxyAPI deployed and started."
+    echo "[setup-vm-nixos] CLIProxyAPI config deployed (service managed by NixOS — started by nixos-rebuild)."
   fi
 
   # Render config.example.yaml → config.yaml (substitute placeholders).

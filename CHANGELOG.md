@@ -4,6 +4,29 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.0] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/nixos/pkgs/cliproxyapi.nix` (new) — `buildGoModule` derivation for CLIProxyAPI v7.0.6. Replaces the 7.26.0 prebuilt-tarball download. Pinned to `router-for-me/CLIProxyAPI` at commit `3a9fb3780ed63d9c71efca760d0c5935b3f6fc19` (tag `v7.0.6`); source hash locked (`sha256-VgLx9Zok24QfYDacmJmC4FS5y5jqNd/9eyh1MQ8Jhww=`). Main package at `./cmd/server`, binary name `cli-proxy-api`.
+
+### Changed
+- `templates/oracle-cloud/nixos/services/cliproxyapi.nix` now consumes the Nix-built derivation via `pkgs.callPackage ./../pkgs/cliproxyapi.nix {}`. `ExecStart` references the `/nix/store/...-cliproxyapi-7.0.6/bin/cli-proxy-api` path; `ExecStartPre` curl/tar dance removed.
+- `scripts/setup-oci-vm-nixos.sh` no longer calls `systemctl enable --now cliproxyapi.service` — NixOS enables the service via `wantedBy = [ "multi-user.target" ]` at `nixos-rebuild switch` time. Config rendering (config.yaml scp) and Codex auth.json deploy are retained.
+
+### Rationale
+First of 4 steps toward a fully-Nix VM. CLIProxyAPI was chosen first because:
+1. Single Go binary with no runtime deps — clean `buildGoModule` fit.
+2. Localized change (one module file + one new derivation), low risk.
+3. The 7.26.0 curl/tar dance was the simplest impurity to eliminate.
+
+The remaining 3 steps:
+- 7.29.1: home-manager for daily-progress-bot scripts (declarative file placement).
+- 7.29.2: Claude / Codex CLIs (`buildNpmPackage` or nixpkgs).
+- 7.29.3: Hermes Agent (`buildPythonApplication` — most complex due to faster-whisper / NeuTTS deps).
+
+### Known followups
+- `vendorHash` in `pkgs/cliproxyapi.nix` is set to `lib.fakeHash` — must be updated on the first `nixos-rebuild switch`. The build will fail with the correct hash; copy it in and commit a 7.29.0.1 patch.
+
 ## [7.28.0] — 2026-05-14
 
 ### Removed
