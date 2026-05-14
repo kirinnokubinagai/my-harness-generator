@@ -4,6 +4,15 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.3.1] — 2026-05-14
+
+### Fixed
+- `scripts/codex-ask.sh` now prints a loud stderr warning when `--model` is set to an OpenAI reasoning model (`o1` / `o3-mini` / `o4-mini` / `o5-mini` / `-preview` variants). Reasoning models are text-only and silently break image_gen tool calls — the documented failure mode "turn ended with no agent_message and no image_generation_call" in `codex-app-server-call.py`. The warning sleeps 3 seconds before continuing (or skips the sleep when `CODEX_ALLOW_REASONING_MODEL=yes`); it does NOT block (in case the user wants reasoning behavior for non-image work).
+- `skills/my-harness-init/SKILL.md` Phase 5 Stage 1 gains a "Model selection for Codex image generation (CRITICAL)" subsection that explicitly tells Claude NEVER to pass `--model` to `codex-ask.sh` for Phase 5 image-generation turns. The right escalation for failure is `refine-design.sh`, not switching models.
+
+### Rationale
+A real user-observed cascade: a Claude session decided "image generation failing → let me try a different model" and added `--model o4-mini`. o4-mini is reasoning-only and cannot call image_gen at all, so every image turn silently failed with the exact error message above. The Claude session then interpreted these failures as "Codex broken" and considered substituting its own image generation — which 7.29.2.1 closed off. This patch closes the upstream gap: the model choice that caused the failure in the first place.
+
 ## [7.29.3] — 2026-05-14
 
 ### Added

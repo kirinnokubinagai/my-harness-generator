@@ -2461,6 +2461,16 @@ This is the same principle as the Stage 3 HTML rule (7.21.0): **Claude verifies 
 
 If you find yourself thinking "Codex isn't responding, let me just do it myself / write a Python script to generate the image / use HTML instead", **STOP**. That thought is the violation. Surface the failure to the user instead.
 
+### Model selection for Codex image generation (CRITICAL)
+
+The Codex backend that drives `gen-page-auto.sh` / `gen-page-parts.sh` / `codex-ask.sh` MUST use a tool-capable OpenAI model (GPT-5 / GPT-4o / Codex default) for image generation to work. Specifically:
+
+**DO NOT pass `--model` to `codex-ask.sh` for Phase 5 turns.** Leave it unset — Codex's CLI default is correct (GPT-5 / GPT-4o, both of which can call image_gen).
+
+Reasoning models like `o1`, `o3-mini`, `o4-mini`, `o5-mini`, and any `-preview` variant are TEXT-ONLY and cannot invoke tools including image_gen. Passing `--model o4-mini` (or similar) to a Phase 5 image-generation turn produces the silent failure mode "turn ended with no agent_message and no image_generation_call" — the same exit-1 path documented above. The `codex-ask.sh` script prints a loud stderr warning when it detects an o-series model, but does NOT block (set `CODEX_ALLOW_REASONING_MODEL=yes` to suppress the warning when you intentionally want reasoning-only behavior, e.g. for non-image text work).
+
+**If you (Claude) catch yourself reaching for `--model o4-mini` because the previous turn was slow or expensive, STOP.** The right escalation for "image_gen failed" is `refine-design.sh`, not switching to a model that physically cannot do image generation.
+
 ### Per-screen commit gate (after every approval)
 
 After the user confirms a screen's mock(s) look right (either on the first generation or after `refine-design.sh` iterations have settled), **always** commit that screen's design artifacts before moving on:

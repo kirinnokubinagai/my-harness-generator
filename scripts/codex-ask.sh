@@ -22,6 +22,11 @@
 #   codex-ask.sh --log session.jsonl --session brainstorm "..." # save all JSONL events
 #   codex-ask.sh --set-active <project-root>                  # register active session pointer
 #   codex-ask.sh --clear-active                               # discard active pointer
+#   --model <id>     Override the Codex model. AVOID o-series (o1/o3/o4/o5 -mini
+#                    or -preview); they're reasoning-only and cannot invoke
+#                    image_gen, breaking Phase 5 image generation. Default
+#                    (empty = Codex's own default) is the right choice for
+#                    almost all use cases.
 #
 # Roles (--role):
 #   architect / critic / analyst / planner / code-reviewer / security-reviewer / designer / tdd
@@ -95,6 +100,30 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
+
+# ===== Reasoning-model guard =====
+# OpenAI's o-series (o1 / o3 / o4 / o5 family, any -mini / -preview variant)
+# are reasoning-only models that cannot invoke tool-calling (including image_gen).
+# Phase 5 of /my-harness-init relies on image_gen; passing one of these models
+# silently breaks every image-generation turn (codex-app-server-call.py exits
+# with "turn ended with no image_generation_call"). Surface this loudly.
+if [ -n "$MODEL" ]; then
+  case "$MODEL" in
+    o[0-9]|o[0-9]-mini|o[0-9]-preview|o[0-9][0-9]*-mini|o[0-9][0-9]*-preview)
+      cat >&2 <<EOF
+::warning:: --model '$MODEL' is an OpenAI reasoning model (o-series).
+            Reasoning models CANNOT call tools, including image_gen.
+            If your turn requires image generation (Phase 5 of /my-harness-init,
+            or any Codex prompt with \$imagegen), this run WILL fail with:
+              "turn ended with no agent_message and no image_generation_call"
+            Remove --model entirely to use Codex's default (GPT-5 / GPT-4o,
+            which support tool-calling and image generation).
+            Continuing in 3 seconds — Ctrl-C to abort.
+EOF
+      [ "${CODEX_ALLOW_REASONING_MODEL:-no}" = "yes" ] || sleep 3
+      ;;
+  esac
+fi
 
 # ===== --set-active / --clear-active standalone (no Codex CLI needed, pure file ops) =====
 if [ "$CLEAR_ACTIVE" -eq 1 ]; then
