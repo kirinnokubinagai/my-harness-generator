@@ -2427,6 +2427,40 @@ What this does internally:
 4. Suppresses per-form-factor auto-open via `HARNESS_SKIP_OPEN=1`, then opens **all** produced PNGs together at the end so the user sees PC + Mobile side by side.
 5. **Does NOT** generate HTML. HTML happens in Stage 2 after every screen's PNGs are settled.
 
+### Codex failure modes in Stage 1 — Claude does NOT substitute (CRITICAL)
+
+When `gen-page-auto.sh` / `gen-page-parts.sh` / `codex-ask.sh` return non-zero in Stage 1, the underlying cause is almost always one of:
+
+- Codex ended its turn **without calling `image_gen`** (no PNG was produced).
+- Codex ended its turn **without emitting the JSON manifest** (no `manifest.json` content).
+- Codex returned `ABORT: <reason>` (the NON-NEGOTIABLE QUALITY BAR section in `prompts/codex-page-mock.md` and `prompts/codex-parts-grid-edit.md` requires this for partial output).
+
+In all three cases, Claude's correct behavior is **identical to the Stage 3 rule** (7.21.0):
+
+**You (Claude) MUST NOT:**
+
+1. Generate the PNG yourself via Pillow, ImageMagick, Bash + `convert`, HTML + screenshot, or any other tool. The PNG is Codex's job — period.
+2. Hand-write or hand-edit the `manifest.json`. Its `style_guide` and `cells[]` are Codex's decisions.
+3. "Substitute" by changing the HTML in `dev/docs/design/page-*.html` to render placeholder shapes instead of importing the missing parts. The parts PNG is the source of truth.
+4. Silently move on to the next screen pretending this one succeeded. The user reviews each screen.
+
+**You (Claude) MUST:**
+
+1. Read the Codex output (the captured `.my-harness/codex-page-*.md` or `.my-harness/codex-grid-*.md` log) and surface what went wrong to the user in plain language. Quote the relevant line (`ABORT:` reason, or "turn ended with no agent_message and no image_generation_call").
+2. Call `refine-design.sh` with explicit feedback to retry. Pass the specific failure to Codex so it can correct:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/refine-design.sh" \
+     "$ROOT" "<form-factor>" "<SCREEN_NAME>" \
+     "Your previous turn ended without calling image_gen. The page mock PNG is required. Call image_gen now to produce dev/docs/design/page-<ff>-<slug>.png. If you cannot, emit 'ABORT: <specific reason>'."
+   ```
+3. Retry **at most 3 times**. After 3 consecutive failures, STOP and report to the user:
+   - **LANG=en:** "Codex did not produce the requested artifact after 3 attempts. Last error: `<paste>`. Would you like to retry, skip this screen, or investigate (e.g. check `codex --version`, `~/.codex/auth.json`, ChatGPT image quota)?"
+   - **LANG=ja:** "Codex が 3 回試しても要求された成果物を生成しませんでした。最後のエラー: `<paste>`。再試行 / この画面をスキップ / 調査(codex のバージョン確認、auth.json、ChatGPT 画像生成枠の確認など)、どうしますか?"
+
+This is the same principle as the Stage 3 HTML rule (7.21.0): **Claude verifies and iterates; Claude does not silently rewrite**.
+
+If you find yourself thinking "Codex isn't responding, let me just do it myself / write a Python script to generate the image / use HTML instead", **STOP**. That thought is the violation. Surface the failure to the user instead.
+
 ### Per-screen commit gate (after every approval)
 
 After the user confirms a screen's mock(s) look right (either on the first generation or after `refine-design.sh` iterations have settled), **always** commit that screen's design artifacts before moving on:
@@ -2540,7 +2574,7 @@ There are **two paths** depending on `USE_CODEX`:
 
 #### USE_CODEX=yes — Codex writes the initial HTML (Stage 2), Claude polishes it (Stage 3, BOTH REQUIRED)
 
-**Important — Claude's role in Stage 3 is verification + iteration, NOT silent rewriting.** All three Codex prompts (`codex-page-mock.md`, `codex-parts-grid-edit.md`, `codex-page-to-html.md`) now end with a "NON-NEGOTIABLE QUALITY BAR" section that forbids Codex from shipping partial output and requires it to emit `ABORT: <reason>` instead of glossing over a gap. When reviewing Codex output, Claude's job is to **read carefully**, surface any drift between the mock and the HTML to the user, and call `refine-design.sh` / `gen-page-html.sh` again with explicit feedback — NOT to quietly patch the HTML and pretend it was Codex's output. The user's explicit instruction (7.21.0): Claude must not make its own interpretations; Codex is responsible for the deliverable, and if Codex's output is wrong, Codex re-does it with stronger guidance.
+**Important — Claude's role in Stage 3 is verification + iteration, NOT silent rewriting.** All three Codex prompts (`codex-page-mock.md`, `codex-parts-grid-edit.md`, `codex-page-to-html.md`) now end with a "NON-NEGOTIABLE QUALITY BAR" section that forbids Codex from shipping partial output and requires it to emit `ABORT: <reason>` instead of glossing over a gap. When reviewing Codex output, Claude's job is to **read carefully**, surface any drift between the mock and the HTML to the user, and call `refine-design.sh` / `gen-page-html.sh` again with explicit feedback — NOT to quietly patch the HTML and pretend it was Codex's output. The user's explicit instruction (7.21.0): Claude must not make its own interpretations; Codex is responsible for the deliverable, and if Codex's output is wrong, Codex re-does it with stronger guidance. The same rule applies in Stage 1 — see "Codex failure modes in Stage 1 — Claude does NOT substitute (CRITICAL)" above. Image generation, manifest emission, and HTML production are ALL Codex's responsibility; Claude's role at every stage is verify-and-iterate, never substitute.
 
 **Step 1 — Codex writes the first cut** (Stage 2 of Phase 5, batch-driven by `gen-html-all.sh`):
 

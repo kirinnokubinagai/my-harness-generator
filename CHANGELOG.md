@@ -4,6 +4,18 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.2.1] — 2026-05-14
+
+### Fixed
+- `skills/my-harness-init/SKILL.md` Phase 5 Stage 1 now explicitly forbids Claude from substituting when Codex fails to call `image_gen` or emit the manifest. The 7.21.0 NON-NEGOTIABLE QUALITY BAR only spelled out Stage 3 (HTML); Stage 1 (image / manifest) was implicit and got misinterpreted by a Claude session that started writing Pillow scripts as a fallback.
+
+The rule is identical at every stage: **Claude verifies + iterates (via `refine-design.sh`), Claude never substitutes**. Claude must not generate the PNG via Pillow/ImageMagick/HTML, must not hand-write the manifest, must not silently move on. Up to 3 refine retries; then STOP and ask the user.
+
+Stage 3 description also gained a one-line back-reference to Stage 1 so the two rules are visibly linked.
+
+### Rationale
+A real user session was observed where Codex returned exit-1 (turn ended without image_generation_call event) and Claude proceeded to attempt self-substitution. This is the exact failure mode 7.21.0 was meant to prevent — the patch closes the Stage 1 gap.
+
 ## [7.29.2] — 2026-05-14
 
 ### Added
