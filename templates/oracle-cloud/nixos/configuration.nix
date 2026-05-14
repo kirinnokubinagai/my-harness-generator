@@ -65,6 +65,8 @@
   environment.systemPackages = with pkgs; [
     curl jq gh git tmux htop vim ripgrep
     nodejs_20  # claude / codex CLI installation
+    fzf        # fuzzy finder (history, files, branches)
+    ghq        # GitHub repo manager (ghq get owner/repo)
   ];
 
   home-manager = {

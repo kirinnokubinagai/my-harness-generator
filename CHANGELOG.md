@@ -4,6 +4,26 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.1] — 2026-05-14
+
+### Added
+- `fzf` and `ghq` added to `environment.systemPackages` in `templates/oracle-cloud/nixos/configuration.nix`. `programs.fzf.enableBashIntegration = true` wired in `home.nix` (Ctrl-R history search, Ctrl-T file finder). `ghq` package provides the `~/ghq/` repo manager on the VM.
+- `programs.fzf` block in `nixos/home.nix` with `enableBashIntegration = true`.
+
+### Changed
+- `templates/oracle-cloud/flake.nix` (was `templates/oracle-cloud/nixos/flake.nix`) — moved up one level so the flake's git tree can see sibling directories (`daily-progress-bot/`, `hermes-agent/`, `cliproxyapi/`). Module paths updated to `./nixos/configuration.nix`, `./nixos/disko.nix`, `./nixos/hardware-configuration.nix`.
+- `templates/oracle-cloud/nixos/home.nix` now places `daily-progress.sh`, `event-watch.sh`, `lib/ai-provider.sh`, `lib/post-notification.sh`, `crontab.example`, `logrotate.conf` declaratively via `home.file` (read-only Nix-store symlinks under `/home/opc/daily-progress-bot/`). The `.env` file (secrets) is still managed imperatively by `setup-oci-vm-nixos.sh`.
+- `scripts/setup-oci-vm-nixos.sh` — `NIXOS_SRC` now points at `templates/oracle-cloud/` (flake root); staging copies the full oracle-cloud tree; python key-injection and harness-overlay scripts updated to reference `$STAGE_DIR/nixos/configuration.nix`. The scp block that copied bot scripts to the VM is removed — home-manager handles placement declaratively.
+
+### Rationale
+Step 2 of 4 in the Nix-pure migration. Scripts are now part of the NixOS closure — a future `nixos-rebuild switch` swaps versions atomically, with rollback support. The user's earlier requirement "redeploy cleanly to AWS Graviton / GCP Tau T2A" is now closer: the bot's behavior moves with the flake, no extra rsync of script directories needed.
+
+`fzf` + `ghq` added at user request — useful when SSH'd into the VM for ad-hoc debugging and repo management.
+
+### Known
+- After this change, hand-editing `/home/opc/daily-progress-bot/daily-progress.sh` on the VM has no effect (it's a read-only Nix-store symlink). Edits must happen in the harness repo + redeploy. This is the intended trade-off for declarative ops.
+- `programs.ghq` home-manager module is not available in all nixpkgs branches; `ghq` is therefore added as a system package only (no declarative `~/ghq/` root config required — `ghq` defaults to `~/ghq/` out of the box).
+
 ## [7.29.0] — 2026-05-14
 
 ### Added

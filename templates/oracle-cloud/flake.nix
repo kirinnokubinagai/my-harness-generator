@@ -19,9 +19,9 @@
       modules = [
         disko.nixosModules.disko
         home-manager.nixosModules.home-manager
-        ./hardware-configuration.nix
-        ./disko.nix
-        ./configuration.nix
+        ./nixos/hardware-configuration.nix
+        ./nixos/disko.nix
+        ./nixos/configuration.nix
       ];
     };
   };

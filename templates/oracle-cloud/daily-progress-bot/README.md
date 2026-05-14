@@ -38,6 +38,10 @@ Oracle Cloud Always-Free VM 上で Claude Pro/Max subscription を使って、
 [Discord channel]
 ```
 
+## デプロイ方式について
+
+> **Since 7.29.1**: On NixOS deployments these scripts (`daily-progress.sh`, `event-watch.sh`, `lib/`, `crontab.example`, `logrotate.conf`) are placed via home-manager (declarative — read-only Nix-store symlinks under `/home/opc/daily-progress-bot/`). Hand-editing the files on the VM has no effect; edits must happen in the harness repo + redeploy. The `.env` file (secrets) is still written imperatively by `setup-oci-vm-nixos.sh`. On Oracle Linux deployments, scripts are still scp'd by `setup-oci-vm.sh` as before.
+
 ## 1 回だけのセットアップ手順
 
 ### Step 1 — Oracle Cloud Always Free VM を作る
