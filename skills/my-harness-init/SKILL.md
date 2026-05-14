@@ -1512,24 +1512,31 @@ Then continue to Q12.6.
 
 Run only when Q12.5 = "Hermes Agent".
 
+**Important:** `gemma4` is NOT offered here. Running Ollama + Gemma 4 alongside
+Hermes + Whisper Tiny + NeuTTS Air on the A1.Flex's 24 GB RAM proved too tight in
+practice as of 7.26.0. Gemma 4 remains available for the daily-progress bot (Q11).
+
 Default selection logic:
 
 ```bash
-# Re-use the Q11 selection if it was codex or gemma4.
-if [ "$AI_PROVIDER" = "codex" ] || [ "$AI_PROVIDER" = "gemma4" ]; then
-  HERMES_AI_PROVIDER_DEFAULT="$AI_PROVIDER"
+# Re-use the Q11 selection only if it maps cleanly to a Hermes provider.
+# codex → suggest "codex" (CLIProxyAPI). claude → suggest "claude-code" (CLIProxyAPI).
+# gemma4 → no default (incompatible with Hermes in 7.26.0).
+if [ "$AI_PROVIDER" = "codex" ]; then
+  HERMES_AI_PROVIDER_DEFAULT="codex"
+elif [ "$AI_PROVIDER" = "claude" ]; then
+  HERMES_AI_PROVIDER_DEFAULT="claude-code"
 else
-  # claude is incompatible with Hermes — must ask explicitly.
   HERMES_AI_PROVIDER_DEFAULT=""
 fi
 ```
 
 If `HERMES_AI_PROVIDER_DEFAULT` is non-empty, ask the user to confirm or change:
 
-- **LANG=en:** "Hermes AI provider: re-use `$HERMES_AI_PROVIDER_DEFAULT` from Q11?"
-- **LANG=ja:** "Hermes の AI provider: Q11 で選んだ `$HERMES_AI_PROVIDER_DEFAULT` を再利用しますか?"
+- **LANG=en:** "Hermes AI provider: use `$HERMES_AI_PROVIDER_DEFAULT` (suggested from Q11)?"
+- **LANG=ja:** "Hermes の AI provider: Q11 の選択から `$HERMES_AI_PROVIDER_DEFAULT` を提案します。このまま使いますか?"
 
-Options: `Yes, reuse` / `はい、再利用する` → use that value. `No, change` / `いいえ、変更する` → show Q12.6 full question.
+Options: `Yes, use this` / `はい、これを使う` → use that value. `No, choose again` / `いいえ、選び直す` → show Q12.6 full question.
 
 **Q12.6 — `AskUserQuestion` payload:**
 
@@ -1541,10 +1548,14 @@ Options: `Yes, reuse` / `はい、再利用する` → use that value. `No, chan
     "header": "Hermes AI provider",
     "multiSelect": false,
     "options": [
-      { "label": "Codex (ChatGPT Plus/Pro)",
-        "description": "Calls OpenAI API (https://api.openai.com/v1). Requires an OpenAI API key (sk-...). You will be asked for it in Q12.8." },
-      { "label": "Gemma 4 (local Ollama)",
-        "description": "Uses the Ollama instance already running on the VM (http://localhost:11434/v1). No API key needed. Inference is 3-6 tok/s on A1.Flex ARM cores. Fully free forever." }
+      { "label": "Codex via ChatGPT Plus/Pro subscription (recommended)",
+        "description": "Uses CLIProxyAPI to wrap your ~/.codex/auth.json as an OpenAI-compatible API on localhost:8317. Zero per-token cost. Already configured if you set up Codex auth in Q11." },
+      { "label": "Claude Code via Pro/Max subscription",
+        "description": "Uses CLIProxyAPI to wrap your claude setup-token OAuth as an OpenAI-compatible API on localhost:8317. Zero per-token cost. Already configured if Q9.5 captured your Claude OAuth token." },
+      { "label": "OpenRouter (API key, has free models)",
+        "description": "Direct connection to https://openrouter.ai. Free-tier models available (rate-limited); paid models scale with usage. Get your key at https://openrouter.ai/keys. You will paste it in Q12.8." },
+      { "label": "Anthropic Claude API key (paid)",
+        "description": "Direct connection to api.anthropic.com with an sk-ant-api... key. Pay-per-token billing. Get your key at https://console.anthropic.com/. Use this only if the Claude Code subscription option will not work for you. You will paste it in Q12.8." }
     ]
   }]
 }
@@ -1558,10 +1569,14 @@ Options: `Yes, reuse` / `はい、再利用する` → use that value. `No, chan
     "header": "Hermes AI provider",
     "multiSelect": false,
     "options": [
-      { "label": "Codex（ChatGPT Plus/Pro）",
-        "description": "OpenAI API を呼び出します（https://api.openai.com/v1）。OpenAI API キー（sk-...）が必要。Q12.8 で入力します。" },
-      { "label": "Gemma 4（ローカル Ollama）",
-        "description": "VM 上で稼働中の Ollama インスタンスを使用（http://localhost:11434/v1）。API キー不要。A1.Flex ARM コアで 3-6 tok/s。完全無料。" }
+      { "label": "Codex（ChatGPT Plus/Pro サブスクリプション経由・推奨）",
+        "description": "CLIProxyAPI を使って ~/.codex/auth.json を localhost:8317 の OpenAI 互換 API としてラップします。トークン課金なし。Q11 で Codex 認証を設定済みであれば追加設定不要です。" },
+      { "label": "Claude Code（Pro/Max サブスクリプション経由）",
+        "description": "CLIProxyAPI を使って claude setup-token の OAuth を localhost:8317 の OpenAI 互換 API としてラップします。トークン課金なし。Q9.5 で Claude OAuth トークンを保存済みであれば追加設定不要です。" },
+      { "label": "OpenRouter（API キー、無料モデルあり）",
+        "description": "https://openrouter.ai に直接接続します。無料枠モデルあり（レート制限あり）、有料モデルは使用量課金。キーは https://openrouter.ai/keys で取得。Q12.8 で貼り付けます。" },
+      { "label": "Anthropic Claude API キー（従量課金）",
+        "description": "sk-ant-api... キーで api.anthropic.com に直接接続。トークン従量課金。キーは https://console.anthropic.com/ で取得。Claude Code サブスクリプションが使えない場合の代替手段。Q12.8 で貼り付けます。" }
     ]
   }]
 }
@@ -1569,8 +1584,30 @@ Options: `Yes, reuse` / `はい、再利用する` → use that value. `No, chan
 
 **Behavior per choice:**
 
-- `codex` → persist `HERMES_AI_PROVIDER=codex` to `.notification.env`. Proceed to Q12.7.
-- `gemma4` → persist `HERMES_AI_PROVIDER=gemma4` to `.notification.env`. Proceed to Q12.7 (skip Q12.8).
+- `codex` → persist `HERMES_AI_PROVIDER=codex` to `.notification.env`. Check Q11 codex auth; if already captured, show confirmation. If missing, show the codex login walkthrough (re-use Q11 Codex guidance). Proceed to Q12.7.
+- `claude-code` → persist `HERMES_AI_PROVIDER=claude-code` to `.notification.env`. Check Q9.5 OAuth token; if already captured, show confirmation. If missing, prompt the user to run `claude setup-token` (re-use Q9.5 walkthrough). Proceed to Q12.7.
+- `openrouter` → persist `HERMES_AI_PROVIDER=openrouter` to `.notification.env`. Proceed to Q12.7, then Q12.8 (OpenRouter key).
+- `claude-api` → persist `HERMES_AI_PROVIDER=claude-api` to `.notification.env`. Proceed to Q12.7, then Q12.8 (Anthropic API key).
+
+**Walk-me-through paths:**
+
+#### codex — auth check / setup
+
+```bash
+bash scripts/ensure-codex-auth.sh "$ROOT"
+```
+- Exit 0 → auth already captured. Show: **LANG=en:** "Codex auth already captured — no extra setup needed." / **LANG=ja:** "Codex 認証は取得済みです — 追加設定不要です。"
+- Exit 3 → missing. Show Q11 Codex guidance (display the `codex login` walkthrough inline), wait for `continue`, then re-run `ensure-codex-auth.sh`.
+
+#### claude-code — OAuth token check / setup
+
+```bash
+grep -q '^CLAUDE_CODE_OAUTH_TOKEN=' "$ROOT/.my-harness/.notification.env" 2>/dev/null
+```
+- Token present → Show: **LANG=en:** "Claude OAuth token already captured from Q9.5 — no extra setup needed." / **LANG=ja:** "Q9.5 で Claude OAuth トークンは取得済みです — 追加設定不要です。"
+- Token missing → Display the `claude setup-token` guidance (same as Q9.5 "Walk me through" path), wait for `continue`, then run `ensure-claude-oauth-token.sh`.
+
+#### openrouter / claude-api — credential prompts are in Q12.8.
 
 Persist snippet:
 
@@ -1665,90 +1702,170 @@ Proceed to Phase 1 wrap-up.
 
 ---
 
-### Setup Q12.8: OpenAI API key for Hermes (Codex only)
+### Setup Q12.8: Provider credential for Hermes (openrouter / claude-api only)
 
-Run only when Q12.5 = "Hermes Agent" AND Q12.6 = "codex".
+Run only when Q12.5 = "Hermes Agent" AND Q12.6 ∈ {openrouter, claude-api}.
+Skip entirely when Q12.6 ∈ {codex, claude-code} — those providers use file-based OAuth (no key needed here).
 
-**Q12.8 — `AskUserQuestion` payload:**
+**Q12.8 varies by provider. Show the matching payload only.**
 
-**LANG=en:**
+#### When Q12.6 = openrouter
+
+**LANG=en — `AskUserQuestion` payload:**
 ```json
 {
   "questions": [{
-    "question": "How would you like to provide the OpenAI API key for Hermes?",
-    "header": "OpenAI API key (Hermes / Codex)",
+    "question": "How would you like to provide your OpenRouter API key for Hermes?",
+    "header": "OpenRouter API key (Hermes)",
     "multiSelect": false,
     "options": [
       { "label": "I have it — I will paste",
-        "description": "I already have an OpenAI API key (sk-...). I'll paste it on the next prompt." },
+        "description": "I already have an OpenRouter API key (sk-or-...). I'll paste it on the next prompt." },
       { "label": "Walk me through getting one",
-        "description": "Opens https://platform.openai.com/api-keys in your browser. Create a key, copy it, then come back and paste." },
+        "description": "Opens https://openrouter.ai/keys in your browser. Sign up or log in, create a key, copy it, then come back and paste." },
       { "label": "Skip for now",
-        "description": "Hermes in codex mode will fail without a key. Set it later by re-running scripts/ensure-hermes-config.sh." }
+        "description": "Hermes in openrouter mode will fail without a key. Set it later by re-running scripts/ensure-hermes-config.sh." }
     ]
   }]
 }
 ```
 
-**LANG=ja:**
+**LANG=ja — `AskUserQuestion` payload:**
 ```json
 {
   "questions": [{
-    "question": "Hermes（Codex モード）用の OpenAI API キーの入力方法を選んでください:",
-    "header": "OpenAI API キー（Hermes / Codex）",
+    "question": "Hermes（OpenRouter モード）用の API キーの入力方法を選んでください:",
+    "header": "OpenRouter API キー（Hermes）",
     "multiSelect": false,
     "options": [
       { "label": "持っているので貼り付ける",
-        "description": "OpenAI API キー（sk-...）が手元にある。次のプロンプトで貼り付ける。" },
+        "description": "OpenRouter API キー（sk-or-...）が手元にある。次のプロンプトで貼り付ける。" },
       { "label": "取得方法を案内してほしい",
-        "description": "https://platform.openai.com/api-keys をブラウザで開く。キーを作成してコピーし、ここに貼り付けてください。" },
+        "description": "ブラウザで https://openrouter.ai/keys を開く。サインアップまたはログイン後、キーを作成してコピーし、ここに貼り付けてください。" },
       { "label": "あとでやる",
-        "description": "Codex モードの Hermes はキーなしでは動作しません。後で scripts/ensure-hermes-config.sh を再実行して設定してください。" }
+        "description": "OpenRouter モードの Hermes はキーなしでは動作しません。後で scripts/ensure-hermes-config.sh を再実行して設定してください。" }
     ]
   }]
 }
 ```
 
-**Behavior per choice:**
-
-#### "Walk me through getting one" / 「取得方法を案内してほしい」
-
-Display:
+Walk-me-through display:
 
 **LANG=en:**
 ```
-1. Open https://platform.openai.com/api-keys in your browser.
-2. Click "Create new secret key" → give it a name (e.g. "hermes-oci-vm").
-3. Copy the key (starts with sk-...). You cannot view it again after closing the dialog.
-4. Return here and paste it.
+1. Open https://openrouter.ai/keys in your browser.
+2. Sign in (or create a free account).
+3. Click "Create Key" → give it a name (e.g. "hermes-oci-vm").
+4. Copy the key (starts with sk-or-...).
+5. Return here and paste it.
+
+Note: OpenRouter has free-tier models (rate-limited). To use them set a
+$0 credit limit in your account settings so you are never charged unexpectedly.
 ```
 
 **LANG=ja:**
 ```
-1. ブラウザで https://platform.openai.com/api-keys を開く。
-2. 「Create new secret key」をクリック → 名前を入力（例: "hermes-oci-vm"）。
-3. キーをコピー（sk-... で始まります）。ダイアログを閉じると二度と表示されません。
-4. ここに貼り付けてください。
+1. ブラウザで https://openrouter.ai/keys を開く。
+2. サインイン（またはアカウント作成）。
+3. 「Create Key」をクリック → 名前を入力（例: "hermes-oci-vm"）。
+4. キーをコピー（sk-or-... で始まります）。
+5. ここに戻り貼り付けてください。
+
+注: OpenRouter には無料枠モデルがあります（レート制限あり）。意図しない課金を
+防ぐためにアカウント設定でクレジット上限を $0 にすることをお勧めします。
 ```
 
-Then ask for the key via follow-up freeform `AskUserQuestion`.
-
-#### "I have it — I will paste" / 「持っているので貼り付ける」
-
-Ask for the key:
-
-- **LANG=en:** "Paste the OpenAI API key (`sk-...`):"
-- **LANG=ja:** "OpenAI API キーを貼り付けてください（`sk-...`）:"
+Paste prompt:
+- **LANG=en:** "Paste the OpenRouter API key (`sk-or-...`):"
+- **LANG=ja:** "OpenRouter API キーを貼り付けてください（`sk-or-...`）:"
 
 Then run:
-
 ```bash
-bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "codex" "$OPENAI_API_KEY"
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "openrouter" "$OPENROUTER_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}"
+```
+Exit 0 → proceed. Exit 1 → show error, reprompt key only.
+
+---
+
+#### When Q12.6 = claude-api
+
+**LANG=en — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "How would you like to provide your Anthropic API key for Hermes?",
+    "header": "Anthropic API key (Hermes)",
+    "multiSelect": false,
+    "options": [
+      { "label": "I have it — I will paste",
+        "description": "I already have an Anthropic API key (sk-ant-api...). I'll paste it on the next prompt." },
+      { "label": "Walk me through getting one",
+        "description": "Opens https://console.anthropic.com/ in your browser. Create a key under API Keys, copy it, then come back and paste." },
+      { "label": "Skip for now",
+        "description": "Hermes in claude-api mode will fail without a key. Set it later by re-running scripts/ensure-hermes-config.sh." }
+    ]
+  }]
+}
 ```
 
-Exit 0 → proceed to Phase 1 wrap-up. Exit 1 → show error, reprompt key only.
+**LANG=ja — `AskUserQuestion` payload:**
+```json
+{
+  "questions": [{
+    "question": "Hermes（Anthropic API キーモード）用の API キーの入力方法を選んでください:",
+    "header": "Anthropic API キー（Hermes）",
+    "multiSelect": false,
+    "options": [
+      { "label": "持っているので貼り付ける",
+        "description": "Anthropic API キー（sk-ant-api...）が手元にある。次のプロンプトで貼り付ける。" },
+      { "label": "取得方法を案内してほしい",
+        "description": "ブラウザで https://console.anthropic.com/ を開く。API Keys でキーを作成してコピーし、ここに貼り付けてください。" },
+      { "label": "あとでやる",
+        "description": "claude-api モードの Hermes はキーなしでは動作しません。後で scripts/ensure-hermes-config.sh を再実行して設定してください。" }
+    ]
+  }]
+}
+```
 
-#### "Skip for now" / 「あとでやる」
+Walk-me-through display:
+
+**LANG=en:**
+```
+1. Open https://console.anthropic.com/ in your browser.
+2. Sign in (or create an account and add billing).
+3. Go to "API Keys" in the left sidebar.
+4. Click "Create Key" → give it a name (e.g. "hermes-oci-vm").
+5. Copy the key (starts with sk-ant-api...).
+   IMPORTANT: this is a PAID API key, not your OAuth token (sk-ant-oat01-...).
+   If you have a Claude Pro/Max subscription, consider using "Claude Code" provider
+   (Q12.6 option 2) instead — it uses your subscription at no extra cost.
+6. Return here and paste it.
+```
+
+**LANG=ja:**
+```
+1. ブラウザで https://console.anthropic.com/ を開く。
+2. サインイン（またはアカウント作成と支払い情報登録）。
+3. 左サイドバーの「API Keys」へ。
+4. 「Create Key」をクリック → 名前を入力（例: "hermes-oci-vm"）。
+5. キーをコピー（sk-ant-api... で始まります）。
+   重要: これは有料の API キーであり、OAuth トークン（sk-ant-oat01-...）とは
+   別物です。Claude Pro/Max に加入済みであれば、Q12.6 の「Claude Code」
+   オプションの方が追加費用なしで利用できるためお勧めです。
+6. ここに戻り貼り付けてください。
+```
+
+Paste prompt:
+- **LANG=en:** "Paste the Anthropic API key (`sk-ant-api...`):"
+- **LANG=ja:** "Anthropic API キーを貼り付けてください（`sk-ant-api...`）:"
+
+Then run:
+```bash
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "claude-api" "$ANTHROPIC_API_KEY" "${HOME_CHANNEL_NAME:-}" "${APP_CHANNEL_NAME:-}"
+```
+Exit 0 → proceed. Exit 1 → show error, reprompt key only.
+
+#### "Skip for now" / 「あとでやる」 (both providers)
 
 Warn and proceed to Phase 1 wrap-up.
 

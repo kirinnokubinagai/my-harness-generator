@@ -361,6 +361,9 @@ fi
 # -----------------------------------------------------------------------------
 # Hermes Agent deploy (Oracle Linux path — gated on HERMES_AGENT_ENABLED=yes)
 # Set in .notification.env by /my-harness-init Q12.5.
+# Supports 4 AI providers: codex | claude-code | openrouter | claude-api
+# codex + claude-code route through CLIProxyAPI (localhost:8317).
+# openrouter + claude-api connect directly with their respective API keys.
 # -----------------------------------------------------------------------------
 if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   echo "[setup-vm] deploying Hermes Agent (Oracle Linux path)..."
@@ -372,17 +375,150 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   }
 
   HERMES_BOT_TOKEN="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['DISCORD_BOT_TOKEN'])")"
-  HERMES_AI_PROVIDER_VAL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['HERMES_AI_PROVIDER'])")"
-  HERMES_OPENAI_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('OPENAI_API_KEY',''))")"
-  HERMES_BASE_URL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_BASE_URL'])")"
+  HERMES_AI_PROVIDER_VAL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['ai_provider'])")"
+  HERMES_BASE_URL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('OPENAI_BASE_URL',''))")"
   HERMES_MODEL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_MODEL'])")"
+  HERMES_OPENROUTER_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('openrouter_api_key') or '')")"
+  HERMES_ANTHROPIC_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('anthropic_api_key') or '')")"
   DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('home_channel_name',''))")"
   DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('app_channel_name',''))")"
 
+  # Validate provider (gemma4 removed from Hermes in 7.26.0).
+  case "$HERMES_AI_PROVIDER_VAL" in
+    codex|claude-code|openrouter|claude-api) : ;;
+    *)
+      echo "::error:: Unsupported HERMES_AI_PROVIDER='$HERMES_AI_PROVIDER_VAL' in $HERMES_CONFIG_LOCAL" >&2
+      echo "  Valid values: codex | claude-code | openrouter | claude-api" >&2
+      exit 1 ;;
+  esac
+
   HARNESS_DIR_VM="$(cd "$(dirname "$0")/.." && pwd)"
+
+  # Build the provider YAML stanza for ${HERMES_PROVIDER_BLOCK}.
+  case "$HERMES_AI_PROVIDER_VAL" in
+    codex)
+      HERMES_PROVIDER_BLOCK_OL="model:
+  provider: custom
+  default: hermes-codex-default
+  base_url: http://localhost:8317/v1
+  api_key: \"\""
+      ;;
+    claude-code)
+      HERMES_PROVIDER_BLOCK_OL="model:
+  provider: custom
+  default: hermes-claude-default
+  base_url: http://localhost:8317/v1
+  api_key: \"\""
+      ;;
+    openrouter)
+      HERMES_PROVIDER_BLOCK_OL="model:
+  provider: openrouter
+  default: anthropic/claude-sonnet-4
+  # OPENROUTER_API_KEY is injected via .env (EnvironmentFile)"
+      ;;
+    claude-api)
+      HERMES_PROVIDER_BLOCK_OL="model:
+  provider: anthropic
+  default: claude-sonnet-4-6
+  # ANTHROPIC_API_KEY is injected via .env (EnvironmentFile)"
+      ;;
+  esac
 
   # Create directory structure on VM.
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
+
+  # Deploy CLIProxyAPI when needed (codex or claude-code provider).
+  if [ "$HERMES_AI_PROVIDER_VAL" = "codex" ] || [ "$HERMES_AI_PROVIDER_VAL" = "claude-code" ]; then
+    echo "[setup-vm] deploying CLIProxyAPI for provider=$HERMES_AI_PROVIDER_VAL (Oracle Linux path)..."
+
+    # Render cliproxyapi config.
+    CLIPROXY_TMPL="$HARNESS_DIR_VM/templates/oracle-cloud/cliproxyapi/config.example.yaml"
+    RENDERED_CLIPROXY="$(mktemp /tmp/cliproxy-config-XXXXXX.yaml)"
+    python3 - <<PYEOF
+with open("$CLIPROXY_TMPL") as f:
+    content = f.read()
+enable_codex       = "$HERMES_AI_PROVIDER_VAL" == "codex"
+enable_claude_code = "$HERMES_AI_PROVIDER_VAL" == "claude-code"
+codex_excluded  = "" if enable_codex       else '- "*"'
+claude_excluded = "" if enable_claude_code else '- "*"'
+content = content.replace("\${CODEX_EXCLUDED}",  codex_excluded)
+content = content.replace("\${CLAUDE_EXCLUDED}", claude_excluded)
+with open("$RENDERED_CLIPROXY", "w") as f:
+    f.write(content)
+PYEOF
+
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/cliproxyapi && chmod 750 ~/cliproxyapi"
+    scp -q -i "$OCI_VM_SSH_KEY" -o StrictHostKeyChecking=accept-new \
+      "$RENDERED_CLIPROXY" "$SSH_TARGET:~/cliproxyapi/config.yaml"
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/cliproxyapi/config.yaml"
+    rm -f "$RENDERED_CLIPROXY"
+
+    # Transfer Codex auth.json when provider=codex.
+    if [ "$HERMES_AI_PROVIDER_VAL" = "codex" ]; then
+      CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
+      [ -f "$CODEX_AUTH" ] || bash "$HARNESS_DIR_VM/scripts/ensure-codex-auth.sh" "$ROOT"
+      scp -q -i "$OCI_VM_SSH_KEY" -o StrictHostKeyChecking=accept-new \
+        "$CODEX_AUTH" "$SSH_TARGET:~/.codex/auth.json"
+      ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/.codex/auth.json"
+    fi
+
+    # Install CLIProxyAPI binary + systemd unit on Oracle Linux (no NixOS module).
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<'REMOTE_CLIPROXY_INSTALL'
+set -eu
+CLIPROXY_VERSION="7.0.6"
+INSTALL_DIR="$HOME/cliproxyapi"
+BIN="$INSTALL_DIR/cliproxyapi"
+mkdir -p "$INSTALL_DIR"
+
+if [ -x "$BIN" ] && "$BIN" --version 2>/dev/null | grep -q "$CLIPROXY_VERSION"; then
+  echo "[remote] CLIProxyAPI v$CLIPROXY_VERSION already installed — skipping."
+else
+  echo "[remote] downloading CLIProxyAPI v$CLIPROXY_VERSION (linux/aarch64)..."
+  TMPDIR="$(mktemp -d)"
+  trap 'rm -rf "$TMPDIR"' EXIT
+  curl -fsSL \
+    "https://github.com/router-for-me/CLIProxyAPI/releases/download/v${CLIPROXY_VERSION}/CLIProxyAPI_${CLIPROXY_VERSION}_linux_aarch64.tar.gz" \
+    -o "$TMPDIR/cliproxyapi.tar.gz"
+  tar -xzf "$TMPDIR/cliproxyapi.tar.gz" -C "$TMPDIR"
+  EXTRACTED_BIN="$(find "$TMPDIR" -name 'CLIProxyAPI' -o -name 'cliproxyapi' | head -1)"
+  [ -n "$EXTRACTED_BIN" ] || { echo "::error:: binary not found in tarball" >&2; exit 1; }
+  install -m 0755 "$EXTRACTED_BIN" "$BIN"
+  echo "[remote] CLIProxyAPI installed at $BIN"
+fi
+
+# Write systemd unit (Oracle Linux path).
+sudo tee /etc/systemd/system/cliproxyapi.service >/dev/null <<UNIT
+[Unit]
+Description=CLIProxyAPI — local OpenAI-compatible proxy for Codex/Claude Code CLI subscriptions
+After=network-online.target
+Wants=network-online.target
+Before=hermes-agent.service
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/home/opc/cliproxyapi
+ExecStart=/home/opc/cliproxyapi/cliproxyapi --config /home/opc/cliproxyapi/config.yaml
+Restart=on-failure
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cliproxyapi
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now cliproxyapi.service || {
+  echo "::warning:: cliproxyapi.service failed to start; check: journalctl -u cliproxyapi -n 50" >&2
+}
+echo "[remote] cliproxyapi.service enabled and started."
+REMOTE_CLIPROXY_INSTALL
+
+  fi  # end CLIProxyAPI deploy
 
   # Render config.example.yaml → config.yaml (substitute placeholders).
   HERMES_TMPL="$HARNESS_DIR_VM/templates/oracle-cloud/hermes-agent/config.example.yaml"
@@ -390,8 +526,14 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   python3 - <<PYEOF
 with open("$HERMES_TMPL") as f:
     content = f.read()
-content = content.replace("\${OPENAI_MODEL}",    "$HERMES_MODEL")
-content = content.replace("\${OPENAI_BASE_URL}", "$HERMES_BASE_URL")
+replacements = {
+    "\${HERMES_PROVIDER_BLOCK}":     """$HERMES_PROVIDER_BLOCK_OL""",
+    "\${DISCORD_BOT_TOKEN}":         "$HERMES_BOT_TOKEN",
+    "\${DISCORD_HOME_CHANNEL_NAME}": "$DISCORD_HOME_CHANNEL_NAME",
+    "\${DISCORD_APP_CHANNEL_NAME}":  "$DISCORD_APP_CHANNEL_NAME",
+}
+for k, v in replacements.items():
+    content = content.replace(k, v)
 with open("$RENDERED_CONFIG", "w") as f:
     f.write(content)
 PYEOF
@@ -409,11 +551,11 @@ umask 077
   echo "# Auto-written by scripts/setup-oci-vm.sh — do not edit by hand."
   echo "DISCORD_BOT_TOKEN=$HERMES_BOT_TOKEN"
   echo "HERMES_AI_PROVIDER=$HERMES_AI_PROVIDER_VAL"
-  [ "$HERMES_AI_PROVIDER_VAL" = "codex" ]  && echo "OPENAI_API_KEY=$HERMES_OPENAI_KEY" || true
-  echo "OPENAI_BASE_URL=$HERMES_BASE_URL"
   echo "OPENAI_MODEL=$HERMES_MODEL"
   echo "DISCORD_HOME_CHANNEL_NAME=$DISCORD_HOME_CHANNEL_NAME"
   echo "DISCORD_APP_CHANNEL_NAME=$DISCORD_APP_CHANNEL_NAME"
+$([ -n "$HERMES_OPENROUTER_KEY" ] && echo "  echo \"OPENROUTER_API_KEY=$HERMES_OPENROUTER_KEY\"" || true)
+$([ -n "$HERMES_ANTHROPIC_KEY" ] && echo "  echo \"ANTHROPIC_API_KEY=$HERMES_ANTHROPIC_KEY\"" || true)
 } > "\$HOME/hermes-agent/.env"
 chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"

@@ -51,7 +51,7 @@ set +a
 : "${AI_PROVIDER:=claude}"
 case "$AI_PROVIDER" in
   claude|codex|gemma4) : ;;
-  *) echo "::error:: unknown AI_PROVIDER='$AI_PROVIDER'" >&2; exit 1 ;;
+  *) echo "::error:: unknown AI_PROVIDER='$AI_PROVIDER' (daily-progress bot provider)" >&2; exit 1 ;;
 esac
 
 REQUIRED=(NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN \
@@ -201,6 +201,9 @@ REMOTE_ENV
 # -----------------------------------------------------------------------------
 # Hermes Agent deploy (optional — gated on HERMES_AGENT_ENABLED=yes)
 # Set in .notification.env by /my-harness-init Q12.5.
+# Supports 4 AI providers: codex | claude-code | openrouter | claude-api
+# codex + claude-code route through CLIProxyAPI (localhost:8317).
+# openrouter + claude-api connect directly with their respective API keys.
 # -----------------------------------------------------------------------------
 if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   echo "[setup-vm-nixos] deploying Hermes Agent..."
@@ -212,29 +215,117 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   }
 
   # Read values from the JSON config.
-  HERMES_BOT_TOKEN="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['DISCORD_BOT_TOKEN'])")"
-  HERMES_AI_PROVIDER="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['HERMES_AI_PROVIDER'])")"
-  HERMES_OPENAI_KEY="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('OPENAI_API_KEY',''))")"
-  HERMES_BASE_URL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_BASE_URL'])")"
-  HERMES_MODEL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_MODEL'])")"
-  DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('home_channel_name',''))")"
-  DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('app_channel_name',''))")"
+  HERMES_BOT_TOKEN="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d['DISCORD_BOT_TOKEN'])")"
+  HERMES_AI_PROVIDER="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d['ai_provider'])")"
+  HERMES_BASE_URL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d.get('OPENAI_BASE_URL',''))")"
+  HERMES_MODEL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_MODEL'])")"
+  HERMES_OPENROUTER_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d.get('openrouter_api_key') or '')")"
+  HERMES_ANTHROPIC_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d.get('anthropic_api_key') or '')")"
+  DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('home_channel_name',''))")"
+  DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('app_channel_name',''))")"
+
+  # Validate provider value (gemma4 was removed in 7.26.0 for Hermes).
+  case "$HERMES_AI_PROVIDER" in
+    codex|claude-code|openrouter|claude-api) : ;;
+    *)
+      echo "::error:: Unsupported HERMES_AI_PROVIDER='$HERMES_AI_PROVIDER' in $HERMES_CONFIG" >&2
+      echo "  Valid values: codex | claude-code | openrouter | claude-api" >&2
+      echo "  Re-run scripts/ensure-hermes-config.sh to update." >&2
+      exit 1
+      ;;
+  esac
+
+  # Build the provider YAML stanza that replaces ${HERMES_PROVIDER_BLOCK}.
+  case "$HERMES_AI_PROVIDER" in
+    codex)
+      HERMES_PROVIDER_BLOCK="model:
+  provider: custom
+  default: hermes-codex-default
+  base_url: http://localhost:8317/v1
+  api_key: \"\""
+      ;;
+    claude-code)
+      HERMES_PROVIDER_BLOCK="model:
+  provider: custom
+  default: hermes-claude-default
+  base_url: http://localhost:8317/v1
+  api_key: \"\""
+      ;;
+    openrouter)
+      HERMES_PROVIDER_BLOCK="model:
+  provider: openrouter
+  default: anthropic/claude-sonnet-4
+  # OPENROUTER_API_KEY is injected via .env (EnvironmentFile)"
+      ;;
+    claude-api)
+      HERMES_PROVIDER_BLOCK="model:
+  provider: anthropic
+  default: claude-sonnet-4-6
+  # ANTHROPIC_API_KEY is injected via .env (EnvironmentFile)"
+      ;;
+  esac
 
   # Create directory structure on VM.
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
+
+  # Deploy CLIProxyAPI when needed (codex or claude-code provider).
+  if [ "$HERMES_AI_PROVIDER" = "codex" ] || [ "$HERMES_AI_PROVIDER" = "claude-code" ]; then
+    echo "[setup-vm-nixos] deploying CLIProxyAPI for provider=$HERMES_AI_PROVIDER..."
+
+    # Render cliproxyapi/config.example.yaml with provider enable/disable flags.
+    CLIPROXY_TMPL="$HARNESS_DIR/templates/oracle-cloud/cliproxyapi/config.example.yaml"
+    RENDERED_CLIPROXY="$(mktemp /tmp/cliproxy-config-XXXXXX.yaml)"
+    python3 - <<PYEOF
+with open("$CLIPROXY_TMPL") as f:
+    content = f.read()
+
+enable_codex       = "$HERMES_AI_PROVIDER" == "codex"
+enable_claude_code = "$HERMES_AI_PROVIDER" == "claude-code"
+
+# Substitute per-provider exclusion placeholders.
+# When a provider is disabled, exclude all its models via wildcard.
+codex_excluded   = "" if enable_codex       else "- \"*\""
+claude_excluded  = "" if enable_claude_code else "- \"*\""
+
+content = content.replace("\${CODEX_EXCLUDED}",  codex_excluded)
+content = content.replace("\${CLAUDE_EXCLUDED}", claude_excluded)
+
+with open("$RENDERED_CLIPROXY", "w") as f:
+    f.write(content)
+PYEOF
+
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/cliproxyapi && chmod 750 ~/cliproxyapi"
+    scp -q -i "$OCI_VM_SSH_KEY" "$RENDERED_CLIPROXY" "$SSH_TARGET:~/cliproxyapi/config.yaml"
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/cliproxyapi/config.yaml"
+    rm -f "$RENDERED_CLIPROXY"
+
+    # Deploy Codex auth.json when provider=codex.
+    if [ "$HERMES_AI_PROVIDER" = "codex" ]; then
+      CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
+      [ -f "$CODEX_AUTH" ] || bash "$HARNESS_DIR/scripts/ensure-codex-auth.sh" "$ROOT"
+      scp -q -i "$OCI_VM_SSH_KEY" "$CODEX_AUTH" "$SSH_TARGET:~/.codex/auth.json"
+      ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/.codex/auth.json"
+    fi
+
+    # Enable + start CLIProxyAPI (NixOS module in services/cliproxyapi.nix).
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now cliproxyapi.service" || {
+      echo "::warning:: cliproxyapi.service failed to start; check: journalctl -u cliproxyapi -n 50" >&2
+    }
+    echo "[setup-vm-nixos] CLIProxyAPI deployed and started."
+  fi
 
   # Render config.example.yaml → config.yaml (substitute placeholders).
   HERMES_TMPL="$HARNESS_DIR/templates/oracle-cloud/hermes-agent/config.example.yaml"
   RENDERED_CONFIG="$(mktemp /tmp/hermes-config-XXXXXX.yaml)"
   python3 - <<PYEOF
-import re
-
 with open("$HERMES_TMPL") as f:
     content = f.read()
 
 replacements = {
-    "\${OPENAI_MODEL}":    "$HERMES_MODEL",
-    "\${OPENAI_BASE_URL}": "$HERMES_BASE_URL",
+    "\${HERMES_PROVIDER_BLOCK}":    """$HERMES_PROVIDER_BLOCK""",
+    "\${DISCORD_BOT_TOKEN}":        "$HERMES_BOT_TOKEN",
+    "\${DISCORD_HOME_CHANNEL_NAME}":"$DISCORD_HOME_CHANNEL_NAME",
+    "\${DISCORD_APP_CHANNEL_NAME}": "$DISCORD_APP_CHANNEL_NAME",
 }
 for k, v in replacements.items():
     content = content.replace(k, v)
@@ -255,12 +346,11 @@ umask 077
   echo "# Auto-written by scripts/setup-oci-vm-nixos.sh — do not edit by hand."
   echo "DISCORD_BOT_TOKEN=$HERMES_BOT_TOKEN"
   echo "HERMES_AI_PROVIDER=$HERMES_AI_PROVIDER"
-$([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_API_KEY=$HERMES_OPENAI_KEY\"" || true)
-$([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_BASE_URL=https://api.openai.com/v1\"" || true)
-$([ "$HERMES_AI_PROVIDER" = "gemma4" ] && echo "  echo \"OPENAI_BASE_URL=http://localhost:11434/v1\"" || true)
   echo "OPENAI_MODEL=$HERMES_MODEL"
   echo "DISCORD_HOME_CHANNEL_NAME=$DISCORD_HOME_CHANNEL_NAME"
   echo "DISCORD_APP_CHANNEL_NAME=$DISCORD_APP_CHANNEL_NAME"
+$([ -n "$HERMES_OPENROUTER_KEY" ] && echo "  echo \"OPENROUTER_API_KEY=$HERMES_OPENROUTER_KEY\"" || true)
+$([ -n "$HERMES_ANTHROPIC_KEY" ] && echo "  echo \"ANTHROPIC_API_KEY=$HERMES_ANTHROPIC_KEY\"" || true)
 } > "\$HOME/hermes-agent/.env"
 chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"

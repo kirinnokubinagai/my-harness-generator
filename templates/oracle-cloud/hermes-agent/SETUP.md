@@ -1,6 +1,6 @@
 # Hermes Agent — Discord Bot Setup Guide
 
-> **Version:** my-harness-generator 7.25.0 | **Date:** 2026-05-14
+> **Version:** my-harness-generator 7.26.0 | **Date:** 2026-05-14
 
 ---
 
@@ -57,6 +57,65 @@ Create both channels in your Discord server BEFORE running the bot's first deplo
 
 After the bot deploys and joins your server, it will recognize the channels by name from the env vars. You can override at any time by running `/sethome` in the desired channel (Hermes writes the channel ID into `config.yaml` — see [known issue #6447](https://github.com/NousResearch/hermes-agent/issues/6447) about its env-vs-yaml destination).
 
+### 3.6. Choosing an AI Provider for Hermes
+
+Hermes supports 4 AI backends. Choose one during `/my-harness-init` Q12.6.
+
+| Provider | Cost | Auth method | Setup |
+|----------|------|-------------|-------|
+| **Codex** (ChatGPT Plus/Pro) | $0 extra — uses your subscription | CLIProxyAPI wraps `~/.codex/auth.json` | Run `codex login` on your Mac once (Q11) |
+| **Claude Code** (Claude Pro/Max) | $0 extra — uses your subscription | CLIProxyAPI wraps `~/.claude/.credentials.json` | Run `claude setup-token` on your Mac once (Q9.5) |
+| **OpenRouter** (API key) | Free-tier models available; paid models by usage | Direct connection, `OPENROUTER_API_KEY` env var | Get key at https://openrouter.ai/keys |
+| **Anthropic API** (paid) | Pay-per-token | Direct connection, `ANTHROPIC_API_KEY` env var | Get key at https://console.anthropic.com/ |
+
+**Recommendation:** If you have a ChatGPT Plus/Pro or Claude Pro/Max subscription,
+use **Codex** or **Claude Code** — you pay nothing extra and the subscription covers
+all Hermes Discord replies. CLIProxyAPI runs locally on the VM (port 8317) and
+proxies requests through your existing CLI OAuth session.
+
+**Important:** Gemma 4 is **not** available as a Hermes AI provider as of 7.26.0.
+Running Ollama + Gemma 4 alongside Hermes + Whisper Tiny + NeuTTS Air on the
+A1.Flex's 24 GB RAM was too tight in practice. Gemma 4 remains available for the
+daily-progress bot (AI_PROVIDER=gemma4 in Q11).
+
+#### CLIProxyAPI (used by Codex and Claude Code providers)
+
+CLIProxyAPI is a Go binary that listens on `localhost:8317` and exposes your
+CLI subscription as an OpenAI-compatible endpoint (`/v1/chat/completions`).
+It reads OAuth credentials automatically from their standard locations:
+
+- Codex: `~/.codex/auth.json` (written by `codex login`)
+- Claude Code: `~/.claude/.credentials.json` (written by `claude setup-token`)
+
+The `setup-oci-vm-nixos.sh` / `setup-oci-vm.sh` scripts install and start
+CLIProxyAPI automatically when you choose either of these providers.
+No manual setup is needed beyond the auth capture steps in Q11 / Q9.5.
+
+---
+
+### 3.6. AI プロバイダの選択（日本語）
+
+Hermes は 4 種類の AI バックエンドに対応しています。`/my-harness-init` Q12.6 で選択します。
+
+| プロバイダ | コスト | 認証方式 | 設定 |
+|-----------|--------|---------|------|
+| **Codex**（ChatGPT Plus/Pro） | 追加費用なし（サブスク利用） | CLIProxyAPI が `~/.codex/auth.json` をラップ | Mac で `codex login` を 1 回実行（Q11） |
+| **Claude Code**（Claude Pro/Max） | 追加費用なし（サブスク利用） | CLIProxyAPI が `~/.claude/.credentials.json` をラップ | Mac で `claude setup-token` を 1 回実行（Q9.5） |
+| **OpenRouter**（API キー） | 無料枠モデルあり、有料モデルは使用量課金 | 直接接続、`OPENROUTER_API_KEY` 環境変数 | https://openrouter.ai/keys でキーを取得 |
+| **Anthropic API**（有料） | トークン従量課金 | 直接接続、`ANTHROPIC_API_KEY` 環境変数 | https://console.anthropic.com/ でキーを取得 |
+
+**推奨:** ChatGPT Plus/Pro または Claude Pro/Max に加入済みの場合は **Codex** または
+**Claude Code** を選んでください。サブスクリプションの範囲内で追加費用ゼロで動作します。
+CLIProxyAPI が VM のローカル（ポート 8317）で稼働し、既存の CLI OAuth セッションを経由して
+リクエストをプロキシします。
+
+**重要:** Gemma 4 は 7.26.0 から Hermes の AI プロバイダとして**利用できません**。
+A1.Flex の 24 GB RAM 上で Ollama + Gemma 4 と Hermes + Whisper Tiny + NeuTTS Air を
+同時実行すると RAM が不足することが判明しました。Gemma 4 は daily-progress ボット
+（Q11 の AI_PROVIDER=gemma4）では引き続き利用可能です。
+
+---
+
 ### 4. First-Run Smoke Tests
 
 After `setup-oci-vm-nixos.sh` (or `setup-oci-vm.sh`) completes and `hermes-agent.service` is running:
@@ -93,7 +152,9 @@ If the token leaks (e.g. accidentally committed to git):
 1. **Developer Portal** → your application → **Bot** → **Reset Token** → copy new token.
 2. On your Mac, run:
    ```bash
-   bash scripts/ensure-hermes-config.sh <root> <new-discord-bot-token> <hermes-ai-provider>
+   bash scripts/ensure-hermes-config.sh <root> <new-discord-bot-token> <hermes-ai-provider> [<provider-credential>]
+   # hermes-ai-provider: codex | claude-code | openrouter | claude-api
+   # provider-credential: empty for codex/claude-code; sk-or-... for openrouter; sk-ant-api... for claude-api
    ```
 3. Re-run the deploy script to push the updated config:
    ```bash
@@ -101,8 +162,9 @@ If the token leaks (e.g. accidentally committed to git):
    # or
    bash scripts/setup-oci-vm.sh <root>          # Oracle Linux path
    ```
-4. SSH to the VM and restart Hermes:
+4. SSH to the VM and restart Hermes (and CLIProxyAPI if using codex/claude-code):
    ```bash
+   sudo systemctl restart cliproxyapi.service   # only if provider=codex or claude-code
    sudo systemctl restart hermes-agent.service
    ```
 
@@ -197,7 +259,9 @@ Discord のテキストチャンネルで音声メッセージを録音して送
 1. **Developer Portal** → アプリケーション → **Bot** → **Reset Token** → 新しいトークンをコピー。
 2. Mac で以下を実行:
    ```bash
-   bash scripts/ensure-hermes-config.sh <root> <new-discord-bot-token> <hermes-ai-provider>
+   bash scripts/ensure-hermes-config.sh <root> <new-discord-bot-token> <hermes-ai-provider> [<provider-credential>]
+   # hermes-ai-provider: codex | claude-code | openrouter | claude-api
+   # provider-credential: codex/claude-code は空; openrouter は sk-or-...; claude-api は sk-ant-api...
    ```
 3. デプロイスクリプトを再実行してコンフィグを更新:
    ```bash
@@ -205,7 +269,8 @@ Discord のテキストチャンネルで音声メッセージを録音して送
    # または
    bash scripts/setup-oci-vm.sh <root>          # Oracle Linux パス
    ```
-4. VM に SSH してボットを再起動:
+4. VM に SSH してボットを再起動（codex/claude-code の場合は CLIProxyAPI も）:
    ```bash
+   sudo systemctl restart cliproxyapi.service   # provider=codex または claude-code の場合のみ
    sudo systemctl restart hermes-agent.service
    ```

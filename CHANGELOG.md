@@ -4,6 +4,27 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.26.0] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/nixos/services/cliproxyapi.nix` (new) — NixOS module for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), a Go-based local proxy that wraps Codex CLI / Claude Code CLI subscriptions as OpenAI-compatible endpoints (port 8317). Deployed only when HERMES_AI_PROVIDER ∈ {codex, claude-code}. Downloads the pre-built aarch64-linux binary (v7.0.6) idempotently in ExecStartPre. Starts before hermes-agent.service so Hermes can reach the proxy on boot.
+- `templates/oracle-cloud/cliproxyapi/config.example.yaml` (new) — proxy config template with `${CODEX_EXCLUDED}` / `${CLAUDE_EXCLUDED}` placeholders substituted at deploy time to enable exactly one OAuth provider channel. Exposes stable model aliases (`hermes-codex-default`, `hermes-claude-default`) so Hermes config.yaml doesn't track versioned model IDs.
+- Phase 1 Setup Q12.6 rewritten to offer 4 Hermes AI provider choices: Codex (CLIProxyAPI + ChatGPT subscription), Claude Code (CLIProxyAPI + Claude subscription), OpenRouter (API key, free models available), Anthropic Claude API (paid API key). Walk-me-through paths for all four options.
+
+### Removed
+- Gemma 4 as a Hermes AI provider option. Running Ollama + Gemma 4 alongside Hermes + Whisper Tiny + NeuTTS Air on the A1.Flex's 24 GB RAM was too tight in practice. Daily-progress bot's `AI_PROVIDER=gemma4` is unaffected — Gemma 4 stays available there.
+
+### Changed
+- `scripts/ensure-hermes-config.sh` accepts 4-value provider enum (`codex | claude-code | openrouter | claude-api`) instead of 2. Rejects `gemma4` with a clear error message. The `<openai-key>` arg is renamed to `<provider-credential>`: empty for codex/claude-code (OAuth auto-discovered), `sk-or-...` for openrouter, `sk-ant-api...` for claude-api. JSON schema now uses `ai_provider`, `openrouter_api_key`, `anthropic_api_key` fields.
+- `scripts/setup-oci-vm-nixos.sh` and `scripts/setup-oci-vm.sh` conditionally deploy CLIProxyAPI when codex/claude-code is chosen; pass OPENROUTER_API_KEY or ANTHROPIC_API_KEY directly to Hermes .env otherwise. Hermes config rendered via new `${HERMES_PROVIDER_BLOCK}` placeholder.
+- `templates/oracle-cloud/hermes-agent/config.example.yaml` model section replaced with `${HERMES_PROVIDER_BLOCK}` substituted at deploy time into one of 4 provider stanzas (custom/openrouter/anthropic).
+- `templates/oracle-cloud/hermes-agent/SETUP.md` adds Section 3.6 "Choosing an AI Provider" — bilingual 4-provider comparison table, CLIProxyAPI explanation, and RAM rationale for removing Gemma 4.
+- `skills/my-harness-init/SKILL.md` Q12.6 fully rewritten: 4-option AskUserQuestion (EN + JA), walk-me-through paths for each provider, Q12.8 expanded to cover openrouter and claude-api credential flows.
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` bumped to 7.26.0.
+
+### Rationale
+The user explicitly rejected Gemma 4 for Hermes (RAM pressure) and asked for subscription-based zero-cost options. CLIProxyAPI is the idiomatic open-source solution: production-ready Go binary, supports both Codex and Claude Code OAuth out of the box, exposes a standard OpenAI-compatible endpoint. Our previous self-rolled `codex-bridge.py` plan was abandoned in favor of this. Anthropic API key + OpenRouter remain as direct-connection fallbacks for users who don't have a Codex/Claude subscription or who want OpenRouter's free models.
+
 ## [7.25.1] — 2026-05-14
 
 ### Added

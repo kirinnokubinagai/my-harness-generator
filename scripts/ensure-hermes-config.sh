@@ -4,20 +4,24 @@
 # Saves to .my-harness/.hermes-config.json (chmod 600).
 #
 # Usage:
-#   bash ensure-hermes-config.sh <root> [<discord-bot-token>] [<hermes-ai-provider>] [<openai-key-if-codex>] [<home-channel-name>] [<app-channel-name>]
+#   bash ensure-hermes-config.sh <root> [<discord-bot-token>] [<hermes-ai-provider>] [<provider-credential>] [<home-channel-name>] [<app-channel-name>]
 #
-#   root               = project root containing .my-harness/
-#   discord-bot-token  = Discord bot token (MT[A-Za-z0-9_.-]{50,})
-#   hermes-ai-provider = "codex" or "gemma4"
-#   openai-key         = OpenAI API key (sk-...) — required when provider=codex
-#   home-channel-name  = Discord channel for proactive messages (e.g. #bot-updates)
-#                        Shape: ^#[a-z0-9_-]{1,99}$
-#   app-channel-name   = Discord channel for user conversations (e.g. #bot-chat)
-#                        Shape: ^#[a-z0-9_-]{1,99}$
+#   root                 = project root containing .my-harness/
+#   discord-bot-token    = Discord bot token (MT[A-Za-z0-9_.-]{50,})
+#   hermes-ai-provider   = "codex" | "claude-code" | "openrouter" | "claude-api"
+#   provider-credential  = provider-specific credential:
+#                            codex:       empty — uses ~/.codex/auth.json (ensure-codex-auth.sh)
+#                            claude-code: empty — uses .my-harness/.notification.env CLAUDE_CODE_OAUTH_TOKEN
+#                            openrouter:  sk-or-... (OpenRouter API key)
+#                            claude-api:  sk-ant-api... (Anthropic API key, NOT OAuth sk-ant-oat01-...)
+#   home-channel-name    = Discord channel for proactive messages (e.g. #bot-updates)
+#                          Shape: ^#[a-z0-9_-]{1,99}$
+#   app-channel-name     = Discord channel for user conversations (e.g. #bot-chat)
+#                          Shape: ^#[a-z0-9_-]{1,99}$
 #
 # Exit codes:
 #   0 — config saved to .my-harness/.hermes-config.json (chmod 600)
-#   1 — validation failed (bad token shape, unsupported provider, missing key,
+#   1 — validation failed (bad token shape, unsupported provider, missing/wrong key,
 #       or invalid channel name shape)
 #   2 — token failed regex validation
 #   3 — no arguments provided; caller (SKILL.md) should AskUserQuestion
@@ -29,7 +33,7 @@ set -u
 ROOT="${1:-}"
 DISCORD_BOT_TOKEN="${2:-}"
 HERMES_AI_PROVIDER="${3:-}"
-OPENAI_API_KEY_ARG="${4:-}"
+PROVIDER_CREDENTIAL_ARG="${4:-}"
 HOME_CHANNEL_NAME_ARG="${5:-}"
 APP_CHANNEL_NAME_ARG="${6:-}"
 
@@ -71,36 +75,81 @@ validate_token() {
 validate_provider() {
   local provider="$1"
   case "$provider" in
-    codex|gemma4) return 0 ;;
+    codex|claude-code|openrouter|claude-api) return 0 ;;
+    gemma4)
+      echo "::error:: HERMES_AI_PROVIDER=gemma4 is no longer supported for Hermes as of 7.26.0 (insufficient RAM on A1.Flex)." >&2
+      echo "  Pick one of: codex / claude-code / openrouter / claude-api" >&2
+      echo "  NOTE: Gemma 4 is still available for the daily-progress bot (AI_PROVIDER=gemma4) — only removed from Hermes." >&2
+      return 1
+      ;;
     claude)
       echo "::error:: HERMES_AI_PROVIDER=claude is not supported." >&2
-      echo "  Hermes Agent requires an OpenAI-compatible endpoint." >&2
-      echo "  Choose 'codex' (OpenAI API / ChatGPT Plus) or 'gemma4' (local Ollama)." >&2
+      echo "  Use 'claude-api' for Anthropic API key billing, or 'claude-code' for Claude Code CLI subscription via CLIProxyAPI." >&2
       return 1
       ;;
     "")
-      echo "::error:: HERMES_AI_PROVIDER is empty. Choose 'codex' or 'gemma4'." >&2
+      echo "::error:: HERMES_AI_PROVIDER is empty." >&2
+      echo "  Choose one of: codex | claude-code | openrouter | claude-api" >&2
       return 1
       ;;
     *)
-      echo "::error:: Unknown HERMES_AI_PROVIDER='$provider'. Choose 'codex' or 'gemma4'." >&2
+      echo "::error:: Unknown HERMES_AI_PROVIDER='$provider'." >&2
+      echo "  Choose one of: codex | claude-code | openrouter | claude-api" >&2
       return 1
       ;;
   esac
 }
 
-validate_openai_key() {
-  local key="$1"
-  if [ -z "$key" ]; then
-    echo "::error:: OPENAI_API_KEY is required when HERMES_AI_PROVIDER=codex." >&2
-    echo "  Obtain one at: https://platform.openai.com/api-keys" >&2
-    return 1
-  fi
-  if ! echo "$key" | grep -qE '^sk-'; then
-    echo "::error:: OPENAI_API_KEY should start with 'sk-'. Got: '${key:0:8}...'" >&2
-    return 1
-  fi
-  return 0
+validate_provider_credential() {
+  local provider="$1"
+  local credential="$2"
+  case "$provider" in
+    codex)
+      # No credential needed — CLIProxyAPI reads ~/.codex/auth.json automatically.
+      # Warn if something was accidentally passed (likely a misunderstanding).
+      if [ -n "$credential" ]; then
+        echo "::warning:: HERMES_AI_PROVIDER=codex uses ~/.codex/auth.json (deployed by ensure-codex-auth.sh)." >&2
+        echo "  The provider-credential argument will be ignored for codex." >&2
+      fi
+      return 0
+      ;;
+    claude-code)
+      # No credential needed — CLIProxyAPI reads ~/.claude/.credentials.json automatically.
+      if [ -n "$credential" ]; then
+        echo "::warning:: HERMES_AI_PROVIDER=claude-code uses ~/.claude/.credentials.json (from claude setup-token)." >&2
+        echo "  The provider-credential argument will be ignored for claude-code." >&2
+      fi
+      return 0
+      ;;
+    openrouter)
+      if [ -z "$credential" ]; then
+        echo "::error:: HERMES_AI_PROVIDER=openrouter requires an OpenRouter API key (sk-or-...)." >&2
+        echo "  Obtain one at: https://openrouter.ai/keys" >&2
+        return 1
+      fi
+      if ! echo "$credential" | grep -qE '^sk-or-'; then
+        echo "::error:: OpenRouter API key should start with 'sk-or-'. Got: '${credential:0:10}...'" >&2
+        echo "  Obtain one at: https://openrouter.ai/keys" >&2
+        return 1
+      fi
+      return 0
+      ;;
+    claude-api)
+      if [ -z "$credential" ]; then
+        echo "::error:: HERMES_AI_PROVIDER=claude-api requires an Anthropic API key (sk-ant-api...)." >&2
+        echo "  Obtain one at: https://console.anthropic.com/" >&2
+        return 1
+      fi
+      # Anthropic API keys start with sk-ant-api (NOT sk-ant-oat01 which is the OAuth token).
+      if ! echo "$credential" | grep -qE '^sk-ant-api'; then
+        echo "::error:: Anthropic API key must start with 'sk-ant-api'. Got: '${credential:0:14}...'" >&2
+        echo "  NOTE: 'sk-ant-oat01-...' is the OAuth token (for claude-code), not an API key." >&2
+        echo "  Obtain a paid API key at: https://console.anthropic.com/" >&2
+        return 1
+      fi
+      return 0
+      ;;
+  esac
 }
 
 # Discord channel name: ^#[a-z0-9_-]{1,99}$ (leading #, lowercase alnum+hyphen+underscore, 1-100 chars total)
@@ -125,25 +174,39 @@ validate_channel_name() {
 
 validate_token "$DISCORD_BOT_TOKEN" || exit 2
 validate_provider "$HERMES_AI_PROVIDER" || exit 1
+validate_provider_credential "$HERMES_AI_PROVIDER" "$PROVIDER_CREDENTIAL_ARG" || exit 1
 
 validate_channel_name "$HOME_CHANNEL_NAME_ARG" "home" || exit 1
 validate_channel_name "$APP_CHANNEL_NAME_ARG"  "app"  || exit 1
 
-OPENAI_API_KEY_VAL=""
+# Provider-specific derived values written to the JSON config.
+# codex / claude-code: CLIProxyAPI runs locally on port 8317 — no API key needed.
+# openrouter:          direct connection; key goes in the JSON as openrouter_api_key.
+# claude-api:          direct connection; key goes in the JSON as anthropic_api_key.
+OPENROUTER_API_KEY_VAL=""
+ANTHROPIC_API_KEY_VAL=""
 OPENAI_BASE_URL=""
 OPENAI_MODEL=""
 
 case "$HERMES_AI_PROVIDER" in
   codex)
-    validate_openai_key "$OPENAI_API_KEY_ARG" || exit 1
-    OPENAI_API_KEY_VAL="$OPENAI_API_KEY_ARG"
-    OPENAI_BASE_URL="https://api.openai.com/v1"
-    OPENAI_MODEL="gpt-4o"
+    OPENAI_BASE_URL="http://localhost:8317/v1"
+    OPENAI_MODEL="hermes-codex-default"
     ;;
-  gemma4)
-    OPENAI_API_KEY_VAL=""   # Ollama doesn't require an API key
-    OPENAI_BASE_URL="http://localhost:11434/v1"
-    OPENAI_MODEL="gemma4:e4b"
+  claude-code)
+    OPENAI_BASE_URL="http://localhost:8317/v1"
+    OPENAI_MODEL="hermes-claude-default"
+    ;;
+  openrouter)
+    OPENROUTER_API_KEY_VAL="$PROVIDER_CREDENTIAL_ARG"
+    OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+    OPENAI_MODEL="anthropic/claude-sonnet-4"
+    ;;
+  claude-api)
+    ANTHROPIC_API_KEY_VAL="$PROVIDER_CREDENTIAL_ARG"
+    # Hermes talks directly to Anthropic; base_url not needed for native provider.
+    OPENAI_BASE_URL=""
+    OPENAI_MODEL="claude-sonnet-4-6"
     ;;
 esac
 
@@ -181,19 +244,26 @@ fi
 python3 - <<PYEOF
 import json, sys
 
+# Null-safe: empty string → JSON null for optional credentials.
+def nullify(v):
+    return v if v else None
+
 config = {
     "_comment": "Auto-written by scripts/ensure-hermes-config.sh — do not edit by hand.",
     "_refresh": "Re-run scripts/ensure-hermes-config.sh to rotate the bot token or change provider.",
     "DISCORD_BOT_TOKEN": "$DISCORD_BOT_TOKEN",
     "HERMES_AI_PROVIDER": "$HERMES_AI_PROVIDER",
-    "OPENAI_API_KEY": "$OPENAI_API_KEY_VAL",
     "OPENAI_BASE_URL": "$OPENAI_BASE_URL",
     "OPENAI_MODEL": "$OPENAI_MODEL",
+    # Per-provider credential slots (null when not applicable).
+    "openrouter_api_key": nullify("$OPENROUTER_API_KEY_VAL"),
+    "anthropic_api_key":  nullify("$ANTHROPIC_API_KEY_VAL"),
     "discord": {
         "bot_token": "$DISCORD_BOT_TOKEN",
         "home_channel_name": "$HOME_CHANNEL_NAME_VAL",
         "app_channel_name": "$APP_CHANNEL_NAME_VAL",
     },
+    "ai_provider": "$HERMES_AI_PROVIDER",
 }
 
 with open("$OUT", "w") as f:
@@ -208,7 +278,7 @@ chmod 600 "$OUT"
 echo "[hermes-config] saved Hermes Agent config to $OUT (chmod 600)"
 echo "  Provider:        $HERMES_AI_PROVIDER"
 echo "  Model:           $OPENAI_MODEL"
-echo "  Base URL:        $OPENAI_BASE_URL"
+echo "  Base URL:        ${OPENAI_BASE_URL:-(native provider, no base_url)}"
 echo "  Bot token:       ${DISCORD_BOT_TOKEN:0:8}...(truncated)"
 echo "  Home channel:    $HOME_CHANNEL_NAME_VAL"
 echo "  App channel:     $APP_CHANNEL_NAME_VAL"
