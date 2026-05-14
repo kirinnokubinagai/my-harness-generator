@@ -386,10 +386,18 @@ chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"
 REMOTE_HERMES_ENV
 
-  # Enable + start the systemd service (managed by NixOS hermes-agent.nix).
-  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now hermes-agent.service" || {
-    echo "::warning:: hermes-agent.service failed to start; check: journalctl -u hermes-agent -n 50" >&2
-  }
+  # 7.29.3: hermes-agent is now managed by NixOS (pkgs/hermes-agent-fhs.nix).
+  # nixos-rebuild switch (run by nixos-anywhere above) enables the service via
+  # wantedBy = [ "multi-user.target" ] — no manual systemctl enable needed.
+  # On first start the FHS env launcher (hermes-agent-env) will:
+  #   1. git clone NousResearch/hermes-agent at v2026.5.7 → /var/lib/hermes/
+  #   2. uv pip install --editable .[messaging,voice] into /var/lib/hermes/venv/
+  #   3. Launch `hermes gateway start --foreground`
+  # This is idempotent — subsequent starts skip steps 1-2 if the venv exists.
+  # No curl | bash, no pip install, no install.sh: the FHS env is the install.
+  echo "[setup-vm-nixos] Hermes Agent service enabled by NixOS (wantedBy = multi-user.target)."
+  echo "                 First-run will git clone + uv install + start (allow 5-10 min)."
+  echo "                 Monitor: journalctl -u hermes-agent -f (on the VM)"
 
   # Register the daily-report cron job inside Hermes (session-aware, persistent memory across days).
   echo "[setup-vm-nixos] registering daily-report cron in Hermes..."
@@ -400,7 +408,7 @@ REMOTE_HERMES_ENV
   echo "[setup-vm-nixos] disabling shell-cron timers (Hermes cron handles the daily report now)..."
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl disable --now daily-progress.timer event-watch.timer || true"
 
-  echo "[setup-vm-nixos] Hermes Agent deployed. First-run downloads Whisper Tiny (~75 MB) + NeuTTS Air (~500 MB); allow 5-10 min."
+  echo "[setup-vm-nixos] Hermes Agent deployed (Nix-managed, 4/4 Nix-pure steps complete)."
 fi
 
 # Start timers only when Hermes is NOT handling the daily report.

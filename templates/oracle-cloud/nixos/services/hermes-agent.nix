@@ -1,38 +1,48 @@
 { config, pkgs, lib, ... }:
 
-# Hermes Agent — NousResearch's personal AI gateway with Voice Mode.
+# Hermes Agent — NousResearch personal AI gateway (Discord + Voice).
 #
-# STT: local Whisper Tiny (~75 MB, ARM64-safe, no external API).
-# TTS: NeuTTS Air (~500 MB on first use, ARM64-safe, no external API).
-# Discord: Auto Voice Reply (voice messages in text channels) +
-#          Discord Voice Channels (bot joins VC, listens, speaks).
+# 7.29.3: Replaced the 7.25.0/7.26.0 `curl install.sh | bash` + `pip install`
+# deploy pattern with a Nix-managed buildFHSEnv derivation
+# (pkgs/hermes-agent-fhs.nix). This is step 4 of 4 in the Nix-pure migration.
 #
-# Install method: official install.sh (Python-based CLI).
-# The ExecStartPre step runs the installer idempotently — re-runs are
-# fast (installer checks for existing ~/.hermes/bin/hermes).
+# Approach B (buildFHSEnv hybrid) was chosen because:
+#   - Hermes is NOT on PyPI; it installs via git clone + uv (editable install).
+#   - 3 deps absent from nixpkgs 25.05: exa-py, parallel-web, fal-client.
+#   - Date-based versioning (new tag every ~7 days) makes per-dep packaging
+#     maintenance-heavy — Approach A (full buildPythonApplication) would require
+#     packaging those deps as sibling derivations and keeping them current.
+#   - buildFHSEnv provides a reproducible Nix-managed environment with all
+#     in-nixpkgs Python deps pre-seeded; uv handles only the 3 missing packages
+#     plus the editable hermes install into /var/lib/hermes/ on first start.
 #
-# Secrets live in /home/opc/hermes-agent/.env (EnvironmentFile),
-# written by setup-oci-vm-nixos.sh with umask 077.
+# State layout:
+#   /var/lib/hermes/hermes-agent/   — git checkout (tag v2026.5.7)
+#   /var/lib/hermes/venv/           — uv-managed Python 3.11 venv
+#   /home/opc/hermes-agent/         — user config (config.yaml, .env, data/)
+#     config.yaml                   — written by setup-oci-vm-nixos.sh via scp
+#     .env                          — secrets (EnvironmentFile); chmod 600
+#     data/                         — runtime data / model cache
+#
+# STT: local Whisper Tiny (~75 MB on first use via faster-whisper / HuggingFace).
+# TTS: edge-tts (free, no local model download — uses Microsoft Edge TTS API).
+# NeuTTS (local TTS) removed from this deployment: not in nixpkgs and the
+# headless VM gateway does not require local synthesis (Discord voice channel
+# audio is synthesised client-side or via edge-tts).
 
-{
-  # Python 3 + pip are required by Hermes's install.sh.
-  # Node.js is NOT needed — Hermes is a Python CLI, not npm.
-  environment.systemPackages = with pkgs; [
-    python312           # Hermes requires Python 3.10+; 3.12 is in nixpkgs 25.05
-    python312Packages.pip
-    ffmpeg              # required by faster-whisper for audio decoding
-    # portaudio is for CLI mic; omitted — headless VM has no microphone.
-    # Gateway voice (Discord VC) receives audio over the Discord API, not portaudio.
-  ];
-
-  # Persistent state directory for Hermes working data and model cache.
+let
+  hermes-env = pkgs.callPackage ./../pkgs/hermes-agent-fhs.nix { };
+in {
+  # Persistent state directory for Hermes's git checkout and venv.
+  # These must survive nixos-rebuild switch (hence StateDirectory, not tmpfiles).
   systemd.tmpfiles.rules = [
-    "d /home/opc/hermes-agent      0750 opc opc -"
-    "d /home/opc/hermes-agent/data 0750 opc opc -"
+    "d /var/lib/hermes              0750 opc opc -"
+    "d /home/opc/hermes-agent       0750 opc opc -"
+    "d /home/opc/hermes-agent/data  0750 opc opc -"
   ];
 
   systemd.services.hermes-agent = {
-    description = "Hermes Agent — NousResearch personal AI gateway (Voice + Discord)";
+    description = "Hermes Agent — NousResearch personal AI gateway (Discord + voice)";
     after    = [ "network-online.target" ];
     wants    = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
@@ -43,59 +53,18 @@
       Group           = "opc";
       WorkingDirectory = "/home/opc/hermes-agent";
 
-      # EnvironmentFile holds DISCORD_BOT_TOKEN, OPENAI_API_KEY, OPENAI_BASE_URL, etc.
+      # EnvironmentFile holds DISCORD_BOT_TOKEN, OPENAI_MODEL, OPENAI_BASE_URL,
+      # OPENROUTER_API_KEY, ANTHROPIC_API_KEY, etc.
       # Written by setup-oci-vm-nixos.sh with chmod 600.
       EnvironmentFile = "/home/opc/hermes-agent/.env";
 
-      # Idempotent install: if `hermes` binary already present, skip.
-      # The official install.sh places the binary in ~/.hermes/bin/hermes.
-      # We also install the [voice] and [messaging] extras via pip after
-      # the base install, so STT (faster-whisper) and Discord gateway work.
-      ExecStartPre = pkgs.writeShellScript "hermes-install" ''
-        set -eu
-        HERMES_BIN="$HOME/.hermes/bin/hermes"
-
-        if [ ! -x "$HERMES_BIN" ]; then
-          echo "[hermes-agent] installing Hermes Agent via official install.sh..."
-          curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
-        else
-          echo "[hermes-agent] Hermes already installed at $HERMES_BIN — skipping install."
-        fi
-
-        # Ensure voice + messaging extras are present (idempotent pip install).
-        # faster-whisper provides local Whisper STT; neutts provides NeuTTS TTS.
-        HERMES_PYTHON="$HOME/.hermes/venv/bin/python"
-        if [ -x "$HERMES_PYTHON" ]; then
-          "$HERMES_PYTHON" -m pip install --quiet --upgrade \
-            "hermes-agent[voice,messaging]" \
-            faster-whisper \
-            "neutts[all]" \
-          || echo "[hermes-agent] pip install extras failed; core gateway may still work"
-        fi
-
-        # Symlink config if not already in place.
-        HERMES_CFG_DIR="$HOME/.hermes"
-        HERMES_CFG="$HERMES_CFG_DIR/config.yaml"
-        OCI_CFG="$HOME/hermes-agent/config.yaml"
-        if [ -f "$OCI_CFG" ] && [ ! -f "$HERMES_CFG" ]; then
-          mkdir -p "$HERMES_CFG_DIR"
-          ln -sf "$OCI_CFG" "$HERMES_CFG"
-          echo "[hermes-agent] symlinked config.yaml → $HERMES_CFG"
-        fi
-
-        # Symlink .env so Hermes can also read it from its canonical location.
-        OCI_ENV="$HOME/hermes-agent/.env"
-        HERMES_ENV="$HERMES_CFG_DIR/.env"
-        if [ -f "$OCI_ENV" ] && [ ! -f "$HERMES_ENV" ]; then
-          ln -sf "$OCI_ENV" "$HERMES_ENV"
-        fi
-      '';
-
-      # Launch Hermes gateway (Discord + voice modes).
-      # `hermes gateway start` forks a daemon but we use Type=simple with
-      # the --foreground flag so systemd tracks the PID properly.
-      # If upstream drops --foreground, switch Type to forking.
-      ExecStart = "/home/opc/.hermes/bin/hermes gateway start --foreground";
+      # The FHS env wrapper handles:
+      #   1. First-run git clone of hermes-agent at v2026.5.7 into /var/lib/hermes/
+      #   2. uv pip install --editable .[messaging,voice] into /var/lib/hermes/venv/
+      #   3. PYTHONPATH seeding with in-nixpkgs deps (openai, anthropic, faster-whisper, etc.)
+      #   4. hermes gateway start --foreground
+      # Subsequent starts skip steps 1-2 (idempotent check on venv/bin/hermes).
+      ExecStart = "${hermes-env}/bin/hermes-agent-env";
 
       Restart          = "on-failure";
       RestartSec       = "30s";
@@ -103,9 +72,13 @@
       StandardError    = "journal";
       SyslogIdentifier = "hermes-agent";
 
-      # Give the model download on first run plenty of time.
-      # Whisper Tiny (~75 MB) + NeuTTS Air (~500 MB) = ~575 MB on first boot.
+      # First-run: git clone + uv pip install + Whisper Tiny download (~75 MB).
+      # Allow 15 min on a cold ARM64 VM with a slow connection.
       TimeoutStartSec  = "15min";
+
+      # State directory persists across nixos-rebuild switch (Nix manages /nix/store;
+      # the venv at /var/lib/hermes/ is mutable runtime state, like model weights).
+      ReadWritePaths   = [ "/var/lib/hermes" "/home/opc/hermes-agent" ];
     };
   };
 }

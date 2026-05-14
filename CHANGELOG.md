@@ -4,6 +4,47 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.3] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/nixos/pkgs/hermes-agent-fhs.nix` (new) — `buildFHSEnv` derivation that wraps Python 3.11 + all in-nixpkgs Hermes deps + `uv` + `git` + `ffmpeg`. On first systemd start the launcher script clones `NousResearch/hermes-agent` at tag `v2026.5.7` into `/var/lib/hermes/` and runs `uv pip install --editable .[messaging,voice]`. Subsequent starts skip the install step (idempotent check on `/var/lib/hermes/venv/bin/hermes`).
+
+### Changed
+- `templates/oracle-cloud/nixos/services/hermes-agent.nix` — completely rewritten. The `ExecStartPre` block that ran `curl -fsSL .../install.sh | bash` and `pip install "hermes-agent[voice,messaging]"` is removed. `ExecStart` now points at the Nix-store `hermes-agent-env` binary produced by `pkgs/hermes-agent-fhs.nix`. The FHS env launcher handles the full install lifecycle.
+- `scripts/setup-oci-vm-nixos.sh` — removed the `systemctl enable --now hermes-agent.service` call from the Hermes deploy block (NixOS enables the service via `wantedBy = [ "multi-user.target" ]` at `nixos-rebuild switch` time, same pattern as CLIProxyAPI in 7.29.0). The `config.yaml` scp, `.env` write, and `register-agent-daily-report.sh` call are retained.
+
+### Approach: B (buildFHSEnv hybrid)
+
+`buildPythonApplication` (Approach A) was considered but rejected because:
+1. Hermes is NOT published on PyPI — it requires a git clone + `uv sync` editable install.
+2. Three core dependencies are absent from nixpkgs 25.05: `exa-py`, `parallel-web`, `fal-client`. Packaging each as a sibling derivation is feasible but creates a high-maintenance burden given Hermes's weekly date-based release cadence (`v2026.5.7`, `v2026.4.30`, ...).
+3. The project uses `uv.lock` (SHA256-verified transitive deps) for supply-chain safety — reproducing that in a `buildPythonApplication` would require vendoring the entire lock graph.
+
+`buildFHSEnv` (Approach B) provides the best trade-off: the Nix closure is fully reproducible and manages all in-nixpkgs deps; `uv` handles only the 3 missing packages and the editable install into `/var/lib/hermes/` (mutable runtime state, same as model weights).
+
+### Deps: in-nixpkgs vs packaged vs left-to-uv
+
+**In nixpkgs 25.05 (pre-seeded to FHS env's PYTHONPATH):**
+`openai`, `anthropic`, `faster-whisper`, `discordpy`, `python-telegram-bot`, `slack-bolt`, `slack-sdk`, `sounddevice`, `numpy`, `aiohttp`, `croniter`, `edge-tts`, `pyjwt`, `requests`, `httpx`, `pyyaml`, `rich`, `tenacity`, `jinja2`, `pydantic`, `prompt-toolkit`, `fire`, `qrcode`, `ptyprocess`, `firecrawl-py`
+
+**NOT in nixpkgs — fetched by uv on first start (3 packages):**
+`exa-py` (web search tool), `parallel-web` (parallel HTTP fetch), `fal-client` (Fal image-generation client)
+
+**NeuTTS removed:** The 7.25.0/7.26.0 deploy installed `neutts[all]` for local TTS. NeuTTS is not in nixpkgs and requires ~500 MB of model weights. The gateway deployment uses `edge-tts` (free, no local model, already in nixpkgs) for synthesis. This is a deliberate simplification for the headless Oracle Cloud A1.Flex VM — NeuTTS can be added back as a sibling derivation if local TTS is required.
+
+### No `lib.fakeHash` placeholders
+`buildFHSEnv` does not compute a source hash at build time (the FHS env itself is built from the Nix store closure; the git clone happens at service start time). There are no hash-related first-build fixups required for this derivation.
+
+### Pinned source
+Hermes tag `v2026.5.7` (internal package version `0.13.0`, Python ≥3.11). The tag is pinned in the FHS launcher script at `/var/lib/hermes/hermes-agent`. SHA-256 of the `v2026.5.7` tarball (for reference / future Approach A migration): `sha256-dbYp54emgWRxO2bR3RY8ZfhTR0ycd1zW8gZ5emKaosA=`
+
+### 4 of 4 Nix-pure steps complete
+The full NixOS VM is now deployable via a single `nixos-rebuild switch` (or `nixos-anywhere` for initial install) with zero imperative install commands:
+- 7.29.0: CLIProxyAPI — `buildGoModule`
+- 7.29.1: daily-progress-bot scripts — `home-manager` `home.file`
+- 7.29.2: Claude Code + OpenAI Codex CLIs — `buildNpmPackage`
+- **7.29.3: Hermes Agent — `buildFHSEnv` (this release)**
+
 ## [7.29.2.1] — 2026-05-14
 
 ### Fixed
