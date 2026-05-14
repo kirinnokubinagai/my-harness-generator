@@ -2,8 +2,10 @@
 # Summary: One-command interactive harness setup.
 #
 # Usage:
-#   bash bootstrap.sh <project-root>                    # interactive mode
-#   bash bootstrap.sh <project-root> --config <file>    # non-interactive mode (called from /my-harness-init)
+#   bash bootstrap.sh <project-root>                    # interactive mode (full)
+#   bash bootstrap.sh <project-root> --config <file>    # non-interactive (full, called from Phase 8)
+#   bash bootstrap.sh <project-root> --skeleton         # ONLY .bare/ + main/stage/dev worktrees + minimal dev/docs/ dirs
+#                                                       # (called from Phase 5 of /my-harness-init so commit-design-screen.sh works)
 #
 # Config file format (.my-harness/.config compatible, same schema as SKILL.md):
 #   PROJECT_NAME / ROOT
@@ -49,9 +51,11 @@ copy_if_absent() {
 # ===== Argument parsing =====
 ROOT=""
 CONFIG_FILE=""
+SKELETON_ONLY=no
 while [ $# -gt 0 ]; do
   case "$1" in
     --config) CONFIG_FILE="$2"; shift 2 ;;
+    --skeleton) SKELETON_ONLY=yes; shift ;;
     --help|-h)
       sed -n '1,/^set -euo pipefail/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -396,6 +400,73 @@ for wt in main stage dev; do
   fi
 done
 echo "[bootstrap] worktrees verified: main / stage / dev"
+
+# ===== Skeleton-only mode: stop here. =====
+# Phase 5 of /my-harness-init calls this so commit-design-screen.sh has a
+# git layout to commit into. Phase 8 will call us again WITHOUT --skeleton
+# to do the rest (common files, platform templates, flake.nix, etc.).
+# Every step above is idempotent so the Phase 8 call simply re-verifies
+# the worktrees and proceeds to the rest.
+if [ "$SKELETON_ONLY" = "yes" ]; then
+  # Create the minimum directory tree Phase 5 expects.
+  mkdir -p "$ROOT/dev/docs/spec" \
+           "$ROOT/dev/docs/design" \
+           "$ROOT/dev/docs/talk" \
+           "$ROOT/dev/docs/task/parent" \
+           "$ROOT/dev/docs/task/child"
+
+  # Place a baseline .gitignore in dev/ so secrets and per-machine files
+  # never get committed accidentally during Phase 5 design commits.
+  # Only write if absent (don't clobber a user-edited one).
+  if [ ! -f "$ROOT/dev/.gitignore" ]; then
+    cat > "$ROOT/dev/.gitignore" <<'GITIGNORE'
+# Secrets / per-machine
+.env
+.env.*
+!.env.example
+.my-harness/.notification.env
+.my-harness/.oci-vm.env
+.my-harness/.codex-auth.json
+.my-harness/.claude-oauth-token
+
+# Node / build artifacts
+node_modules/
+dist/
+.next/
+.turbo/
+.wrangler/
+.cache/
+
+# OS / IDE
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Test output
+coverage/
+.playwright/
+test-results/
+GITIGNORE
+  fi
+
+  # Make the very first commit on dev so commit-design-screen.sh has a
+  # parent commit to add to. Without this, the first design commit would
+  # fail "fatal: empty commit not allowed".
+  if ! git -C "$ROOT/dev" rev-parse HEAD >/dev/null 2>&1; then
+    git -C "$ROOT/dev" add .gitignore 2>/dev/null || true
+    git -C "$ROOT/dev" -c user.name=harness -c user.email=harness@local \
+      commit --allow-empty -m "chore: skeleton bootstrap" >/dev/null
+  fi
+
+  echo
+  echo "[bootstrap --skeleton] DONE."
+  echo "  Worktrees: $ROOT/{main,stage,dev}/"
+  echo "  Current branch in $ROOT/dev/: $(git -C "$ROOT/dev" branch --show-current)"
+  echo "  Phase 5 commit-design-screen.sh will commit into the dev/ worktree."
+  echo "  Phase 8 will re-invoke this script WITHOUT --skeleton to complete the full bootstrap."
+  exit 0
+fi
 
 # ===== 4. Distribute common files / platform templates / Claude config =====
 echo "[bootstrap] Distributing common files"

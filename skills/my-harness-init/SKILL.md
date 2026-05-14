@@ -1709,6 +1709,26 @@ Both paths run the same 3-question post-mock drill. Technical specifics live in 
 
 Trust Codex. No prescriptive palette / icon / layout instructions in the prompt — Codex chooses on the first artifact, the user picks, every subsequent artifact (next screen, other form factor) inherits via the locked-in style_guide.
 
+### Pre-Stage: Skeleton bootstrap (one-time, idempotent)
+
+Phase 5 commits per-screen design artifacts (see "Per-screen commit gate" below), which requires the harness's `.bare/` + main/stage/dev worktree layout to already exist. We do that here as a skeleton-only bootstrap — the heavier Phase 8 bootstrap (common files, platform templates, flake.nix generation, project-name substitution) runs later.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/bootstrap.sh" "$ROOT" --skeleton
+```
+
+What `--skeleton` does:
+1. Creates `<root>/.bare/` and main / stage / dev branches off an empty initial commit.
+2. Adds main / stage / dev git worktrees so `<root>/{main,stage,dev}/` each track their own branch.
+3. Creates the minimum directory tree `<root>/dev/docs/{spec,design,talk,task}/`.
+4. Writes a baseline `<root>/dev/.gitignore` (only if absent).
+5. Makes one initial `chore: skeleton bootstrap` commit on `dev` so subsequent `commit-design-screen.sh` calls have a parent commit.
+6. Exits 0. Does NOT distribute common files, platform templates, flake.nix, etc. (those come in Phase 8).
+
+Idempotent: re-running is a no-op. Phase 8 invokes `bootstrap.sh` again (without `--skeleton`); the early stages skip because `.bare/` already exists, and the remaining stages run for the first time.
+
+After this step, every design artifact path mentioned below lives in `<root>/dev/` (the dev worktree) and every `commit-design-screen.sh` call commits into the `dev` branch.
+
 ### Phase 5 has THREE stages — do them in order
 
 ```

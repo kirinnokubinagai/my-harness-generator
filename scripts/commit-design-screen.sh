@@ -27,15 +27,26 @@ ROOT="${1:?root required (path to the users project repo)}"
 SLUG="${2:?screen-slug required (kebab-case slug used in filenames)}"
 SCREEN_NAME="${3:-$SLUG}"
 
-cd "$ROOT" || { echo "::error:: cd to $ROOT failed" >&2; exit 1; }
+# In the harness layout, design artifacts live in $ROOT/dev/ (the dev
+# worktree). We commit from inside that worktree — $ROOT itself is the
+# bare-repo wrapper with no working tree.
+DEV="$ROOT/dev"
+
+if [ ! -d "$DEV" ]; then
+  echo "::error:: $DEV not found. Run bootstrap.sh --skeleton first (Phase 5 of /my-harness-init does this automatically)." >&2
+  exit 1
+fi
+
+cd "$DEV" || { echo "::error:: cd to $DEV failed" >&2; exit 1; }
 
 git rev-parse --git-dir >/dev/null 2>&1 || {
-  echo "::error:: $ROOT is not a git repository. Run \`git init\` first, then re-run this script." >&2
+  echo "::error:: $DEV is not a git working tree. Run bootstrap.sh --skeleton first." >&2
   exit 1
 }
 
 # Collect every design artifact path that exists for this screen.
 # Use space-separated strings (bash 3.2 compatible — no += on arrays).
+# Note: paths are relative to $DEV (= $ROOT/dev/), so no dev/ prefix needed.
 PATHS_TO_STAGE=""
 FF_LIST=""
 STAGED_COUNT=0
@@ -43,14 +54,14 @@ STAGED_COUNT=0
 for ff in pc mobile; do
   HAS_FF=no
 
-  if [ -f "dev/docs/design/page-${ff}-${SLUG}.png" ]; then
-    PATHS_TO_STAGE="$PATHS_TO_STAGE dev/docs/design/page-${ff}-${SLUG}.png"
+  if [ -f "docs/design/page-${ff}-${SLUG}.png" ]; then
+    PATHS_TO_STAGE="$PATHS_TO_STAGE docs/design/page-${ff}-${SLUG}.png"
     STAGED_COUNT=$((STAGED_COUNT + 1))
     HAS_FF=yes
   fi
 
   # parts-grid PNGs — there may be 0, 1, or several per form factor.
-  for g in "dev/docs/design/parts-grid-${ff}-${SLUG}"-*.png; do
+  for g in "docs/design/parts-grid-${ff}-${SLUG}"-*.png; do
     if [ -f "$g" ]; then
       PATHS_TO_STAGE="$PATHS_TO_STAGE $g"
       STAGED_COUNT=$((STAGED_COUNT + 1))
@@ -58,14 +69,14 @@ for ff in pc mobile; do
     fi
   done
 
-  if [ -d "dev/docs/design/parts/${ff}/${SLUG}" ]; then
-    PATHS_TO_STAGE="$PATHS_TO_STAGE dev/docs/design/parts/${ff}/${SLUG}"
+  if [ -d "docs/design/parts/${ff}/${SLUG}" ]; then
+    PATHS_TO_STAGE="$PATHS_TO_STAGE docs/design/parts/${ff}/${SLUG}"
     STAGED_COUNT=$((STAGED_COUNT + 1))
     HAS_FF=yes
   fi
 
-  if [ -d "dev/src/components/design/${ff}/${SLUG}" ]; then
-    PATHS_TO_STAGE="$PATHS_TO_STAGE dev/src/components/design/${ff}/${SLUG}"
+  if [ -d "src/components/design/${ff}/${SLUG}" ]; then
+    PATHS_TO_STAGE="$PATHS_TO_STAGE src/components/design/${ff}/${SLUG}"
     STAGED_COUNT=$((STAGED_COUNT + 1))
     HAS_FF=yes
   fi
@@ -76,7 +87,7 @@ for ff in pc mobile; do
 done
 
 if [ -z "$PATHS_TO_STAGE" ]; then
-  echo "::warning:: no design artifacts found for screen slug '$SLUG' under $ROOT/dev/docs/design/ -- nothing to commit." >&2
+  echo "::warning:: no design artifacts found for screen slug '$SLUG' under $DEV/docs/design/ -- nothing to commit." >&2
   echo "  Did gen-page-auto.sh run for this screen? Check the slug spelling." >&2
   exit 0
 fi

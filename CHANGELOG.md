@@ -4,6 +4,18 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.22.1] — 2026-05-14
+
+### Added
+- `scripts/bootstrap.sh --skeleton` flag (new). Builds ONLY the `.bare/` repo + main/stage/dev branches/worktrees + minimal `dev/docs/{spec,design,talk,task}/` dirs + baseline `dev/.gitignore` + initial `chore: skeleton bootstrap` commit on dev, then exits. Heavier setup (common files, platform templates, flake.nix, project-name substitution) is deferred to the Phase 8 full bootstrap.
+- `skills/my-harness-init/SKILL.md` Phase 5 now has a "Pre-Stage: Skeleton bootstrap" subsection that runs `bootstrap.sh --skeleton` before Stage 1. This makes the per-screen commit gate (7.20.0) actually work in the harness layout.
+
+### Fixed
+- `scripts/commit-design-screen.sh` now `cd`s into `<root>/dev/` (the dev worktree) instead of `<root>` (the bare-repo wrapper, which has no working tree and silently failed `git add`). All staged paths are now relative to `<root>/dev/` (e.g. `docs/design/page-pc-home.png` not `dev/docs/design/page-pc-home.png`).
+
+### Rationale
+The 7.20.0 per-screen commit gate was designed assuming a standard git repo at `<root>`, but the harness uses `.bare/` + `<root>/{main,stage,dev}/` worktrees. The bare-repo wrapper has no working tree, so the existing `cd "$ROOT" && git add dev/...` would have failed silently. The fix is two-fold: (a) make sure the worktree layout exists before Phase 5 starts (via `--skeleton`), and (b) commit from inside the dev worktree, not its parent.
+
 ## [7.22.0] — 2026-05-14
 
 ### Added
