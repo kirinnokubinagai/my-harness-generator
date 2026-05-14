@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# setup-oci-vm-nixos.sh — deploy NixOS to an Oracle Cloud Always-Free
+# A1.Flex VM via nixos-anywhere, then deploy daily-progress bot.
+#
+# This is the NixOS counterpart to setup-oci-vm.sh (Oracle Linux 9).
+# Both honor the same .my-harness/.notification.env + .my-harness/.oci-vm.env
+# conventions and produce the same end-state (daily-progress bot running
+# on a schedule, posting to Discord/Slack/Teams), but via systemd timers
+# and declarative configuration instead of cron + dnf.
+#
+# Prerequisites on the Mac:
+#   - nix command (https://nixos.org/download.html or DetSys installer)
+#   - .my-harness/.notification.env populated (Phase 1 Q6-Q11)
+#   - .my-harness/.oci-vm.env populated (Q9)
+#   - SSH key from .oci-vm.env can reach opc@$OCI_VM_PUBLIC_IP
+#   - The VM currently runs Oracle Linux or Ubuntu (any kexec-able OS)
+#
+# What this script does:
+#   1. Loads .notification.env + .oci-vm.env
+#   2. Stages templates/oracle-cloud/nixos/ to a temp dir
+#   3. Injects the user's SSH public key into a temp authorized_keys file
+#   4. Runs `nix run github:nix-community/nixos-anywhere` to kexec the
+#      existing OS to the NixOS installer, disk re-partitioned via disko,
+#      NixOS installed, reboot
+#   5. Waits for SSH to come back on the same IP
+#   6. scp's templates/oracle-cloud/daily-progress-bot/ → /home/opc/
+#   7. Writes /home/opc/daily-progress-bot/.env from .notification.env
+#   8. If AI_PROVIDER=codex, scp's .my-harness/.codex-auth.json
+#   9. systemctl enable --now daily-progress.timer event-watch.timer
+#  10. Triggers daily-progress.service once as a smoke test
+#  11. Prints success summary
+
+set -u
+
+ROOT="${1:?root required (path to project root containing .my-harness/)}"
+
+trap 'rc=$?; if [ $rc -ne 0 ]; then echo "::error:: setup-oci-vm-nixos.sh failed at line $LINENO (exit $rc)" >&2; fi' EXIT
+
+NOTIF_FILE="$ROOT/.my-harness/.notification.env"
+OCI_FILE="$ROOT/.my-harness/.oci-vm.env"
+[ -f "$NOTIF_FILE" ] || { echo "::error:: $NOTIF_FILE missing — run Phase 1 Q6-Q11 first" >&2; exit 1; }
+[ -f "$OCI_FILE" ] || { echo "::error:: $OCI_FILE missing — run ensure-oci-vm.sh first" >&2; exit 1; }
+
+set -a
+# shellcheck disable=SC1090
+. "$NOTIF_FILE"
+# shellcheck disable=SC1090
+. "$OCI_FILE"
+set +a
+
+: "${AI_PROVIDER:=claude}"
+case "$AI_PROVIDER" in
+  claude|codex|gemma4) : ;;
+  *) echo "::error:: unknown AI_PROVIDER='$AI_PROVIDER'" >&2; exit 1 ;;
+esac
+
+REQUIRED=(NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN \
+          OCI_VM_NAME OCI_VM_REGION OCI_VM_PUBLIC_IP OCI_VM_SSH_KEY)
+[ "$AI_PROVIDER" = "claude" ] && REQUIRED+=(CLAUDE_CODE_OAUTH_TOKEN)
+
+missing=()
+for v in "${REQUIRED[@]}"; do
+  eval "val=\${$v:-}"
+  [ -n "$val" ] || missing+=("$v")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "::error:: missing required env: ${missing[*]}" >&2
+  exit 1
+fi
+
+# Expand ~
+case "$OCI_VM_SSH_KEY" in "~/"*) OCI_VM_SSH_KEY="$HOME/${OCI_VM_SSH_KEY#~/}" ;; esac
+
+PUB_KEY_FILE="${OCI_VM_SSH_KEY}.pub"
+[ -f "$PUB_KEY_FILE" ] || { echo "::error:: SSH public key $PUB_KEY_FILE not found" >&2; exit 1; }
+
+command -v nix >/dev/null 2>&1 || {
+  echo "::error:: nix command not on PATH. Install Nix on this Mac first:" >&2
+  echo "  curl -L https://nixos.org/nix/install | sh" >&2
+  exit 1
+}
+
+HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+NIXOS_SRC="$HARNESS_DIR/templates/oracle-cloud/nixos"
+[ -d "$NIXOS_SRC" ] || { echo "::error:: $NIXOS_SRC not found — harness layout broken" >&2; exit 1; }
+
+# Stage NixOS config to a temp dir we can modify (injecting authorized_keys)
+STAGE_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGE_DIR"' EXIT
+cp -r "$NIXOS_SRC"/. "$STAGE_DIR"/
+
+# Inline the SSH public key directly into configuration.nix
+PUB_KEY_CONTENT=$(cat "$PUB_KEY_FILE")
+python3 - <<PYEOF
+import re, sys
+src = open("$STAGE_DIR/configuration.nix").read()
+new = re.sub(
+    r'openssh\.authorizedKeys\.keyFiles\s*=\s*\[[^\]]*\]\s*;',
+    'openssh.authorizedKeys.keys = [ "$PUB_KEY_CONTENT" ];',
+    src,
+    count=1
+)
+open("$STAGE_DIR/configuration.nix", "w").write(new)
+PYEOF
+
+SSH_TARGET="opc@$OCI_VM_PUBLIC_IP"
+SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i "$OCI_VM_SSH_KEY")
+
+echo "[setup-vm-nixos] testing SSH to $SSH_TARGET..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "echo ok" 2>/dev/null | grep -q ok || {
+  echo "::error:: cannot SSH to $SSH_TARGET; check VM running + key matches" >&2
+  exit 2
+}
+
+echo "[setup-vm-nixos] running nixos-anywhere — this kexec's the existing OS to NixOS installer."
+echo "                 disk will be re-partitioned via disko. existing data is LOST."
+echo "                 (If you have data on this VM you need to keep, abort now: Ctrl-C)"
+sleep 5
+
+# nixos-anywhere expects to SSH as root. opc has wheel + NOPASSWD sudo.
+nix run github:nix-community/nixos-anywhere -- \
+  --flake "$STAGE_DIR#harness-daily-progress" \
+  --target-host "root@${OCI_VM_PUBLIC_IP}" \
+  --ssh-option "IdentityFile=$OCI_VM_SSH_KEY" \
+  --ssh-option "StrictHostKeyChecking=accept-new" \
+  || {
+  echo "::error:: nixos-anywhere failed" >&2
+  exit 3
+}
+
+echo "[setup-vm-nixos] NixOS installation complete, waiting for SSH to come back..."
+
+# Strip old host key (NixOS will have a new one)
+ssh-keygen -R "$OCI_VM_PUBLIC_IP" 2>/dev/null || true
+
+# Wait up to 10 minutes for SSH to return
+for i in $(seq 1 60); do
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -i "$OCI_VM_SSH_KEY" \
+        "$SSH_TARGET" "echo ok" 2>/dev/null | grep -q ok; then
+    echo "[setup-vm-nixos] SSH back up after $((i*10))s"
+    break
+  fi
+  [ "$i" -eq 60 ] && { echo "::error:: SSH didn't come back within 10 min" >&2; exit 4; }
+  sleep 10
+done
+
+# Deploy daily-progress-bot files
+LOCAL_BOT="$HARNESS_DIR/templates/oracle-cloud/daily-progress-bot"
+echo "[setup-vm-nixos] copying daily-progress-bot to /home/opc/..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/daily-progress-bot && chmod 700 ~/daily-progress-bot"
+scp -r -i "$OCI_VM_SSH_KEY" "$LOCAL_BOT"/. "$SSH_TARGET:~/daily-progress-bot/"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod +x ~/daily-progress-bot/*.sh"
+
+# Derive repo owner/name
+if ! GIT_REMOTE_URL="$(git -C "$ROOT" remote get-url origin 2>/dev/null)"; then
+  echo "::error:: no 'origin' git remote at $ROOT" >&2
+  exit 5
+fi
+REPO_SLUG="$(echo "$GIT_REMOTE_URL" | sed -e 's|^git@github\.com:||' -e 's|^https://github\.com/||' -e 's|\.git$||')"
+REPO_OWNER="${REPO_SLUG%%/*}"
+REPO_NAME="${REPO_SLUG#*/}"
+
+# Provider-specific install (claude / codex on top of node from system pkgs)
+case "$AI_PROVIDER" in
+  claude)
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -lc "mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global && npm install -g @anthropic-ai/claude-code"'
+    ;;
+  codex)
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -lc "mkdir -p ~/.npm-global ~/.codex && npm config set prefix ~/.npm-global && npm install -g @openai/codex"'
+    CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
+    [ -f "$CODEX_AUTH" ] || bash "$HARNESS_DIR/scripts/ensure-codex-auth.sh" "$ROOT"
+    scp -q -i "$OCI_VM_SSH_KEY" "$CODEX_AUTH" "$SSH_TARGET:~/.codex/auth.json"
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/.codex/auth.json"
+    ;;
+  gemma4)
+    # Ollama is already declared in services/ollama.nix — already running.
+    echo "[setup-vm-nixos] gemma4: Ollama daemon is managed by NixOS; gemma4:e4b is pulled by ollama-pull-gemma4.service"
+    ;;
+esac
+
+# Write .env on the VM
+CLAUDE_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}"
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<REMOTE_ENV
+set -eu
+umask 077
+cat > "\$HOME/daily-progress-bot/.env" <<EOF
+# Auto-written by scripts/setup-oci-vm-nixos.sh on \$(date -u +%Y-%m-%dT%H:%M:%SZ)
+AI_PROVIDER=$AI_PROVIDER
+$([ "$AI_PROVIDER" = "claude" ] && echo "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_TOKEN")
+NOTIFICATION_SERVICE=$NOTIFICATION_SERVICE
+NOTIFICATION_WEBHOOK_URL=$NOTIFICATION_WEBHOOK_URL
+GH_TOKEN=$GH_TOKEN
+REPO_OWNER=$REPO_OWNER
+REPO_NAME=$REPO_NAME
+LANG_TAG=ja
+LOOKBACK_HOURS=24
+EOF
+chmod 600 "\$HOME/daily-progress-bot/.env"
+REMOTE_ENV
+
+# Start timers
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl enable --now daily-progress.timer event-watch.timer"
+
+# Smoke test
+echo "[setup-vm-nixos] running daily-progress.sh once as smoke test..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "sudo systemctl start daily-progress.service" || {
+  echo "::warning:: smoke test failed; check journalctl -u daily-progress on the VM" >&2
+}
+
+cat <<EOF
+
+[setup-vm-nixos] DONE.
+
+  VM:       $OCI_VM_NAME ($OCI_VM_REGION) — NixOS
+  Public:   $OCI_VM_PUBLIC_IP
+  SSH in:   ssh -i $OCI_VM_SSH_KEY $SSH_TARGET
+  Bot:      ~/daily-progress-bot/ on the VM
+  Timers:   daily-progress.timer + event-watch.timer
+  Repo:     $REPO_OWNER/$REPO_NAME → $NOTIFICATION_SERVICE
+  Cloud-portable: re-deploy to AWS Graviton / GCP Tau T2A / Hetzner ARM
+                  by re-running this script with that VM's .oci-vm.env equivalent.
+
+EOF

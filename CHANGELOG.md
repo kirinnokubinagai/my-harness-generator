@@ -4,6 +4,24 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.24.0] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/nixos/` — full NixOS configuration tree for the daily-progress-bot host. Files: `flake.nix` (nixpkgs 25.05, disko, home-manager, aarch64-linux), `configuration.nix` (OS-wide), `disko.nix` (declarative `/dev/sda` GPT layout), `hardware-configuration.nix` (qemu-guest profile), `home.nix` (opc user via home-manager), and `services/{daily-progress,ollama,logrotate}.nix` (systemd timers + Ollama + log rotation, all declarative).
+- `scripts/setup-oci-vm-nixos.sh` — runs `nix run github:nix-community/nixos-anywhere` to kexec the existing OS to NixOS, then deploys daily-progress-bot, sets up env, enables systemd timers, smoke-tests with `systemctl start daily-progress.service`.
+- `skills/my-harness-init/SKILL.md` Phase 1 Setup Q9.6 — bilingual OS choice (NixOS recommended, Oracle Linux 9 legacy).
+- `scripts/setup-oci-vm.sh` now reads `OS_KIND` from `.notification.env` and execs `setup-oci-vm-nixos.sh` when `OS_KIND=nixos`; falls through to the existing dnf path otherwise.
+
+### Rationale
+The user wants every part of the VM (OS, packages, services, dotfiles, rotation rules) declared in Nix so the same flake redeploys cleanly to any aarch64 cloud (AWS Graviton, GCP Tau T2A, Hetzner ARM, etc.). Cron is replaced with systemd timers (declarative, journald-integrated). home-manager handles the opc user's bash setup. Disko handles partition layout reproducibly. The legacy Oracle Linux path stays as an opt-in fallback for users with existing dnf-based deployments (e.g. kirinnkubinagaiyo's current VM is untouched).
+
+NixOS-equivalent of 7.23.0's `services.logrotate.settings."daily-progress"` is bundled in `services/logrotate.nix` — same semantics, different syntax.
+
+### Known limitations
+- Deployment requires `nix` command on the developer's Mac. First-time setup: https://nixos.org/download.html (~3 min).
+- nixos-anywhere kexec re-partitions the disk — any existing data on the VM is lost. Only run on freshly-provisioned VMs or after confirming you don't need the current data.
+- Smoke test depends on Ollama having finished pulling gemma4:e4b (~5 GB, can take 5-15 min on slow links). When AI_PROVIDER=gemma4 the first daily-progress.service run may fail until ollama-pull-gemma4.service completes; subsequent timer firings work normally.
+
 ## [7.23.0] — 2026-05-14
 
 ### Added

@@ -30,6 +30,22 @@ set -u
 
 ROOT="${1:?root required (path to project root containing .my-harness/)}"
 
+# Read OS_KIND from .notification.env (set by SKILL.md Q9.6). Default = nixos
+# for new deployments; pass OS_KIND=oraclelinux explicitly to use the legacy
+# dnf-based path below.
+if [ -f "${ROOT}/.my-harness/.notification.env" ]; then
+  OS_KIND=$(grep '^OS_KIND=' "${ROOT}/.my-harness/.notification.env" 2>/dev/null | cut -d= -f2)
+fi
+: "${OS_KIND:=nixos}"
+case "$OS_KIND" in
+  nixos)
+    echo "[setup-vm] OS_KIND=nixos → handing off to setup-oci-vm-nixos.sh"
+    exec bash "$(dirname "$0")/setup-oci-vm-nixos.sh" "$@"
+    ;;
+  oraclelinux|legacy) : ;;  # fall through to existing Oracle Linux logic
+  *) echo "::error:: unknown OS_KIND='$OS_KIND' (expected nixos|oraclelinux)" >&2; exit 1 ;;
+esac
+
 trap 'rc=$?; if [ $rc -ne 0 ]; then echo "::error:: setup-oci-vm.sh failed at line $LINENO (exit $rc)" >&2; fi' EXIT
 
 # -----------------------------------------------------------------------------

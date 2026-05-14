@@ -997,6 +997,72 @@ Handle exit codes:
 
 On success (Exit 0) call `bash scripts/setup-oci-vm.sh "$ROOT"` to install dependencies, deploy the bot, and register the crontab inside the VM.
 
+### Setup Q9.6: OCI VM operating system
+
+Run this only when Q9 resulted in actual VM provisioning. Skip if Q9 was "Skip" or "Already have one" (existing VMs aren't migrated).
+
+**Already-configured detection (option α):**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^OS_KIND=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_OS=$(grep '^OS_KIND=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+fi
+```
+
+If already set, ask "Keep / Change". Otherwise:
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which OS should the new OCI VM run?",
+    "header": "VM OS",
+    "multiSelect": false,
+    "options": [
+      { "label": "NixOS (declarative, multi-cloud portable) — RECOMMENDED",
+        "description": "Pure-Nix VM. Every system service is declared in flake.nix. Same config redeploys cleanly to AWS Graviton / GCP Tau T2A / Hetzner ARM / any aarch64 cloud. Slightly longer first deploy (~10-15 min for nixos-anywhere kexec) but reproducible. home-manager manages the opc user." },
+      { "label": "Oracle Linux 9 (legacy)",
+        "description": "Traditional dnf-based VM. Faster first deploy but not portable to other clouds without re-doing all setup. Use only if you're maintaining an existing Oracle Linux deployment or need RHEL family compatibility." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "新しい OCI VM の OS を選択してください:",
+    "header": "VM の OS",
+    "multiSelect": false,
+    "options": [
+      { "label": "NixOS(宣言的、他クラウド移行容易)— 推奨",
+        "description": "Pure-Nix VM。全システムサービスを flake.nix で宣言的に管理。AWS Graviton / GCP Tau T2A / Hetzner ARM など他の aarch64 クラウドに同じ設定で再デプロイ可能。初回デプロイは nixos-anywhere の kexec で ~10-15 分かかるが再現性が高い。opc ユーザーは home-manager で管理。" },
+      { "label": "Oracle Linux 9(従来)",
+        "description": "従来の dnf ベース VM。初回デプロイは速いが、他クラウドへの移行は全設定をやり直す必要あり。既存の Oracle Linux 環境を維持する場合や RHEL 系互換性が必要な場合のみ選択。" }
+    ]
+  }]
+}
+```
+
+Map: NixOS → `OS_KIND=nixos`. Oracle Linux → `OS_KIND=oraclelinux`. Persist to `.notification.env`:
+
+```bash
+NOTIF="$ROOT/.my-harness/.notification.env"
+{ grep -v '^OS_KIND=' "$NOTIF" 2>/dev/null || true; echo "OS_KIND=$choice"; } > "$NOTIF.tmp"
+mv "$NOTIF.tmp" "$NOTIF"
+chmod 600 "$NOTIF"
+```
+
+The downstream `setup-oci-vm.sh` reads `OS_KIND` and either:
+- `nixos` → execs `setup-oci-vm-nixos.sh` (runs `nix run github:nix-community/nixos-anywhere`)
+- `oraclelinux` → continues with the legacy dnf path
+
+If the Mac doesn't have Nix installed and the user chose NixOS, surface:
+
+- **LANG=en:** "NixOS deployment requires the `nix` command on this Mac. Install it from https://nixos.org/download.html or via the Determinate Systems installer, then re-run setup-oci-vm.sh. Or pick Oracle Linux 9 above to skip."
+- **LANG=ja:** "NixOS デプロイには Mac 上に `nix` コマンドが必要です。https://nixos.org/download.html または Determinate Systems installer でインストール後、setup-oci-vm.sh を再実行してください。上の Oracle Linux 9 を選べばスキップできます。"
+
 ### Setup Q9.5: Claude Code subscription OAuth token
 
 Run this question only when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".
@@ -1342,7 +1408,7 @@ Persist `AI_PROVIDER=gemma4` to `.notification.env` (same merge snippet).
 
 ### Phase 1 wrap-up
 
-After Q6-Q11 answered (or skipped via Q6=Disable / Q9=Skip / Q9.5=Skip / Q11=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6-Q11 answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 
