@@ -1754,9 +1754,118 @@ Warn and proceed to Phase 1 wrap-up.
 
 ---
 
+### Setup Q12.9: Discord home channel name
+
+Run only when Q12.5 = "Hermes Agent".
+
+**Q12.9 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "What is the name of the Discord channel where Hermes should post proactive messages?",
+    "header": "Discord home channel name",
+    "multiSelect": false,
+    "options": [
+      { "label": "Paste the channel name",
+        "description": "The 'home channel' is where Hermes sends proactive messages (cron output, reminders, daily summaries). Create a Discord text channel for this — for example #bot-updates or #hermes-home — then paste its name here (include the leading #)." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Hermes が自発的なメッセージを送るDiscordチャンネル名を入力してください:",
+    "header": "Discord ホームチャンネル名",
+    "multiSelect": false,
+    "options": [
+      { "label": "チャンネル名を貼り付ける",
+        "description": "「ホームチャンネル」は Hermes が自発的にメッセージを送るチャンネル(定期タスク出力、リマインダー、日次サマリーなど)。Discord で #bot-updates や #hermes-home のようなテキストチャンネルを作成し、その名前を貼り付けてください(先頭の # 込み)。" }
+    ]
+  }]
+}
+```
+
+Ask for the channel name via a follow-up freeform `AskUserQuestion`:
+
+- **LANG=en:** "Paste the home channel name (e.g. `#bot-updates`). Must start with `#`, lowercase only:"
+- **LANG=ja:** "ホームチャンネル名を貼り付けてください（例: `#bot-updates`）。`#` から始まる小文字表記:"
+
+Then validate and save by calling `ensure-hermes-config.sh` with all args collected so far:
+
+```bash
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME"
+```
+
+Exit codes:
+- **Exit 0:** channel name saved. Proceed to Q12.10.
+- **Exit 1:** invalid channel name shape. Show the error (must match `^#[a-z0-9_-]{1,99}$`), reprompt.
+- **Exit 3:** both channel names still empty — should not reach here from this path.
+
+---
+
+### Setup Q12.10: Discord application channel name
+
+Run only when Q12.5 = "Hermes Agent".
+
+**Q12.10 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "What is the name of the Discord channel where users talk to Hermes?",
+    "header": "Discord application channel name",
+    "multiSelect": false,
+    "options": [
+      { "label": "Paste the channel name",
+        "description": "The 'application channel' is the main channel where users talk to Hermes (mention the bot, send messages, voice chats). Create a Discord channel like #bot-chat or #ai-assistant and paste its name here." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "ユーザーが Hermes と会話するDiscordチャンネル名を入力してください:",
+    "header": "Discord アプリケーションチャンネル名",
+    "multiSelect": false,
+    "options": [
+      { "label": "チャンネル名を貼り付ける",
+        "description": "「アプリケーションチャンネル」は、ユーザーが Hermes と会話するメインチャンネル(bot をメンション、メッセージ送信、ボイスチャットなど)。Discord で #bot-chat や #ai-assistant のようなチャンネルを作成して名前を貼り付けてください。" }
+    ]
+  }]
+}
+```
+
+Ask for the channel name via a follow-up freeform `AskUserQuestion`:
+
+- **LANG=en:** "Paste the application channel name (e.g. `#bot-chat`). Must start with `#`, lowercase only:"
+- **LANG=ja:** "アプリケーションチャンネル名を貼り付けてください（例: `#bot-chat`）。`#` から始まる小文字表記:"
+
+Then run with all six args:
+
+```bash
+bash scripts/ensure-hermes-config.sh "$ROOT" "$DISCORD_BOT_TOKEN" "$HERMES_AI_PROVIDER" "${OPENAI_API_KEY:-}" "$HOME_CHANNEL_NAME" "$APP_CHANNEL_NAME"
+```
+
+Exit codes:
+- **Exit 0:** all config saved. Proceed to Phase 1 wrap-up.
+- **Exit 1:** invalid channel name shape. Show the error, reprompt.
+
+> **Note for "Walk me through" path:** When displaying `templates/oracle-cloud/hermes-agent/SETUP.md` during Q12.7, mention that the user needs to create both the home channel (Q12.9) and the application channel (Q12.10) in their Discord server **before deploying the bot** — or at minimum before running `setup-oci-vm.sh`. The SETUP.md section "Creating the two channels Hermes uses" has step-by-step instructions.
+
+---
+
 ### Phase 1 wrap-up
 
-After Q6-Q12.x answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip / Q12.5=None), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6 through Q12.10 answered (or skipped via Q6=Disable / Q9=Skip / Q9.6=Oracle Linux / Q9.5=Skip / Q11=Skip / Q12.5=None), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 

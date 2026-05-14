@@ -81,6 +81,16 @@ discord:
   auto_thread: true          # auto-create threads per conversation
   reactions: true            # show 👀✅❌ emoji feedback
   free_response_channels: "" # comma-separated channel IDs that skip @mention
+  bot_token: ${DISCORD_BOT_TOKEN}
+  home_channel_name: ${DISCORD_HOME_CHANNEL_NAME}
+  # Optional: home_channel ID (auto-resolved from name on bot startup, or
+  # set explicitly via /sethome in Discord after the bot connects)
+  # home_channel: ${DISCORD_HOME_CHANNEL_ID}
+  # The "application channel" (user-facing conversation channel) is
+  # currently informational only — Hermes itself doesn't gate on it as
+  # of 2026-05-14, but storing it surfaces it in logs and reserves the
+  # slot for future Hermes versions.
+  app_channel_name: ${DISCORD_APP_CHANNEL_NAME}
   # Voice channel configuration
   # auto_voice_reply: transcribe voice messages in text channels → reply
   # voice_channels:   bot joins VC, listens, and speaks back via TTS

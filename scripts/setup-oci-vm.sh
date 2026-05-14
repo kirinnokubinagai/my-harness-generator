@@ -376,6 +376,8 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   HERMES_OPENAI_KEY="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('OPENAI_API_KEY',''))")"
   HERMES_BASE_URL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_BASE_URL'])")"
   HERMES_MODEL="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d['OPENAI_MODEL'])")"
+  DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('home_channel_name',''))")"
+  DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json; d=json.load(open('$HERMES_CONFIG_LOCAL')); print(d.get('discord',{}).get('app_channel_name',''))")"
 
   HARNESS_DIR_VM="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -410,6 +412,8 @@ umask 077
   [ "$HERMES_AI_PROVIDER_VAL" = "codex" ]  && echo "OPENAI_API_KEY=$HERMES_OPENAI_KEY" || true
   echo "OPENAI_BASE_URL=$HERMES_BASE_URL"
   echo "OPENAI_MODEL=$HERMES_MODEL"
+  echo "DISCORD_HOME_CHANNEL_NAME=$DISCORD_HOME_CHANNEL_NAME"
+  echo "DISCORD_APP_CHANNEL_NAME=$DISCORD_APP_CHANNEL_NAME"
 } > "\$HOME/hermes-agent/.env"
 chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"

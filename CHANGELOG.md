@@ -4,6 +4,20 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.25.1] — 2026-05-14
+
+### Added
+- Phase 1 Setup Q12.9 (Discord home channel name) and Q12.10 (Discord application channel name), bilingual. Both saved to `.my-harness/.hermes-config.json` and exported on the VM as `DISCORD_HOME_CHANNEL_NAME` and `DISCORD_APP_CHANNEL_NAME` so Hermes resolves channels by name on startup without the user having to run `/sethome` interactively.
+- `templates/oracle-cloud/hermes-agent/SETUP.md` — new section "3.5. Creating the two channels Hermes uses" (bilingual) walks the user through creating `#bot-updates` and `#bot-chat` (or equivalents) before the deploy.
+
+### Changed
+- `scripts/ensure-hermes-config.sh` accepts two more positional args (home channel + app channel) and merges them into the existing JSON config (preserves prior values when args are empty — same pattern as ensure-notification-webhook.sh).
+- `scripts/setup-oci-vm-nixos.sh` and `scripts/setup-oci-vm.sh` write the two channel names into the VM-side Hermes `.env`.
+- `templates/oracle-cloud/hermes-agent/config.example.yaml` references `${DISCORD_HOME_CHANNEL_NAME}` and `${DISCORD_APP_CHANNEL_NAME}` placeholders.
+
+### Rationale
+Without this, the user has to deploy Hermes, manually join Discord, run `/sethome` in the right channel, and remember which channel is "application". Q12.9/Q12.10 surface both decisions during setup so the bot self-resolves channel IDs from names at startup. The app-channel value is informational today (Hermes doesn't gate on it as of 2026-05-14) but stored so future Hermes versions can use it.
+
 ## [7.25.0] — 2026-05-14
 
 ### Added

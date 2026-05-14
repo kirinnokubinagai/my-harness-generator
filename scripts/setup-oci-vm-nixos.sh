@@ -217,6 +217,8 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   HERMES_OPENAI_KEY="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('OPENAI_API_KEY',''))")"
   HERMES_BASE_URL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_BASE_URL'])")"
   HERMES_MODEL="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d['OPENAI_MODEL'])")"
+  DISCORD_HOME_CHANNEL_NAME="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('home_channel_name',''))")"
+  DISCORD_APP_CHANNEL_NAME="$(python3 -c "import json,sys; d=json.load(open('$HERMES_CONFIG')); print(d.get('discord',{}).get('app_channel_name',''))")"
 
   # Create directory structure on VM.
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
@@ -257,6 +259,8 @@ $([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_API_KEY=$HERMES_O
 $([ "$HERMES_AI_PROVIDER" = "codex" ] && echo "  echo \"OPENAI_BASE_URL=https://api.openai.com/v1\"" || true)
 $([ "$HERMES_AI_PROVIDER" = "gemma4" ] && echo "  echo \"OPENAI_BASE_URL=http://localhost:11434/v1\"" || true)
   echo "OPENAI_MODEL=$HERMES_MODEL"
+  echo "DISCORD_HOME_CHANNEL_NAME=$DISCORD_HOME_CHANNEL_NAME"
+  echo "DISCORD_APP_CHANNEL_NAME=$DISCORD_APP_CHANNEL_NAME"
 } > "\$HOME/hermes-agent/.env"
 chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"

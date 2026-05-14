@@ -39,6 +39,24 @@
 3. Click **Authorize** → complete the CAPTCHA.
 4. The bot now appears in your server's member list (offline until Hermes starts).
 
+### 3.5. Creating the two channels Hermes uses
+
+Hermes uses two channels in your Discord server:
+
+1. **Home channel** (e.g. `#bot-updates`): where Hermes posts proactive messages — cron output, reminders, daily summaries, voice-message replies that came in via DM. The harness asks for this name in Q12.9 and stores it as `DISCORD_HOME_CHANNEL_NAME`.
+
+2. **Application channel** (e.g. `#bot-chat`): where users talk to Hermes via @mention, voice channel join, or direct messages. The harness asks for this name in Q12.10 and stores it as `DISCORD_APP_CHANNEL_NAME` (informational — Hermes itself doesn't gate on this as of 2026-05-14, but the slot reserves it for future Hermes versions).
+
+Create both channels in your Discord server BEFORE running the bot's first deploy:
+
+1. Open your Discord server.
+2. Click the `+` next to **Text Channels** in the sidebar.
+3. Create `bot-updates` (or whatever name you'll give in Q12.9).
+4. Create `bot-chat` (or whatever name you'll give in Q12.10).
+5. Make sure the bot has Read/Send permissions on both (the OAuth invite URL from step 2 should have granted them automatically).
+
+After the bot deploys and joins your server, it will recognize the channels by name from the env vars. You can override at any time by running `/sethome` in the desired channel (Hermes writes the channel ID into `config.yaml` — see [known issue #6447](https://github.com/NousResearch/hermes-agent/issues/6447) about its env-vs-yaml destination).
+
 ### 4. First-Run Smoke Tests
 
 After `setup-oci-vm-nixos.sh` (or `setup-oci-vm.sh`) completes and `hermes-agent.service` is running:
@@ -124,6 +142,24 @@ If the token leaks (e.g. accidentally committed to git):
 2. ドロップダウンから Discord サーバーを選択。
 3. **承認** → CAPTCHA を完了。
 4. ボットがサーバーのメンバーリストに追加されます（Hermes 起動まではオフライン）。
+
+### 3.5. Hermes が使う 2 つのチャンネルを作成
+
+Hermes は Discord サーバー内で 2 種類のチャンネルを使い分けます:
+
+1. **ホームチャンネル**(例: `#bot-updates`): Hermes が自発的にメッセージを送るチャンネル — 定期タスク出力、リマインダー、日次サマリー、DM 経由で来たボイスメッセージへの返信など。harness は Q12.9 でこの名前を尋ね、`DISCORD_HOME_CHANNEL_NAME` 環境変数として保存します。
+
+2. **アプリケーションチャンネル**(例: `#bot-chat`): ユーザーが @メンション / ボイスチャンネル参加 / DM 経由で Hermes と会話するメインチャンネル。harness は Q12.10 でこの名前を尋ね、`DISCORD_APP_CHANNEL_NAME` 環境変数として保存します(2026-05-14 時点では情報用 — Hermes 自体は現状この値で gate していませんが、将来の Hermes バージョンのために枠を確保しています)。
+
+bot の初回デプロイ**前**に、Discord サーバーで両方のチャンネルを作成してください:
+
+1. Discord サーバーを開く。
+2. サイドバーの **テキストチャンネル** 横の `+` をクリック。
+3. `bot-updates`(Q12.9 で答える名前)を作成。
+4. `bot-chat`(Q12.10 で答える名前)を作成。
+5. bot に両チャンネルへの 読取/送信 権限があることを確認(手順 2 の OAuth 招待 URL で自動付与されているはず)。
+
+bot がデプロイされてサーバーに参加すると、環境変数の名前からチャンネルを自動認識します。後から任意のチャンネル内で `/sethome` を実行して上書きすることも可能です(Hermes はチャンネル ID を `config.yaml` に書き込みます — env と yaml の書き込み先に関する [既知の問題 #6447](https://github.com/NousResearch/hermes-agent/issues/6447) も参照)。
 
 ### 4. 初回動作確認
 
