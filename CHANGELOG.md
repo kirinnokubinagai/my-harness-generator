@@ -4,6 +4,31 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.30.0] — 2026-05-15
+
+### Added
+- **OpenClaw integration** as a Hermes alternative. Phase 1 Setup Q12.5's OpenClaw option is no longer a placeholder; selecting it deploys OpenClaw on the VM with the same 4-provider AI matrix (codex / claude-code / openrouter / claude-api) and the same daily-report agent-cron migration as Hermes.
+- `templates/oracle-cloud/nixos/pkgs/openclaw.nix` (new) — Nix-packaged OpenClaw.
+- `templates/oracle-cloud/nixos/services/openclaw.nix` (new) — systemd service module, conditional on `harness.openClawEnabled` (mirrors `harness.hermesAgentEnabled` from 7.27.0).
+- `templates/oracle-cloud/openclaw/config.example.yaml` (new) — config template with `${VAR}` placeholders.
+- `templates/oracle-cloud/openclaw/SETUP.md` (new) — bilingual Discord bot setup walkthrough mirroring `hermes-agent/SETUP.md`.
+- `scripts/ensure-openclaw-config.sh` (new) — config capture (bot token, channels, AI provider, credentials) → `.my-harness/.openclaw-config.json`.
+- `scripts/register-agent-daily-report.sh` `openclaw)` branch implemented (was a 7.28.0 stub).
+- `OPENCLAW_ENABLED=yes|no` env wired through `setup-oci-vm-nixos.sh` (mutually exclusive with `HERMES_AGENT_ENABLED`).
+
+### Changed
+- `templates/oracle-cloud/nixos/configuration.nix` conditionally imports `openclaw.nix` via the new `harness.openClawEnabled` option.
+- `skills/my-harness-init/SKILL.md` Q12.5 now offers a fully-functional OpenClaw option (Hermes / OpenClaw / None — mutually exclusive single-select).
+
+### Not implemented (intentional)
+- `scripts/setup-oci-vm.sh` (the legacy Oracle Linux dnf path) does NOT yet deploy OpenClaw. Since 7.24.0 NixOS is the recommended default and Oracle Linux is legacy-only; users selecting OpenClaw should be on NixOS. If you need OpenClaw on Oracle Linux, open an issue or migrate the VM to NixOS first.
+
+### Rationale
+OpenClaw and Hermes occupy the same niche (open-source self-hosted Discord-AI gateway) but with different ecosystems, plugin communities, and personalities (Hermes = NousResearch's "agent that grows with you", OpenClaw = the 🦞 lobster-mascot Anglo-Saxon community fork). Users with existing OpenClaw familiarity can now select it in Q12.5 instead of Hermes. The daily-report cron migration (7.27.0) works identically on both via `register-agent-daily-report.sh`.
+
+### Staged release plan: complete
+7.22.0 → 7.30.0 staged release plan is now fully complete. No further planned releases are pending. Future work is user-request driven.
+
 ## [7.29.3.1] — 2026-05-14
 
 ### Fixed
