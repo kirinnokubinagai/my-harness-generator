@@ -33,7 +33,7 @@
 
   systemd.services.hermes-agent = {
     description = "Hermes Agent — NousResearch personal AI gateway (Voice + Discord)";
-    after    = [ "network-online.target" "ollama.service" ];
+    after    = [ "network-online.target" ];
     wants    = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
 

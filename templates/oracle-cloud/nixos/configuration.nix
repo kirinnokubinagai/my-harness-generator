@@ -3,7 +3,6 @@
 {
   imports = [
     ./services/daily-progress.nix
-    ./services/ollama.nix
     ./services/logrotate.nix
   ];
 

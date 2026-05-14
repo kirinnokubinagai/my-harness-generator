@@ -4,6 +4,23 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.28.0] — 2026-05-14
+
+### Removed
+- Gemma 4 as an `AI_PROVIDER` option for daily-progress / event-watch. The 3-way SKILL.md Q11 choice is now a 2-way (Claude Code / Codex).
+- `templates/oracle-cloud/nixos/services/ollama.nix` — Ollama daemon is no longer needed on the VM under any provider configuration (Hermes already removed Gemma 4 in 7.26.0; daily-progress drops it now in 7.28.0).
+- Ollama install / `ollama pull gemma4:e4b` steps from `setup-oci-vm.sh` and `setup-oci-vm-nixos.sh`.
+- `OLLAMA_URL` and `GEMMA_MODEL` override examples from `.env.example`.
+
+### Changed
+- `lib/ai-provider.sh` rejects `gemma4` with a clear "removed in 7.28.0" error message. Same defensive rejection in `setup-oci-vm.sh` and `setup-oci-vm-nixos.sh`.
+- `ensure-hermes-config.sh` retains its `gemma4` rejection arm (added in 7.26.0) as a defensive guard for users editing env files manually.
+
+### Rationale
+Gemma 4 was the "fully free local" option but in practice the A1.Flex ARM4 CPU produces only 3-6 tok/s on Gemma 4 E4B, and the 8 GB RAM the model needs sits idle alongside Hermes's voice models (Whisper + NeuTTS), wasting the limited 24 GB shared resource. Subscription-based Codex (free via ChatGPT Plus/Pro) and Claude Code (free via Pro/Max) deliver dramatically better quality at zero marginal cost, so Gemma 4 had no audience left. Removed cleanly across all paths.
+
+NixOS `services.ollama` import gone, the corresponding service file deleted, deploy scripts simplified — net reduction of ~150 lines.
+
 ## [7.27.0] — 2026-05-14
 
 ### Added

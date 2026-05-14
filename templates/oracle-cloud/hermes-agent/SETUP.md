@@ -73,11 +73,6 @@ use **Codex** or **Claude Code** — you pay nothing extra and the subscription 
 all Hermes Discord replies. CLIProxyAPI runs locally on the VM (port 8317) and
 proxies requests through your existing CLI OAuth session.
 
-**Important:** Gemma 4 is **not** available as a Hermes AI provider as of 7.26.0.
-Running Ollama + Gemma 4 alongside Hermes + Whisper Tiny + NeuTTS Air on the
-A1.Flex's 24 GB RAM was too tight in practice. Gemma 4 remains available for the
-daily-progress bot (AI_PROVIDER=gemma4 in Q11).
-
 #### CLIProxyAPI (used by Codex and Claude Code providers)
 
 CLIProxyAPI is a Go binary that listens on `localhost:8317` and exposes your
@@ -108,11 +103,6 @@ Hermes は 4 種類の AI バックエンドに対応しています。`/my-harn
 **Claude Code** を選んでください。サブスクリプションの範囲内で追加費用ゼロで動作します。
 CLIProxyAPI が VM のローカル（ポート 8317）で稼働し、既存の CLI OAuth セッションを経由して
 リクエストをプロキシします。
-
-**重要:** Gemma 4 は 7.26.0 から Hermes の AI プロバイダとして**利用できません**。
-A1.Flex の 24 GB RAM 上で Ollama + Gemma 4 と Hermes + Whisper Tiny + NeuTTS Air を
-同時実行すると RAM が不足することが判明しました。Gemma 4 は daily-progress ボット
-（Q11 の AI_PROVIDER=gemma4）では引き続き利用可能です。
 
 ---
 

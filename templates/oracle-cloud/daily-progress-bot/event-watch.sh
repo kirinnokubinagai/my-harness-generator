@@ -35,10 +35,6 @@ LANG_TAG="${LANG_TAG:-ja}"
 case "$AI_PROVIDER" in
   claude)  command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; } ;;
   codex)   command -v codex  >/dev/null 2>&1 || { echo "::error:: codex CLI not on PATH (install: npm i -g @openai/codex)" >&2; exit 1; } ;;
-  gemma4)  command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required for gemma4" >&2; exit 1; }
-           # Ollama daemon health check — fail fast if it isn't up.
-           curl -sS --max-time 5 "${OLLAMA_URL:-http://localhost:11434}/api/tags" >/dev/null \
-             || { echo "::error:: Ollama daemon not reachable at ${OLLAMA_URL:-http://localhost:11434} (sudo systemctl status ollama)" >&2; exit 1; } ;;
 esac
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }

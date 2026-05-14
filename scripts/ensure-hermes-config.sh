@@ -4,7 +4,7 @@
 # Saves to .my-harness/.hermes-config.json (chmod 600).
 #
 # Usage:
-#   bash ensure-hermes-config.sh <root> [<discord-bot-token>] [<hermes-ai-provider>] [<provider-credential>] [<home-channel-name>] [<app-channel-name>]
+#   bash ensure-hermes-config.sh <root> [<discord-bot-token>] [<hermes-ai-provider>] [<provider-credential>] [<home-channel-name>] [<app-channel-name>] [<model>]
 #
 #   root                 = project root containing .my-harness/
 #   discord-bot-token    = Discord bot token (MT[A-Za-z0-9_.-]{50,})
@@ -18,6 +18,8 @@
 #                          Shape: ^#[a-z0-9_-]{1,99}$
 #   app-channel-name     = Discord channel for user conversations (e.g. #bot-chat)
 #                          Shape: ^#[a-z0-9_-]{1,99}$
+#   model                = LLM model ID to use (e.g. gpt-5.4-mini, claude-sonnet-4-6).
+#                          If empty, a sensible default is chosen per provider.
 #
 # Exit codes:
 #   0 — config saved to .my-harness/.hermes-config.json (chmod 600)
@@ -36,6 +38,7 @@ HERMES_AI_PROVIDER="${3:-}"
 PROVIDER_CREDENTIAL_ARG="${4:-}"
 HOME_CHANNEL_NAME_ARG="${5:-}"
 APP_CHANNEL_NAME_ARG="${6:-}"
+MODEL_ARG="${7:-}"
 
 # No arguments at all → signal to SKILL.md to use AskUserQuestion.
 if [ -z "$ROOT" ] && [ -z "$DISCORD_BOT_TOKEN" ]; then
@@ -76,15 +79,14 @@ validate_provider() {
   local provider="$1"
   case "$provider" in
     codex|claude-code|openrouter|claude-api) return 0 ;;
-    gemma4)
-      echo "::error:: HERMES_AI_PROVIDER=gemma4 is no longer supported for Hermes as of 7.26.0 (insufficient RAM on A1.Flex)." >&2
-      echo "  Pick one of: codex / claude-code / openrouter / claude-api" >&2
-      echo "  NOTE: Gemma 4 is still available for the daily-progress bot (AI_PROVIDER=gemma4) — only removed from Hermes." >&2
-      return 1
-      ;;
     claude)
       echo "::error:: HERMES_AI_PROVIDER=claude is not supported." >&2
       echo "  Use 'claude-api' for Anthropic API key billing, or 'claude-code' for Claude Code CLI subscription via CLIProxyAPI." >&2
+      return 1
+      ;;
+    gemma4)
+      echo "::error:: HERMES_AI_PROVIDER=gemma4 is no longer supported (removed in 7.26.0 — RAM pressure on A1.Flex)." >&2
+      echo "  Choose one of: codex | claude-code | openrouter | claude-api" >&2
       return 1
       ;;
     "")
@@ -191,22 +193,21 @@ OPENAI_MODEL=""
 case "$HERMES_AI_PROVIDER" in
   codex)
     OPENAI_BASE_URL="http://localhost:8317/v1"
-    OPENAI_MODEL="hermes-codex-default"
+    OPENAI_MODEL="${MODEL_ARG:-gpt-5.4-mini}"
     ;;
   claude-code)
     OPENAI_BASE_URL="http://localhost:8317/v1"
-    OPENAI_MODEL="hermes-claude-default"
+    OPENAI_MODEL="${MODEL_ARG:-claude-sonnet-4-6}"
     ;;
   openrouter)
     OPENROUTER_API_KEY_VAL="$PROVIDER_CREDENTIAL_ARG"
     OPENAI_BASE_URL="https://openrouter.ai/api/v1"
-    OPENAI_MODEL="anthropic/claude-sonnet-4"
+    OPENAI_MODEL="${MODEL_ARG:-anthropic/claude-sonnet-4}"
     ;;
   claude-api)
     ANTHROPIC_API_KEY_VAL="$PROVIDER_CREDENTIAL_ARG"
-    # Hermes talks directly to Anthropic; base_url not needed for native provider.
     OPENAI_BASE_URL=""
-    OPENAI_MODEL="claude-sonnet-4-6"
+    OPENAI_MODEL="${MODEL_ARG:-claude-sonnet-4-6}"
     ;;
 esac
 
