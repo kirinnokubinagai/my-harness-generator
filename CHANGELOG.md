@@ -4,6 +4,15 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.20.0] — 2026-05-14
+
+### Added
+- `scripts/commit-design-screen.sh` (new). Stages exactly one screen's design artifacts across whichever form factors exist (page PNG, parts-grid PNGs, `parts/<ff>/<slug>/` tree, `src/components/design/<ff>/<slug>/` tree) and creates a `design(<slug>): mock approved — <ff-list>` commit in the user's project repo. Idempotent — no-op when no staged change.
+- `skills/my-harness-init/SKILL.md` Phase 5 Stage 1 now has an explicit "Per-screen commit gate" subsection: after every user OK event for a screen's mock(s), the harness commits that screen's design artifacts before moving to the next screen. Wired into the "Iterative refinement" subsection too so every accepted refine round commits.
+
+### Rationale
+User wants a real design commit log — one commit per approved screen so the project history reads as a sequence of explicit design decisions, not one giant Phase 5 batch. Per-screen (not per-form-factor): `gen-page-auto.sh` produces both form factors as a unit and the user reviews them together, so one approval event = one commit.
+
 ## [7.19.0] — 2026-05-13
 
 ### Added

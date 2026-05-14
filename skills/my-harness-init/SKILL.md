@@ -1552,6 +1552,27 @@ What this does internally:
 4. Suppresses per-form-factor auto-open via `HARNESS_SKIP_OPEN=1`, then opens **all** produced PNGs together at the end so the user sees PC + Mobile side by side.
 5. **Does NOT** generate HTML. HTML happens in Stage 2 after every screen's PNGs are settled.
 
+### Per-screen commit gate (after every approval)
+
+After the user confirms a screen's mock(s) look right (either on the first generation or after `refine-design.sh` iterations have settled), **always** commit that screen's design artifacts before moving on:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/commit-design-screen.sh" \
+  "$ROOT" "<screen-slug>" "<screen-display-name>"
+```
+
+This stages exactly the files for that screen (page-pc-\<slug\>.png, page-mobile-\<slug\>.png, parts-grid-\*-\<slug\>-\*.png, parts/\<ff\>/\<slug\>/, src/components/design/\<ff\>/\<slug\>/), commits with message `design(<slug>): mock approved -- pc+mobile` (or whichever form factors exist), and never touches files for other screens. Idempotent: if nothing changed since the previous commit (= the user said OK without any modification), it is a clean no-op.
+
+**Why per-screen, not per-form-factor:** `gen-page-auto.sh` produces both form factors as a unit and the user reviews them together (PC + Mobile side by side via the bulk auto-open). A "screen approved" event covers both. Committing per form factor would split a single approval into two commits and bloat the log.
+
+**Why before Stage 2:** HTML generation happens in batch after every screen's PNG is locked in. By the time `gen-html-all.sh` runs, each screen has already been committed individually, so the HTML batch commits cleanly on top as a separate Stage 2 commit (which Claude does at the end of Stage 3 polish — see below).
+
+**When refining:** every accepted `refine-design.sh` round also calls `commit-design-screen.sh` for the affected screen. The history reads like a real designer's commit log: one commit per approved iteration per screen, naming the screen explicitly.
+
+**LANG=en — what Claude says when committing:** "I'm committing the approved design for `<screen-name>` to the project repo (`design(<slug>): mock approved`). Other screens are untouched."
+
+**LANG=ja — what Claude says when committing:** "承認された `<screen-name>` のデザインをプロジェクトリポジトリにコミットします (`design(<slug>): mock approved`)。他の画面には影響しません。"
+
 ### Stage 2 — Batch HTML generation (one command, all screens × all form factors)
 
 After every `gen-page-auto.sh` call has finished (= every screen's PNGs are locked in), run **once**:
