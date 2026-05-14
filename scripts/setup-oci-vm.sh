@@ -52,10 +52,19 @@ set -a
 . "$OCI_FILE"
 set +a
 
-# Verify all required vars are present.
+: "${AI_PROVIDER:=claude}"
+case "$AI_PROVIDER" in
+  claude|codex|gemma4) : ;;
+  *) echo "::error:: unknown AI_PROVIDER '$AI_PROVIDER' in $NOTIF_FILE (expected claude|codex|gemma4)" >&2; exit 1 ;;
+esac
+echo "[setup-vm] AI_PROVIDER=$AI_PROVIDER"
+
+REQUIRED_VARS=(NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN \
+               OCI_VM_NAME OCI_VM_REGION OCI_VM_INSTANCE_ID OCI_VM_PUBLIC_IP OCI_VM_SSH_KEY)
+[ "$AI_PROVIDER" = "claude" ] && REQUIRED_VARS+=(CLAUDE_CODE_OAUTH_TOKEN)
+
 missing=()
-for v in NOTIFICATION_SERVICE NOTIFICATION_WEBHOOK_URL GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN \
-         OCI_VM_NAME OCI_VM_REGION OCI_VM_INSTANCE_ID OCI_VM_PUBLIC_IP OCI_VM_SSH_KEY; do
+for v in "${REQUIRED_VARS[@]}"; do
   eval "val=\${$v:-}"
   [ -n "$val" ] || missing+=("$v")
 done
@@ -105,8 +114,8 @@ echo "[setup-vm] SSH ok."
 # Oracle Linux 9 → dnf. Detect at run-time so the script also works if
 # someone reuses it on an Ubuntu VM later.
 # -----------------------------------------------------------------------------
-echo "[setup-vm] installing dependencies on VM (Node LTS, gh, jq, curl, claude CLI)..."
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<'REMOTE_INSTALL'
+echo "[setup-vm] installing dependencies on VM (Node LTS, gh, jq, curl, AI CLI)..."
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "AI_PROVIDER='$AI_PROVIDER' bash -s" <<'REMOTE_INSTALL'
 set -eu
 
 if command -v dnf >/dev/null 2>&1; then
@@ -147,7 +156,7 @@ else
   fi
 fi
 
-# claude CLI under user-local npm prefix so we don't need sudo every install.
+# AI CLI under user-local npm prefix so we don't need sudo every install.
 mkdir -p "$HOME/.npm-global"
 npm config set prefix "$HOME/.npm-global"
 case ":$PATH:" in
@@ -162,17 +171,62 @@ case ":$PATH:" in
 esac
 export PATH="$HOME/.npm-global/bin:$PATH"
 
-if ! command -v claude >/dev/null 2>&1; then
-  npm install -g @anthropic-ai/claude-code
-fi
+case "$AI_PROVIDER" in
+  claude)
+    echo "[remote] installing Claude Code CLI..."
+    npm install -g @anthropic-ai/claude-code
+    ;;
+  codex)
+    echo "[remote] installing Codex CLI..."
+    npm install -g @openai/codex
+    mkdir -p "$HOME/.codex"
+    ;;
+  gemma4)
+    echo "[remote] installing Ollama + pulling gemma4:e4b..."
+    if ! command -v ollama >/dev/null 2>&1; then
+      curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    sudo systemctl enable --now ollama || true
+    # Wait for daemon up to 30s
+    for i in $(seq 1 30); do
+      curl -sS --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1 && break
+      sleep 1
+    done
+    if ! curl -sS http://localhost:11434/api/tags >/dev/null 2>&1; then
+      echo "::error:: Ollama daemon did not come up within 30s" >&2
+      exit 1
+    fi
+    ollama pull gemma4:e4b
+    ;;
+esac
 
 echo "[remote] versions:"
-node --version
-npm --version
-gh --version | head -n1
-jq --version
-claude --version || true
+node --version 2>/dev/null || true
+case "$AI_PROVIDER" in
+  claude) claude --version 2>/dev/null || true ;;
+  codex)  codex --version 2>/dev/null || true ;;
+  gemma4) ollama --version 2>/dev/null || true ;;
+esac
 REMOTE_INSTALL
+
+# -----------------------------------------------------------------------------
+# Step 4.5 — Transfer Codex auth.json when AI_PROVIDER=codex
+# -----------------------------------------------------------------------------
+if [ "$AI_PROVIDER" = "codex" ]; then
+  CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
+  if [ ! -f "$CODEX_AUTH" ]; then
+    echo "[setup-vm] Codex auth not yet captured — running ensure-codex-auth.sh..."
+    HARNESS_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if ! bash "$HARNESS_DIR/ensure-codex-auth.sh" "$ROOT"; then
+      echo "::error:: ensure-codex-auth.sh failed — cannot deploy AI_PROVIDER=codex" >&2
+      exit 3
+    fi
+  fi
+  echo "[setup-vm] copying Codex auth to VM..."
+  scp -q -i "$OCI_VM_SSH_KEY" -o StrictHostKeyChecking=accept-new \
+    "$CODEX_AUTH" "$SSH_TARGET:~/.codex/auth.json"
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ~/.codex/auth.json && ls -la ~/.codex/auth.json"
+fi
 
 # -----------------------------------------------------------------------------
 # Step 5: Claude OAuth token from .notification.env.
@@ -183,8 +237,10 @@ REMOTE_INSTALL
 # This is the SAME token GitHub's claude-code-action consumes via
 # `${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` — one token, two consumers.
 # -----------------------------------------------------------------------------
-CLAUDE_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"
-echo "[setup-vm] Claude OAuth token from .notification.env: ${CLAUDE_TOKEN:0:14}... (length ${#CLAUDE_TOKEN})"
+if [ "$AI_PROVIDER" = "claude" ]; then
+  CLAUDE_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"
+  echo "[setup-vm] Claude OAuth token from .notification.env: ${CLAUDE_TOKEN:0:14}... (length ${#CLAUDE_TOKEN})"
+fi
 
 # -----------------------------------------------------------------------------
 # Step 6: derive REPO_OWNER / REPO_NAME from git remote.
@@ -239,7 +295,8 @@ set -eu
 umask 077
 cat > "\$HOME/daily-progress-bot/.env" <<EOF
 # Auto-written by scripts/setup-oci-vm.sh on \$(date -u +%Y-%m-%dT%H:%M:%SZ)
-CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_TOKEN
+AI_PROVIDER=$AI_PROVIDER
+$([ "$AI_PROVIDER" = "claude" ] && echo "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_TOKEN")
 NOTIFICATION_SERVICE=$NOTIFICATION_SERVICE
 NOTIFICATION_WEBHOOK_URL=$NOTIFICATION_WEBHOOK_URL
 GH_TOKEN=$GH_TOKEN

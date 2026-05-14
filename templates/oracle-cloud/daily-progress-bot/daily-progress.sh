@@ -25,7 +25,12 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
-: "${CLAUDE_CODE_OAUTH_TOKEN:?must be set (run \`claude login\` on a desktop machine, copy token here)}"
+: "${AI_PROVIDER:=claude}"
+# Provider-specific credential checks happen inside ai_provider_run;
+# here we only sanity-check that claude has its token if it was chosen.
+if [ "$AI_PROVIDER" = "claude" ]; then
+  : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set when AI_PROVIDER=claude (run \`claude setup-token\` on a desktop)}"
+fi
 # Either NOTIFICATION_WEBHOOK_URL (preferred, multi-service) or the legacy
 # DISCORD_WEBHOOK_URL must be set.
 : "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
@@ -42,8 +47,18 @@ REPORT_TIMEZONE="${REPORT_TIMEZONE:-Asia/Tokyo}"
 # Pull in the multi-service notification helper.
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/post-notification.sh"
+# Source the AI provider dispatcher.
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/ai-provider.sh"
 
-command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; }
+case "$AI_PROVIDER" in
+  claude)  command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; } ;;
+  codex)   command -v codex  >/dev/null 2>&1 || { echo "::error:: codex CLI not on PATH (install: npm i -g @openai/codex)" >&2; exit 1; } ;;
+  gemma4)  command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required for gemma4" >&2; exit 1; }
+           # Ollama daemon health check — fail fast if it isn't up.
+           curl -sS --max-time 5 "${OLLAMA_URL:-http://localhost:11434}/api/tags" >/dev/null \
+             || { echo "::error:: Ollama daemon not reachable at ${OLLAMA_URL:-http://localhost:11434} (sudo systemctl status ollama)" >&2; exit 1; } ;;
+esac
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required (https://cli.github.com/)" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }
 command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required" >&2; exit 1; }
@@ -134,15 +149,14 @@ Prefix each bullet with an emoji (✅ done / 🚧 in-progress / 🔥 needs atten
 Keep it concise — this will be posted to Discord. Minimal markdown (only **bold**), no code blocks."
 fi
 
-SUMMARY=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" claude \
-  -p "$PROMPT_INSTRUCTION
+FULL_PROMPT="$PROMPT_INSTRUCTION
 
 ---
 
-$(cat "$ACTIVITY_FILE")" \
-  --output-format text \
-  --model claude-sonnet-4-6 2>/dev/null) || {
-  SUMMARY="⚠️ daily-progress: Claude の要約取得に失敗しました。VM の log を確認してください。"
+$(cat "$ACTIVITY_FILE")"
+
+SUMMARY=$(ai_provider_run "$FULL_PROMPT") || {
+  SUMMARY="⚠️ daily-progress: ${AI_PROVIDER:-claude} の要約取得に失敗しました。VM の log を確認してください。"
 }
 
 [ -z "$SUMMARY" ] && SUMMARY="(本日の活動なし、または取得不可)"

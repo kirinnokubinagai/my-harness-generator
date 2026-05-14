@@ -1156,9 +1156,193 @@ Exit codes:
 - **Exit 2:** bad shape (whitespace, length < 30, or disallowed characters). Show the script's error output, then reprompt for the token only (do NOT loop back through Q9.5's three options).
 - **Exit 3:** token was empty (should not reach here). Treat as "Skip for now".
 
+### Setup Q11: AI provider for the OCI daily-progress bot
+
+Run this question ONLY when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".
+
+**Already-configured detection (option α) for Q11:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^AI_PROVIDER=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_AI=$(grep '^AI_PROVIDER=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+fi
+```
+
+If `AI_PROVIDER` is already saved, ask first:
+
+- **LANG=en:** "Current AI provider: `$CURRENT_AI`. Change it?"
+- **LANG=ja:** "現在の AI provider: `$CURRENT_AI`。変更しますか?"
+
+Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する` → ask the original question below.
+
+**Q11 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which AI should the OCI VM call from daily-progress.sh and event-watch.sh?",
+    "header": "VM AI provider",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude Code (uses Q9.5 OAuth token)",
+        "description": "Reuses the Claude OAuth token captured in Q9.5. The VM runs `claude -p` for summaries. No extra setup. Best for Claude Pro/Max subscribers." },
+      { "label": "Codex (ChatGPT Plus/Pro subscription)",
+        "description": "Mac runs `codex login` once; harness copies ~/.codex/auth.json to the VM. Refresh token lifetime ~3 months — re-run `codex login` and re-deploy when it expires. No OpenAI API key billing." },
+      { "label": "Gemma 4 (local, no auth)",
+        "description": "Installs Ollama daemon and downloads gemma4:e4b (~5 GB) on the VM. No subscription, no external API calls. Inference is 3-6 tok/s on the A1.Flex's 4 ARM cores; daily-progress 1 run takes 30-60 seconds. Fully free forever." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "OCI VM の daily-progress.sh と event-watch.sh が呼び出す AI を選択してください:",
+    "header": "VM AI provider",
+    "multiSelect": false,
+    "options": [
+      { "label": "Claude Code(Q9.5 の OAuth トークンを使う)",
+        "description": "Q9.5 で保存した Claude OAuth トークンをそのまま使用。VM 上で `claude -p` を実行。追加設定不要。Claude Pro/Max 加入者向け。" },
+      { "label": "Codex(ChatGPT Plus/Pro サブスクリプション)",
+        "description": "Mac で `codex login` を 1 回実行 → harness が ~/.codex/auth.json を VM にコピー。refresh トークンは約 3 ヶ月、失効時に `codex login` の再実行と再デプロイが必要。OpenAI API キーの課金は不要。" },
+      { "label": "Gemma 4(ローカル、認証不要)",
+        "description": "VM 上に Ollama daemon をインストールし gemma4:e4b(~5 GB)をダウンロード。サブスクリプション不要、外部 API 呼び出しなし。A1.Flex の 4 ARM コアで推論 3-6 tok/s、daily-progress 1 回 30-60 秒。完全無料、永続。" }
+    ]
+  }]
+}
+```
+
+**Behavior per choice:**
+
+#### "Claude Code" / 「Claude Code」
+
+Nothing extra to do. Q9.5 already captured the token. Persist `AI_PROVIDER=claude` to `.notification.env`:
+
+```bash
+NOTIF="$ROOT/.my-harness/.notification.env"
+{ grep -v '^AI_PROVIDER=' "$NOTIF" 2>/dev/null || true; echo "AI_PROVIDER=claude"; } > "$NOTIF.tmp"
+mv "$NOTIF.tmp" "$NOTIF"
+chmod 600 "$NOTIF"
+```
+
+#### "Codex" / 「Codex」
+
+Print bilingual step-by-step guidance to the screen, then wait for `continue` / `done` / 完了:
+
+**LANG=en — display verbatim:**
+
+```
+To use Codex on the VM, do the following on THIS Mac:
+
+  1. Make sure the Codex CLI is installed locally:
+
+         ! npm install -g @openai/codex
+
+  2. Run:
+
+         ! codex login
+
+     A browser opens. Sign in with your ChatGPT Plus / Pro account
+     and authorize. The CLI writes ~/.codex/auth.json with your
+     OAuth tokens.
+
+  3. Return here and type `continue`. The harness will copy
+     ~/.codex/auth.json to .my-harness/.codex-auth.json and
+     setup-oci-vm.sh will scp it to the VM's ~/.codex/auth.json
+     automatically.
+
+Lifetime: the refresh token typically lasts ~3 months. When daily-progress
+starts failing with auth errors on the VM, re-run `codex login` on this
+Mac and re-run scripts/setup-oci-vm.sh — the harness will pick up the
+refreshed auth.json.
+
+Security: ~/.codex/auth.json grants ~3 months of inference access on
+your ChatGPT subscription. Stored as chmod 600 in .my-harness/ (gitignored).
+```
+
+**LANG=ja — display verbatim:**
+
+```
+Codex を VM で使う手順 (この Mac で実行):
+
+  1. Codex CLI をローカルにインストール:
+
+         ! npm install -g @openai/codex
+
+  2. 実行:
+
+         ! codex login
+
+     ブラウザが開きます。ChatGPT Plus / Pro アカウントでサインインし
+     認可してください。CLI が OAuth トークンを ~/.codex/auth.json
+     に保存します。
+
+  3. ここに戻り `continue` と入力してください。harness が
+     ~/.codex/auth.json を .my-harness/.codex-auth.json にコピーし、
+     setup-oci-vm.sh が VM の ~/.codex/auth.json に scp します。
+
+寿命: refresh トークンは通常約 3 ヶ月です。VM 上の daily-progress が
+認証エラーで失敗するようになったら、この Mac で `codex login` を
+再実行し scripts/setup-oci-vm.sh を再実行してください。harness が
+新しい auth.json を自動的に拾います。
+
+セキュリティ: ~/.codex/auth.json は約 3 ヶ月分の ChatGPT サブスク経由
+推論アクセスを許可します。.my-harness/ 配下に chmod 600 (.gitignore
+済み) で保存されます。
+```
+
+After the user types `continue`, run:
+
+```bash
+bash scripts/ensure-codex-auth.sh "$ROOT"
+```
+
+Exit codes:
+- **Exit 0:** auth captured. Persist `AI_PROVIDER=codex` to `.notification.env` (same merge snippet as Claude path above with `codex` instead of `claude`), then proceed.
+- **Exit 3:** ~/.codex/auth.json missing. Re-display the guidance and re-loop.
+
+#### "Gemma 4" / 「Gemma 4」
+
+Print a bilingual notice and persist `AI_PROVIDER=gemma4`:
+
+**LANG=en:**
+```
+Gemma 4 needs no credentials. setup-oci-vm.sh will:
+
+  1. Install Ollama on the VM (via the official one-line installer).
+  2. Pull `gemma4:e4b` (~5 GB). This first download takes 5-15 minutes
+     depending on your VM's network speed.
+  3. Enable the `ollama` systemd service so it survives reboots.
+
+Inference will run at 3-6 tokens/second on the A1.Flex's 4 ARM cores
+(no GPU). A daily-progress summary typically completes in 30-60 seconds.
+
+Nothing for you to do here — proceed.
+```
+
+**LANG=ja:**
+```
+Gemma 4 は認証情報不要です。setup-oci-vm.sh が次を実行します:
+
+  1. VM 上に Ollama をインストール (公式の 1-line installer)。
+  2. `gemma4:e4b` (~5 GB) をダウンロード。初回は VM のネットワーク
+     速度に応じて 5-15 分かかります。
+  3. `ollama` systemd サービスを enable して再起動後も生存させる。
+
+A1.Flex の 4 ARM コア (GPU 無し) で推論は 3-6 tokens/秒です。
+daily-progress の要約 1 回は通常 30-60 秒で完了します。
+
+ここで人手作業は不要です — 次に進みます。
+```
+
+Persist `AI_PROVIDER=gemma4` to `.notification.env` (same merge snippet).
+
 ### Phase 1 wrap-up
 
-After Q6-Q9.5 answered (or skipped via Q6=Disable / Q9=Skip / Q9.5=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
+After Q6-Q11 answered (or skipped via Q6=Disable / Q9=Skip / Q9.5=Skip / Q11=Skip), update `init-state.json` with `current_phase: "discovery"`, `phases_completed: ["language", "setup"]`. Move to Phase 2.
 
 ---
 

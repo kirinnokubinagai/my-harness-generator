@@ -4,6 +4,21 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.22.0] — 2026-05-14
+
+### Added
+- Multi-provider AI for the OCI daily-progress bot. Phase 1 Setup Q11 lets users pick the AI backend: `claude` (existing, reuses Q9.5 OAuth token), `codex` (ChatGPT Plus/Pro subscription via `codex login` + auth.json transfer — NOT API key billing), or `gemma4` (local Ollama with `gemma4:e4b`, no auth, ~5 GB model auto-downloaded on the VM).
+- `templates/oracle-cloud/daily-progress-bot/lib/ai-provider.sh` (new). Single dispatch point `ai_provider_run "<prompt>"` that branches on `$AI_PROVIDER`. Sourced by both `daily-progress.sh` and `event-watch.sh`.
+- `scripts/ensure-codex-auth.sh` (new). Copies Mac's `~/.codex/auth.json` to `.my-harness/.codex-auth.json` (chmod 600) so `setup-oci-vm.sh` can scp it to the VM.
+
+### Changed
+- `daily-progress.sh` and `event-watch.sh` switched from hardcoded `claude -p ...` to `ai_provider_run "..."` from the new lib. Dependency and credential checks gate on `$AI_PROVIDER`.
+- `templates/oracle-cloud/daily-progress-bot/.env.example` now shows `AI_PROVIDER=claude|codex|gemma4` as the first env var, with provider-specific overrides (`CODEX_EXEC_CMD`, `OLLAMA_URL`, `GEMMA_MODEL`).
+- `scripts/setup-oci-vm.sh` now reads `$AI_PROVIDER` from `.notification.env` and runs provider-specific VM setup: Claude (claude CLI + token env), Codex (codex CLI + auth.json scp), Gemma 4 (Ollama install + `gemma4:e4b` pull + systemd enable).
+
+### Rationale
+7.21.0 only worked for Claude Code subscribers. To support users who prefer ChatGPT subscription or want a fully free local setup, the AI backend is now a single env var. Codex uses OAuth via auth.json transfer (NOT API key) because the user explicitly rejected API-key billing. Gemma 4 E4B fits in ~8 GB of the A1.Flex's 24 GB and runs at 3-6 tok/s on 4 ARM cores — fine for cron-driven summarization. OpenCode is intentionally NOT used: daily-progress only needs single-shot LLM calls, not agent loops, so Ollama's HTTP API directly is simpler and removes a dependency.
+
 ## [7.21.0] — 2026-05-14
 
 ### Changed

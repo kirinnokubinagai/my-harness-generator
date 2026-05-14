@@ -18,7 +18,12 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
-: "${CLAUDE_CODE_OAUTH_TOKEN:?must be set}"
+: "${AI_PROVIDER:=claude}"
+# Provider-specific credential checks happen inside ai_provider_run;
+# here we only sanity-check that claude has its token if it was chosen.
+if [ "$AI_PROVIDER" = "claude" ]; then
+  : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set when AI_PROVIDER=claude}"
+fi
 : "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
 : "${NOTIFICATION_WEBHOOK_URL:?must be set (Discord/Slack/Teams webhook URL)}"
 : "${NOTIFICATION_SERVICE:=discord}"
@@ -27,13 +32,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 : "${GH_TOKEN:=${GITHUB_TOKEN:-}}"
 LANG_TAG="${LANG_TAG:-ja}"
 
-command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH" >&2; exit 1; }
+case "$AI_PROVIDER" in
+  claude)  command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; } ;;
+  codex)   command -v codex  >/dev/null 2>&1 || { echo "::error:: codex CLI not on PATH (install: npm i -g @openai/codex)" >&2; exit 1; } ;;
+  gemma4)  command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required for gemma4" >&2; exit 1; }
+           # Ollama daemon health check — fail fast if it isn't up.
+           curl -sS --max-time 5 "${OLLAMA_URL:-http://localhost:11434}/api/tags" >/dev/null \
+             || { echo "::error:: Ollama daemon not reachable at ${OLLAMA_URL:-http://localhost:11434} (sudo systemctl status ollama)" >&2; exit 1; } ;;
+esac
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }
 command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required" >&2; exit 1; }
 
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/post-notification.sh"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/ai-provider.sh"
 
 export GH_TOKEN
 
@@ -110,15 +124,14 @@ else
 - If nothing is worth reporting, output ONLY '_no_report_'."
 fi
 
-SUMMARY=$(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" claude \
-  -p "$PROMPT_INSTRUCTION
+FULL_PROMPT="$PROMPT_INSTRUCTION
 
 ---
 
-$(cat "$EVENTS_FILE")" \
-  --output-format text \
-  --model claude-sonnet-4-6 2>/dev/null) || {
-  echo "[event-watch] Claude call failed — skip this hour"
+$(cat "$EVENTS_FILE")"
+
+SUMMARY=$(ai_provider_run "$FULL_PROMPT") || {
+  echo "[event-watch] ${AI_PROVIDER:-claude} call failed — skip this hour"
   echo "$now" > "$STATE_FILE"
   exit 0
 }
