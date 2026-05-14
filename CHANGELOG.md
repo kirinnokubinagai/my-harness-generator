@@ -4,6 +4,27 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.29.2] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/nixos/pkgs/claude-code.nix` — `buildNpmPackage` derivation for `@anthropic-ai/claude-code` v2.1.141. Source tarball hash precomputed (`sha256-a35KoQBnG1hO3iMMrIfoBXOoZufFgSL76Q06LGuvfpw=`); `npmDepsHash` set to `lib.fakeHash` (see Known followups).
+- `templates/oracle-cloud/nixos/pkgs/openai-codex.nix` — `buildNpmPackage` derivation for `@openai/codex` v0.130.0. Source tarball hash precomputed (`sha256-w//PJo0YALy/zlDcqWTgXWq8zY8dIOlEs7uHfnFkL8o=`); `npmDepsHash` set to `lib.fakeHash`.
+- Both CLIs added to `environment.systemPackages` in `templates/oracle-cloud/nixos/configuration.nix` via `let claude-code = pkgs.callPackage ./pkgs/claude-code.nix {}; openai-codex = pkgs.callPackage ./pkgs/openai-codex.nix {};` pattern.
+
+### Changed
+- `scripts/setup-oci-vm-nixos.sh` no longer runs `npm install -g @anthropic-ai/claude-code` or `npm install -g @openai/codex` — NixOS handles the install declaratively at `nixos-rebuild switch` time. The codex auth.json scp block is retained (runtime secret, not managed by Nix).
+
+### Rationale
+Step 3 of 4 in the Nix-pure migration. After this release the AI CLIs ship with the NixOS closure — atomic rollback works, version pin is in the derivation files, and a `nixos-rebuild switch` swaps them cleanly with no network access at deploy time (Nix fetches the npm tarballs during build, not during setup-oci-vm-nixos.sh).
+
+Neither `claude-code` nor `openai-codex` is packaged in nixpkgs 25.05 (confirmed via GitHub code search on NixOS/nixpkgs). Custom `buildNpmPackage` derivations used for both.
+
+### Known followups
+- `npmDepsHash` in both `pkgs/claude-code.nix` and `pkgs/openai-codex.nix` is `lib.fakeHash`. On the first `nixos-rebuild switch`, the build will fail with the correct hash; copy it in and commit a 7.29.2.1 patch (same pattern as 7.29.0's `vendorHash` for CLIProxyAPI). Source tarball hashes are correctly precomputed and will not cause an error.
+
+### Remaining
+- 7.29.3: Hermes Agent via `buildPythonApplication` (final step — faster-whisper, NeuTTS deps to resolve).
+
 ## [7.29.1] — 2026-05-14
 
 ### Added

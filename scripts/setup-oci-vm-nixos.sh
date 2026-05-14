@@ -188,13 +188,18 @@ REPO_SLUG="$(echo "$GIT_REMOTE_URL" | sed -e 's|^git@github\.com:||' -e 's|^http
 REPO_OWNER="${REPO_SLUG%%/*}"
 REPO_NAME="${REPO_SLUG#*/}"
 
-# Provider-specific install (claude / codex on top of node from system pkgs)
+# Provider-specific setup (CLIs are now installed via NixOS — no npm install needed)
 case "$AI_PROVIDER" in
   claude)
-    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -lc "mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global && npm install -g @anthropic-ai/claude-code"'
+    # claude CLI is installed via NixOS (templates/oracle-cloud/nixos/configuration.nix
+    # environment.systemPackages — buildNpmPackage derivation added in 7.29.2).
+    # No npm install -g @anthropic-ai/claude-code needed here.
+    :
     ;;
   codex)
-    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -lc "mkdir -p ~/.npm-global ~/.codex && npm config set prefix ~/.npm-global && npm install -g @openai/codex"'
+    # codex CLI is installed via NixOS (same derivation — pkgs/openai-codex.nix, 7.29.2).
+    # No npm install -g @openai/codex needed here.
+    mkdir -p "$HOME/.codex"  # ensure local auth dir exists before scp below
     CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
     [ -f "$CODEX_AUTH" ] || bash "$HARNESS_DIR/scripts/ensure-codex-auth.sh" "$ROOT"
     scp -q -i "$OCI_VM_SSH_KEY" "$CODEX_AUTH" "$SSH_TARGET:~/.codex/auth.json"

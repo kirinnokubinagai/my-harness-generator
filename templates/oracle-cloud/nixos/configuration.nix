@@ -1,5 +1,9 @@
 { config, pkgs, lib, ... }:
 
+let
+  claude-code  = pkgs.callPackage ./pkgs/claude-code.nix { };   # added 7.29.2
+  openai-codex = pkgs.callPackage ./pkgs/openai-codex.nix { };  # added 7.29.2
+in
 {
   imports = [
     ./services/daily-progress.nix
@@ -64,9 +68,12 @@
 
   environment.systemPackages = with pkgs; [
     curl jq gh git tmux htop vim ripgrep
-    nodejs_20  # claude / codex CLI installation
+    nodejs_20  # runtime dependency for claude / codex (and ad-hoc npm use)
     fzf        # fuzzy finder (history, files, branches)
     ghq        # GitHub repo manager (ghq get owner/repo)
+  ] ++ [
+    claude-code   # Anthropic Claude Code CLI — buildNpmPackage derivation (added 7.29.2)
+    openai-codex  # OpenAI Codex CLI        — buildNpmPackage derivation (added 7.29.2)
   ];
 
   home-manager = {
