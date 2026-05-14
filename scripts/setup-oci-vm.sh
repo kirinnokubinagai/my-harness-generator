@@ -18,6 +18,8 @@
 #   6. scp's templates/oracle-cloud/daily-progress-bot/ to the VM
 #   7. Writes ~/daily-progress-bot/.env on the VM (chmod 600)
 #   8. Runs daily-progress.sh once as a smoke test
+#   8.5 Installs /etc/logrotate.d/daily-progress so cron.log stays bounded
+#       (rotated weekly, 4 weeks retained, gzip'd, copytruncate'd).
 #   9. Installs the crontab from crontab.example
 #  10. Prints success summary
 #
@@ -308,6 +310,37 @@ EOF
 chmod 600 "\$HOME/daily-progress-bot/.env"
 echo "[remote] .env written (chmod 600)"
 REMOTE_ENV
+
+# -----------------------------------------------------------------------------
+# Step 8.5 — Install logrotate config (Oracle Linux path).
+# Keeps /home/opc/daily-progress-bot/cron.log from growing unbounded.
+# NixOS deployments (7.24.0+) use services.logrotate.settings instead;
+# this branch only runs on the dnf-based VM (= current path).
+# -----------------------------------------------------------------------------
+LOGROTATE_SRC="$LOCAL_BOT/logrotate.conf"
+if [ -f "$LOGROTATE_SRC" ]; then
+  echo "[setup-vm] installing logrotate config for cron.log..."
+  scp -q -i "$OCI_VM_SSH_KEY" -o StrictHostKeyChecking=accept-new \
+    "$LOGROTATE_SRC" "$SSH_TARGET:/tmp/daily-progress.logrotate"
+  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" 'bash -s' <<'REMOTE_LOGROTATE'
+set -eu
+sudo mkdir -p /var/log/daily-progress
+sudo chown opc:opc /var/log/daily-progress
+sudo chmod 750 /var/log/daily-progress
+sudo install -o root -g root -m 0644 /tmp/daily-progress.logrotate /etc/logrotate.d/daily-progress
+rm -f /tmp/daily-progress.logrotate
+# Validate the config — logrotate -d does a dry run. If it errors, fail
+# fast rather than silently shipping a broken config that gets picked up
+# by /etc/cron.daily/logrotate next morning.
+sudo /usr/sbin/logrotate -d /etc/logrotate.d/daily-progress >/dev/null 2>&1 || {
+  echo "::error:: /etc/logrotate.d/daily-progress failed dry-run validation" >&2
+  sudo /usr/sbin/logrotate -d /etc/logrotate.d/daily-progress >&2 || true
+  exit 1
+}
+echo "[remote] logrotate installed: /etc/logrotate.d/daily-progress"
+echo "[remote] rotated files will land in: /var/log/daily-progress/"
+REMOTE_LOGROTATE
+fi
 
 # -----------------------------------------------------------------------------
 # Step 9: smoke test — run daily-progress.sh once.

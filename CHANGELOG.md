@@ -4,6 +4,17 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.23.0] — 2026-05-14
+
+### Added
+- `templates/oracle-cloud/daily-progress-bot/logrotate.conf` (new). Logrotate config for `/home/opc/daily-progress-bot/cron.log`: weekly, 4 weeks retention, gzip + delaycompress, copytruncate (preserves the append fd of daily-progress.sh and event-watch.sh), `create 0600 opc opc`, ISO-style date suffix, rotated files under `/var/log/daily-progress/`.
+- `scripts/setup-oci-vm.sh` now installs that logrotate config into `/etc/logrotate.d/daily-progress` on the VM and validates with `logrotate -d` before declaring success.
+
+### Rationale
+The daily-progress + event-watch crons append to a single `cron.log` indefinitely. Over months that file grows hundreds of MB on a 47 GB ARM A1 root partition, and grep'ing it gets sluggish. Standard Linux logrotate solves it; the only non-default knob is `copytruncate` — without it logrotate would rename the file and the long-lived append file descriptors held by cron'd shell scripts would silently keep writing to the renamed (rotated) file. `copytruncate` preserves the inode so appends keep flowing into the now-empty file.
+
+The matching NixOS-side `services.logrotate.settings."daily-progress"` ships in 7.24.0 alongside the broader NixOS migration. The semantics are identical; only the declaration syntax differs.
+
 ## [7.22.1] — 2026-05-14
 
 ### Added
