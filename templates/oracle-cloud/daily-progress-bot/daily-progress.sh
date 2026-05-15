@@ -9,14 +9,17 @@
 # one subscription, one beneficiary" headless usage of Claude Code CLI.
 #
 # Required env (sourced from .env):
-#   CLAUDE_CODE_OAUTH_TOKEN   — your Pro/Max OAuth token (claude login output)
-#   DISCORD_WEBHOOK_URL       — Discord channel webhook to post into
+#   AI_MODEL                  — model to call via CLIProxyAPI on localhost:8317
+#                               (one of: claude-sonnet-4-6, claude-opus-4-7,
+#                                claude-opus-4-6, gpt-5.5, gpt-5.4-mini)
+#   NOTIFICATION_WEBHOOK_URL  — Discord/Slack/Teams webhook URL
 #   GH_TOKEN (or GITHUB_TOKEN) — read-only token for `gh` CLI (public repos
 #                                can sometimes skip this, but private need it)
 #   REPO_OWNER, REPO_NAME     — e.g. acme / myapp
 #
 # Optional env:
-#   LANG_TAG                  — "ja" (default) or "en" for Claude's summary
+#   CLIPROXY_URL              — CLIProxyAPI base URL (default: http://localhost:8317)
+#   LANG_TAG                  — "ja" (default) or "en" for the summary
 #   LOOKBACK_HOURS            — how far back to scan (default 24)
 
 set -u
@@ -25,12 +28,15 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
-: "${AI_PROVIDER:=claude}"
-# Provider-specific credential checks happen inside ai_provider_run;
-# here we only sanity-check that claude has its token if it was chosen.
-if [ "$AI_PROVIDER" = "claude" ]; then
-  : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set when AI_PROVIDER=claude (run \`claude setup-token\` on a desktop)}"
+# Legacy AI_PROVIDER backward-compat: translate to AI_MODEL with a warning.
+if [ -z "${AI_MODEL:-}" ] && [ -n "${AI_PROVIDER:-}" ]; then
+  case "$AI_PROVIDER" in
+    claude) AI_MODEL="claude-sonnet-4-6" ;;
+    codex)  AI_MODEL="gpt-5.5" ;;
+  esac
+  echo "::warning:: legacy AI_PROVIDER=$AI_PROVIDER detected; auto-translating to AI_MODEL=$AI_MODEL. Re-run /my-harness-init Q11 to choose explicitly." >&2
 fi
+: "${AI_MODEL:?must be set (one of claude-sonnet-4-6, claude-opus-4-7, claude-opus-4-6, gpt-5.5, gpt-5.4-mini)}"
 # Either NOTIFICATION_WEBHOOK_URL (preferred, multi-service) or the legacy
 # DISCORD_WEBHOOK_URL must be set.
 : "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
@@ -51,13 +57,12 @@ REPORT_TIMEZONE="${REPORT_TIMEZONE:-Asia/Tokyo}"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/ai-provider.sh"
 
-case "$AI_PROVIDER" in
-  claude)  command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; } ;;
-  codex)   command -v codex  >/dev/null 2>&1 || { echo "::error:: codex CLI not on PATH (install: npm i -g @openai/codex)" >&2; exit 1; } ;;
-esac
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required (https://cli.github.com/)" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }
 command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required" >&2; exit 1; }
+# CLIProxyAPI health check — both providers (codex + claude-code) route through it.
+curl -sS "${CLIPROXY_URL:-http://localhost:8317}/api/tags" >/dev/null 2>&1 \
+  || { echo "::error:: CLIProxyAPI not reachable at ${CLIPROXY_URL:-http://localhost:8317} — is it running?" >&2; exit 1; }
 
 export GH_TOKEN
 
@@ -152,7 +157,7 @@ FULL_PROMPT="$PROMPT_INSTRUCTION
 $(cat "$ACTIVITY_FILE")"
 
 SUMMARY=$(ai_provider_run "$FULL_PROMPT") || {
-  SUMMARY="⚠️ daily-progress: ${AI_PROVIDER:-claude} の要約取得に失敗しました。VM の log を確認してください。"
+  SUMMARY="⚠️ daily-progress: ${AI_MODEL} の要約取得に失敗しました。VM の log を確認してください。"
 }
 
 [ -z "$SUMMARY" ] && SUMMARY="(本日の活動なし、または取得不可)"

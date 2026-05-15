@@ -550,6 +550,69 @@ Order matters: trust + effort must be in place **before** the daemon comes up, b
 
 When `USE_CODEX=no`, skip Q5.a, Q5.b, and Q5.c entirely — no Codex calls will be made, so trust / effort / daemon all serve no purpose.
 
+### Setup Q5.5: Default Claude Code model for this project
+
+Ask this question for every project (regardless of `USE_CODEX`). It writes the `model` field in `dev/.claude/settings.json` so every `claude` session started from inside `dev/` uses this model by default.
+
+**Already-configured detection:** If `.my-harness/.config` already has `PROJECT_CLAUDE_MODEL=`, show the current value and offer Keep / Change.
+
+**Q5.5 — `AskUserQuestion` payload:**
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Which Claude Code model should this project default to? (Writes the `model` field in `dev/.claude/settings.json`, applies whenever `claude` is run from inside `dev/`.)",
+    "header": "Default Claude Code model",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-opus-4-7 (recommended — latest and most capable)",
+        "description": "Best quality. Latest Anthropic release (2026). Use when output quality is the top priority. Heavier on subscription quota." },
+      { "label": "claude-sonnet-4-6 (faster, easier on subscription quota)",
+        "description": "Good balance of speed and quality. Recommended when you run many sessions per day." },
+      { "label": "claude-opus-4-6 (legacy stable)",
+        "description": "Previous flagship. Solid quality, fully supported. Use if you prefer the older generation." },
+      { "label": "claude-haiku-4-5 (fastest, lowest quality, useful for quick edits)",
+        "description": "Very fast and subscription-light. Best for trivial tasks or rapid iteration where top quality is not required." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "このプロジェクトで `claude` を実行したときのデフォルトモデルを選んでください。`dev/.claude/settings.json` の `model` フィールドに書き込まれます。",
+    "header": "デフォルト Claude Code モデル",
+    "multiSelect": false,
+    "options": [
+      { "label": "claude-opus-4-7（推奨 — 最新・最高性能）",
+        "description": "最高品質。Anthropic の最新リリース（2026年）。出力品質最優先の場合に使用。サブスク消費は大きめ。" },
+      { "label": "claude-sonnet-4-6（高速・サブスク節約向き）",
+        "description": "速度と品質のバランスが良い。1日に多数のセッションを実行する場合に推奨。" },
+      { "label": "claude-opus-4-6（旧来の安定版）",
+        "description": "前世代のフラッグシップ。安定した品質でサポート継続中。旧世代を好む場合に使用。" },
+      { "label": "claude-haiku-4-5（最速・品質最低 — 簡単な編集向け）",
+        "description": "非常に高速でサブスク消費が少ない。最高品質が不要な単純タスクや高速反復に最適。" }
+    ]
+  }]
+}
+```
+
+**Persist:**
+
+```bash
+CONFIG="$ROOT/.my-harness/.config"
+_model="<selected-model-id>"  # e.g. claude-opus-4-7
+{ grep -v '^PROJECT_CLAUDE_MODEL=' "$CONFIG" 2>/dev/null || true; echo "PROJECT_CLAUDE_MODEL=$_model"; } > "$CONFIG.tmp"
+mv "$CONFIG.tmp" "$CONFIG"
+```
+
+Default if user skips or selects nothing: `claude-opus-4-7`.
+
+The value is consumed by `scripts/bootstrap.sh` which reads `PROJECT_CLAUDE_MODEL` from `.my-harness/.config` and writes it to `dev/.claude/settings.json` at scaffold time.
+
 ### Setup Q6: Notification service
 
 Use `AskUserQuestion` with **named options** (do NOT phrase as a free-text "which one?"):
@@ -1184,32 +1247,53 @@ Run this question ONLY when Q9 resulted in actual VM provisioning ("Yes — prov
 **Already-configured detection (option α) for Q11:**
 
 ```bash
-if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^AI_PROVIDER=' "$ROOT/.my-harness/.notification.env"; then
-  CURRENT_AI=$(grep '^AI_PROVIDER=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+# 7.31.0+: look for AI_MODEL. Legacy AI_PROVIDER (7.22.0–7.30.x) is auto-translated
+# by setup-oci-vm-nixos.sh; detect it here to allow re-configuration.
+NOTIF="$ROOT/.my-harness/.notification.env"
+if [ -f "$NOTIF" ] && grep -q '^AI_MODEL=' "$NOTIF"; then
+  CURRENT_AI=$(grep '^AI_MODEL=' "$NOTIF" | cut -d= -f2)
+elif [ -f "$NOTIF" ] && grep -q '^AI_PROVIDER=' "$NOTIF"; then
+  # Legacy: show translated value so the user knows what will be used
+  _legacy=$(grep '^AI_PROVIDER=' "$NOTIF" | cut -d= -f2)
+  case "$_legacy" in
+    claude) CURRENT_AI="claude-sonnet-4-6 (translated from AI_PROVIDER=claude)" ;;
+    codex)  CURRENT_AI="gpt-5.5 (translated from AI_PROVIDER=codex)" ;;
+    *)      CURRENT_AI="$_legacy (legacy AI_PROVIDER)" ;;
+  esac
 fi
 ```
 
-If `AI_PROVIDER` is already saved, ask first:
+If `CURRENT_AI` is already set, ask first:
 
-- **LANG=en:** "Current AI provider: `$CURRENT_AI`. Change it?"
-- **LANG=ja:** "現在の AI provider: `$CURRENT_AI`。変更しますか?"
+- **LANG=en:** "Current AI model: `$CURRENT_AI`. Change it?"
+- **LANG=ja:** "現在の AI モデル: `$CURRENT_AI`。変更しますか?"
 
 Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する` → ask the original question below.
 
 **Q11 — `AskUserQuestion` payload:**
 
+> **Note on model–subscription mapping:** The model name implies which subscription is used. `claude-*` models use `~/.claude/.credentials.json` (Claude Pro/Max subscription). `gpt-*` models use `~/.codex/auth.json` (ChatGPT Plus/Pro subscription). Both flow through CLIProxyAPI on `localhost:8317` (dual-OAuth, enabled since 7.31.0).
+
+> **Backward compatibility:** Existing `.notification.env` with `AI_PROVIDER=claude|codex` (from 7.22.0–7.30.x) is auto-translated to `AI_MODEL=claude-sonnet-4-6` or `AI_MODEL=gpt-5.5` respectively when `setup-oci-vm-nixos.sh` runs, with a stderr warning. Re-run `/my-harness-init` Q11 to pick explicitly.
+
 **LANG=en:**
 ```json
 {
   "questions": [{
-    "question": "Which AI should the OCI VM call from daily-progress.sh and event-watch.sh?",
-    "header": "VM AI provider",
+    "question": "Which AI model should the OCI VM use in daily-progress.sh and event-watch.sh?",
+    "header": "VM AI model",
     "multiSelect": false,
     "options": [
-      { "label": "Claude Code (uses Q9.5 OAuth token)",
-        "description": "Reuses the Claude OAuth token captured in Q9.5. The VM runs `claude -p` for summaries. No extra setup. Best for Claude Pro/Max subscribers." },
-      { "label": "Codex (ChatGPT Plus/Pro subscription)",
-        "description": "Mac runs `codex login` once; harness copies ~/.codex/auth.json to the VM. Refresh token lifetime ~3 months — re-run `codex login` and re-deploy when it expires. No OpenAI API key billing." }
+      { "label": "claude-sonnet-4-6 (recommended)",
+        "description": "Fast and capable Claude model. Best balance of speed and quality for cron summaries. Uses Claude Pro/Max subscription via CLIProxyAPI." },
+      { "label": "claude-opus-4-7",
+        "description": "Most capable Claude model (latest 2026 release). Slower and heavier on subscription quota. Uses Claude Pro/Max subscription via CLIProxyAPI." },
+      { "label": "claude-opus-4-6",
+        "description": "Legacy stable Opus. Good quality, supported. Uses Claude Pro/Max subscription via CLIProxyAPI." },
+      { "label": "gpt-5.5",
+        "description": "OpenAI flagship model (rolled out 2026-04-23 to Plus/Pro/Codex). High quality. Uses ChatGPT Plus/Pro subscription via CLIProxyAPI." },
+      { "label": "gpt-5.4-mini",
+        "description": "Fast and cheap OpenAI model. Good for high-volume or quota-sensitive setups. Uses ChatGPT Plus/Pro subscription via CLIProxyAPI." }
     ]
   }]
 }
@@ -1219,14 +1303,20 @@ Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する
 ```json
 {
   "questions": [{
-    "question": "OCI VM の daily-progress.sh と event-watch.sh が呼び出す AI を選択してください:",
-    "header": "VM AI provider",
+    "question": "OCI VM の daily-progress.sh と event-watch.sh が使う AI モデルを選んでください:",
+    "header": "VM AI モデル",
     "multiSelect": false,
     "options": [
-      { "label": "Claude Code(Q9.5 の OAuth トークンを使う)",
-        "description": "Q9.5 で保存した Claude OAuth トークンをそのまま使用。VM 上で `claude -p` を実行。追加設定不要。Claude Pro/Max 加入者向け。" },
-      { "label": "Codex(ChatGPT Plus/Pro サブスクリプション)",
-        "description": "Mac で `codex login` を 1 回実行 → harness が ~/.codex/auth.json を VM にコピー。refresh トークンは約 3 ヶ月、失効時に `codex login` の再実行と再デプロイが必要。OpenAI API キーの課金は不要。" }
+      { "label": "claude-sonnet-4-6（推奨）",
+        "description": "高速かつ高性能な Claude モデル。cron サマリーに最適なバランス。CLIProxyAPI 経由で Claude Pro/Max サブスクを使用。" },
+      { "label": "claude-opus-4-7",
+        "description": "最新の最高性能 Claude モデル（2026年リリース）。低速でサブスク消費大。CLIProxyAPI 経由で Claude Pro/Max サブスクを使用。" },
+      { "label": "claude-opus-4-6",
+        "description": "旧来の安定 Opus。高品質でサポート継続中。CLIProxyAPI 経由で Claude Pro/Max サブスクを使用。" },
+      { "label": "gpt-5.5",
+        "description": "OpenAI のフラッグシップモデル（2026年4月23日 Plus/Pro/Codex に展開）。高品質。CLIProxyAPI 経由で ChatGPT Plus/Pro サブスクを使用。" },
+      { "label": "gpt-5.4-mini",
+        "description": "高速・低コストの OpenAI モデル。大量利用やサブスク節約に最適。CLIProxyAPI 経由で ChatGPT Plus/Pro サブスクを使用。" }
     ]
   }]
 }
@@ -1234,18 +1324,26 @@ Options: `Keep` / `保持する` → skip Q11 entirely. `Change` / `変更する
 
 **Behavior per choice:**
 
-#### "Claude Code" / 「Claude Code」
-
-Nothing extra to do. Q9.5 already captured the token. Persist `AI_PROVIDER=claude` to `.notification.env`:
+Persist the selected model ID as `AI_MODEL=<choice>` to `.notification.env`:
 
 ```bash
 NOTIF="$ROOT/.my-harness/.notification.env"
-{ grep -v '^AI_PROVIDER=' "$NOTIF" 2>/dev/null || true; echo "AI_PROVIDER=claude"; } > "$NOTIF.tmp"
+_model="<selected-model-id>"  # e.g. claude-sonnet-4-6, gpt-5.5, etc.
+{ grep -v '^AI_MODEL=' "$NOTIF" 2>/dev/null || true; echo "AI_MODEL=$_model"; } > "$NOTIF.tmp"
 mv "$NOTIF.tmp" "$NOTIF"
 chmod 600 "$NOTIF"
 ```
 
-#### "Codex" / 「Codex」
+Also remove any legacy `AI_PROVIDER=` line if present:
+```bash
+{ grep -v '^AI_PROVIDER=' "$NOTIF" 2>/dev/null || true; } > "$NOTIF.tmp" && mv "$NOTIF.tmp" "$NOTIF"
+```
+
+#### When model is claude-* (claude-sonnet-4-6 / claude-opus-4-7 / claude-opus-4-6)
+
+Nothing extra to do. Q9.5 already captured the Claude OAuth token. The token is used by CLIProxyAPI automatically via `~/.claude/.credentials.json` on the VM.
+
+#### "Codex" / 「Codex」 (when model is gpt-5.5 or gpt-5.4-mini)
 
 Print bilingual step-by-step guidance to the screen, then wait for `continue` / `done` / 完了:
 
@@ -1318,7 +1416,7 @@ bash scripts/ensure-codex-auth.sh "$ROOT"
 ```
 
 Exit codes:
-- **Exit 0:** auth captured. Persist `AI_PROVIDER=codex` to `.notification.env` (same merge snippet as Claude path above with `codex` instead of `claude`), then proceed.
+- **Exit 0:** auth captured. `AI_MODEL` was already persisted above (e.g. `gpt-5.5` or `gpt-5.4-mini`). Proceed.
 - **Exit 3:** ~/.codex/auth.json missing. Re-display the guidance and re-loop.
 
 ### Setup Q12.5: Additional AI agent (Hermes / OpenClaw / None)
@@ -1808,12 +1906,12 @@ Present model choices that match the provider selected in Q12.6. The user may al
     "header": "Hermes model",
     "multiSelect": false,
     "options": [
-      { "label": "gpt-5.4-mini (recommended)",
-        "description": "Fast, cheap on quota. Best balance of speed and quality for Discord chat." },
-      { "label": "gpt-5.4",
-        "description": "Full-size GPT-5.4. Higher quality but slower and heavier on subscription quota." },
+      { "label": "gpt-5.5 (recommended)",
+        "description": "OpenAI flagship model (rolled out 2026-04-23 to Plus/Pro/Codex). High quality for Discord chat." },
+      { "label": "gpt-5.4-mini",
+        "description": "Fast and cheap on quota. Good balance of speed and quality." },
       { "label": "o3-mini",
-        "description": "Reasoning model. Slower but strong on complex tasks." }
+        "description": "Reasoning model. NOTE: cannot call image_gen — use only when no image generation is needed." }
     ]
   }]
 }
@@ -1827,18 +1925,18 @@ Present model choices that match the provider selected in Q12.6. The user may al
     "header": "Hermes モデル",
     "multiSelect": false,
     "options": [
-      { "label": "gpt-5.4-mini（推奨）",
-        "description": "高速で利用枠の消費が少ない。Discord チャットに最適なバランス。" },
-      { "label": "gpt-5.4",
-        "description": "フルサイズ GPT-5.4。高品質だが低速、サブスク利用枠の消費が大きい。" },
+      { "label": "gpt-5.5（推奨）",
+        "description": "OpenAI フラッグシップモデル（2026年4月23日 Plus/Pro/Codex に展開）。Discord チャットに高品質な応答。" },
+      { "label": "gpt-5.4-mini",
+        "description": "高速でサブスク消費が少ない。速度と品質のバランスが良い。" },
       { "label": "o3-mini",
-        "description": "推論モデル。低速だが複雑なタスクに強い。" }
+        "description": "推論モデル。注意: image_gen を呼び出せないため、画像生成が不要な場合のみ使用してください。" }
     ]
   }]
 }
 ```
 
-Map: `gpt-5.4-mini` → `gpt-5.4-mini`, `gpt-5.4` → `gpt-5.4`, `o3-mini` → `o3-mini`. User may type a custom model ID via "Other".
+Map: `gpt-5.5` → `gpt-5.5`, `gpt-5.4-mini` → `gpt-5.4-mini`, `o3-mini` → `o3-mini`. User may type a custom model ID via "Other".
 
 #### When Q12.6 = claude-code
 
@@ -1852,10 +1950,10 @@ Map: `gpt-5.4-mini` → `gpt-5.4-mini`, `gpt-5.4` → `gpt-5.4`, `o3-mini` → `
     "options": [
       { "label": "claude-sonnet-4-6 (recommended)",
         "description": "Fast and capable. Best balance for Discord chat." },
+      { "label": "claude-opus-4-7",
+        "description": "Most capable Claude model (latest 2026 release). Slower and heavier on subscription quota." },
       { "label": "claude-opus-4-6",
-        "description": "Most capable Claude model. Slower and heavier on subscription quota." },
-      { "label": "claude-haiku-4-5",
-        "description": "Fastest Claude model. Lower quality but very fast responses." }
+        "description": "Legacy stable Opus. Good quality, supported." }
     ]
   }]
 }
@@ -1871,16 +1969,16 @@ Map: `gpt-5.4-mini` → `gpt-5.4-mini`, `gpt-5.4` → `gpt-5.4`, `o3-mini` → `
     "options": [
       { "label": "claude-sonnet-4-6（推奨）",
         "description": "高速かつ高性能。Discord チャットに最適なバランス。" },
+      { "label": "claude-opus-4-7",
+        "description": "最新の最高性能 Claude モデル（2026年リリース）。低速でサブスク消費大。" },
       { "label": "claude-opus-4-6",
-        "description": "最高性能の Claude モデル。低速でサブスク利用枠の消費が大きい。" },
-      { "label": "claude-haiku-4-5",
-        "description": "最速の Claude モデル。品質は劣るが応答が非常に速い。" }
+        "description": "旧来の安定 Opus。高品質でサポート継続中。" }
     ]
   }]
 }
 ```
 
-Map: `claude-sonnet-4-6` → `claude-sonnet-4-6`, `claude-opus-4-6` → `claude-opus-4-6`, `claude-haiku-4-5` → `claude-haiku-4-5`.
+Map: `claude-sonnet-4-6` → `claude-sonnet-4-6`, `claude-opus-4-7` → `claude-opus-4-7`, `claude-opus-4-6` → `claude-opus-4-6`.
 
 #### When Q12.6 = openrouter
 

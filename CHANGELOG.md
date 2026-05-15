@@ -4,6 +4,28 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.31.0] — 2026-05-15
+
+### Added
+- Phase 1 Setup Q5.5 (NEW): "Default Claude Code model for this project". Writes `PROJECT_CLAUDE_MODEL` to `.my-harness/.config`; bootstrap.sh reads it instead of the previous hardcoded `claude-opus-4-6`. Choices: claude-opus-4-7 (recommended) / claude-sonnet-4-6 / claude-opus-4-6 / claude-haiku-4-5.
+- Q11 rewritten as 5-model selection (claude-sonnet-4-6, claude-opus-4-7, claude-opus-4-6, gpt-5.5, gpt-5.4-mini). Replaces the previous "claude vs codex" 2-choice. Persisted as `AI_MODEL=<choice>` in `.notification.env`.
+- Q12.6 sub-questions updated: claude-code branch now offers `claude-opus-4-7`; codex branch now offers `gpt-5.5`. Both bilingual.
+
+### Changed
+- `templates/oracle-cloud/cliproxyapi/config.example.yaml` enables BOTH `codex` and `claude-code` OAuth providers simultaneously (was mutually exclusive). 5 model aliases declared explicitly so daily-progress / Hermes / OpenClaw can switch via `{"model": "..."}` request body.
+- `templates/oracle-cloud/daily-progress-bot/lib/ai-provider.sh` rewritten as a single curl to CLIProxyAPI on `${CLIPROXY_URL:-http://localhost:8317}` with `${AI_MODEL}` in the request body. Provider-agnostic.
+- `templates/oracle-cloud/daily-progress-bot/.env.example` `AI_PROVIDER=claude|codex` replaced by `AI_MODEL=<5-choice>` with documented options + recommended default.
+- `scripts/setup-oci-vm-nixos.sh` and `scripts/setup-oci-vm.sh` deploy CLIProxyAPI always (both auth files scp'd if present locally). Legacy `AI_PROVIDER=claude|codex` env auto-translated to `AI_MODEL=claude-sonnet-4-6` or `AI_MODEL=gpt-5.5` with a stderr warning.
+- `scripts/bootstrap.sh` reads `PROJECT_CLAUDE_MODEL` from `.my-harness/.config` instead of hardcoding `claude-opus-4-6`. Fallback default is now `claude-opus-4-7` (was `claude-opus-4-6`).
+
+### Verified model availability (2026-05)
+- Anthropic: claude-opus-4-7 (latest GA), claude-sonnet-4-6 (current), claude-opus-4-6 (legacy, supported). Source: docs.claude.com/en/about-claude/models/overview.
+- OpenAI: gpt-5.5 (rolled out 2026-04-23 to Plus/Pro/Business/Enterprise + Codex), gpt-5.4-mini (previous gen, still available). Source: openai.com/index/introducing-gpt-5-5/.
+
+### Backward compatibility
+- `.notification.env` from 7.22.0–7.30.x with `AI_PROVIDER=claude|codex` is auto-translated to `AI_MODEL=<default>` on the first 7.31.0 setup-oci-vm-nixos.sh run. Re-run /my-harness-init Q11 for explicit selection.
+- `dev/.claude/settings.json` already-existing with `model` field is NOT overwritten (`.model // $m` jq guard preserves user customization, unchanged behavior).
+
 ## [7.30.0.1] — 2026-05-15
 
 ### Added

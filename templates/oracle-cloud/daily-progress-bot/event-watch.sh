@@ -9,7 +9,7 @@
 #   event-watch.sh    = once an hour, narrow "what changed since last hour"
 #                       summary; only posts when there's something to say.
 #
-# Uses the same .env + same Claude Pro/Max subscription. The "last run
+# Uses the same .env + CLIProxyAPI on localhost:8317. The "last run
 # timestamp" is persisted at ~/daily-progress-bot/.last-event-watch
 # so successive runs see only the delta.
 
@@ -18,12 +18,15 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && set -a && . "$SCRIPT_DIR/.env" && set +a
 
-: "${AI_PROVIDER:=claude}"
-# Provider-specific credential checks happen inside ai_provider_run;
-# here we only sanity-check that claude has its token if it was chosen.
-if [ "$AI_PROVIDER" = "claude" ]; then
-  : "${CLAUDE_CODE_OAUTH_TOKEN:?must be set when AI_PROVIDER=claude}"
+# Legacy AI_PROVIDER backward-compat: translate to AI_MODEL with a warning.
+if [ -z "${AI_MODEL:-}" ] && [ -n "${AI_PROVIDER:-}" ]; then
+  case "$AI_PROVIDER" in
+    claude) AI_MODEL="claude-sonnet-4-6" ;;
+    codex)  AI_MODEL="gpt-5.5" ;;
+  esac
+  echo "::warning:: legacy AI_PROVIDER=$AI_PROVIDER detected; auto-translating to AI_MODEL=$AI_MODEL. Re-run /my-harness-init Q11 to choose explicitly." >&2
 fi
+: "${AI_MODEL:?must be set (one of claude-sonnet-4-6, claude-opus-4-7, claude-opus-4-6, gpt-5.5, gpt-5.4-mini)}"
 : "${NOTIFICATION_WEBHOOK_URL:=${DISCORD_WEBHOOK_URL:-}}"
 : "${NOTIFICATION_WEBHOOK_URL:?must be set (Discord/Slack/Teams webhook URL)}"
 : "${NOTIFICATION_SERVICE:=discord}"
@@ -32,13 +35,12 @@ fi
 : "${GH_TOKEN:=${GITHUB_TOKEN:-}}"
 LANG_TAG="${LANG_TAG:-ja}"
 
-case "$AI_PROVIDER" in
-  claude)  command -v claude >/dev/null 2>&1 || { echo "::error:: claude CLI not on PATH (install: npm i -g @anthropic-ai/claude-code)" >&2; exit 1; } ;;
-  codex)   command -v codex  >/dev/null 2>&1 || { echo "::error:: codex CLI not on PATH (install: npm i -g @openai/codex)" >&2; exit 1; } ;;
-esac
 command -v gh     >/dev/null 2>&1 || { echo "::error:: gh CLI required" >&2; exit 1; }
 command -v jq     >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 1; }
 command -v curl   >/dev/null 2>&1 || { echo "::error:: curl required" >&2; exit 1; }
+# CLIProxyAPI health check — both providers (codex + claude-code) route through it.
+curl -sS "${CLIPROXY_URL:-http://localhost:8317}/api/tags" >/dev/null 2>&1 \
+  || { echo "::error:: CLIProxyAPI not reachable at ${CLIPROXY_URL:-http://localhost:8317} — is it running?" >&2; exit 1; }
 
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/lib/post-notification.sh"
@@ -127,12 +129,12 @@ FULL_PROMPT="$PROMPT_INSTRUCTION
 $(cat "$EVENTS_FILE")"
 
 SUMMARY=$(ai_provider_run "$FULL_PROMPT") || {
-  echo "[event-watch] ${AI_PROVIDER:-claude} call failed — skip this hour"
+  echo "[event-watch] ${AI_MODEL} call failed — skip this hour"
   echo "$now" > "$STATE_FILE"
   exit 0
 }
 
-# Claude judged "nothing to report" → no Discord post.
+# Model judged "nothing to report" → no Discord post.
 if [ -z "$SUMMARY" ] || echo "$SUMMARY" | grep -q '_no_report_'; then
   echo "[event-watch] Claude said nothing notable — skip"
   echo "$now" > "$STATE_FILE"

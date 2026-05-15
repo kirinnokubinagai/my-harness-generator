@@ -597,7 +597,11 @@ esac
 # Either way we merge into any existing settings.json instead of clobbering
 # user customization. jq drives the merge so adding fields stays safe.
 PROJECT_SETTINGS="dev/.claude/settings.json"
-DEFAULT_PROJECT_MODEL="claude-opus-4-6"
+# PROJECT_CLAUDE_MODEL is set by /my-harness-init Phase 1 Q5.5. Falls back
+# to claude-opus-4-7 (latest) if absent (= legacy bootstrap or fresh project
+# without Q5.5 having run yet).
+DEFAULT_PROJECT_MODEL="$(grep '^PROJECT_CLAUDE_MODEL=' .my-harness/.config 2>/dev/null | cut -d= -f2-)"
+DEFAULT_PROJECT_MODEL="${DEFAULT_PROJECT_MODEL:-claude-opus-4-7}"
 GLOBAL_CLAUDE_MD="${HOME}/.claude/CLAUDE.md"
 
 mkdir -p "dev/.claude"

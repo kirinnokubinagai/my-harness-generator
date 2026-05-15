@@ -18,8 +18,10 @@
 #                          Shape: ^#[a-z0-9_-]{1,99}$
 #   app-channel-name     = Discord channel for user conversations (e.g. #bot-chat)
 #                          Shape: ^#[a-z0-9_-]{1,99}$
-#   model                = LLM model ID to use (e.g. gpt-5.4-mini, claude-sonnet-4-6).
-#                          If empty, a sensible default is chosen per provider.
+#   model                = LLM model ID to use (e.g. gpt-5.5, gpt-5.4-mini, claude-sonnet-4-6,
+#                          claude-opus-4-7, claude-opus-4-6). OpenRouter-style namespaced IDs
+#                          (anthropic/claude-sonnet-4, google/gemini-2.5-flash, openai/gpt-5.5, …)
+#                          are also accepted. If empty, a sensible default is chosen per provider.
 #
 # Exit codes:
 #   0 — config saved to .my-harness/.hermes-config.json (chmod 600)
@@ -192,10 +194,13 @@ OPENAI_MODEL=""
 
 case "$HERMES_AI_PROVIDER" in
   codex)
+    # Accepted: gpt-5.5 (recommended), gpt-5.4-mini, o3-mini, or any openai/* namespaced ID.
     OPENAI_BASE_URL="http://localhost:8317/v1"
-    OPENAI_MODEL="${MODEL_ARG:-gpt-5.4-mini}"
+    OPENAI_MODEL="${MODEL_ARG:-gpt-5.5}"
     ;;
   claude-code)
+    # Accepted: claude-sonnet-4-6 (recommended), claude-opus-4-7, claude-opus-4-6,
+    # or any anthropic/* namespaced ID.
     OPENAI_BASE_URL="http://localhost:8317/v1"
     OPENAI_MODEL="${MODEL_ARG:-claude-sonnet-4-6}"
     ;;
