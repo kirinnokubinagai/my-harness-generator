@@ -318,18 +318,65 @@ if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" = "null" ]; then
                   --query 'data."ingress-security-rules"[?"tcp-options"."destination-port-range".min==`22` && "tcp-options"."destination-port-range".max==`22`] | [0].source' \
                   --raw-output 2>/dev/null || true)"
 
+  # OCI_SSH_SOURCE_CIDR — restrict SSH ingress to a specific IP/CIDR instead of
+  # the default 0.0.0.0/0. Set to e.g. <my-ip>/32 for maximum restriction.
+  # setup-oci-vm-nixos.sh closes port 22 entirely post-Tailscale-verification when
+  # TAILSCALE_ENABLED=yes, so this CIDR only matters for non-Tailscale deployments.
+  : "${OCI_SSH_SOURCE_CIDR:=0.0.0.0/0}"
+
   if [ -z "$SL_HAS_SSH" ] || [ "$SL_HAS_SSH" = "null" ]; then
-    echo "[oci-vm] opening SSH ingress (port 22) from 0.0.0.0/0..."
+    echo "[oci-vm] opening SSH ingress (port 22) from $OCI_SSH_SOURCE_CIDR..."
     oci network security-list update \
       --security-list-id "$SL_ID" \
       --region "$REGION" \
-      --ingress-security-rules '[{"source":"0.0.0.0/0","protocol":"6","tcpOptions":{"destinationPortRange":{"min":22,"max":22}},"isStateless":false}]' \
+      --ingress-security-rules "[{\"source\":\"$OCI_SSH_SOURCE_CIDR\",\"protocol\":\"6\",\"tcpOptions\":{\"destinationPortRange\":{\"min\":22,\"max\":22}},\"isStateless\":false}]" \
       --force >/dev/null 2>&1 || {
       echo "::error:: failed to update security list with SSH ingress." >&2
       exit 2
     }
   else
     echo "[oci-vm] SSH ingress rule already present — skipping."
+  fi
+
+  # UDP 41641 — Tailscale direct P2P. Harmless when Tailscale is OFF (nothing
+  # listens on 41641). Required for optimal Tailscale performance when ON;
+  # Tailscale falls back to DERP (TCP/443) if this UDP port is blocked.
+  SL_HAS_TAILSCALE_UDP="$(oci network security-list get \
+                            --security-list-id "$SL_ID" \
+                            --region "$REGION" \
+                            --query 'data."ingress-security-rules"[?"protocol"==`17` && "udpOptions"."destinationPortRange".min==`41641`] | [0].source' \
+                            --raw-output 2>/dev/null || true)"
+
+  if [ -z "$SL_HAS_TAILSCALE_UDP" ] || [ "$SL_HAS_TAILSCALE_UDP" = "null" ]; then
+    echo "[oci-vm] opening Tailscale UDP 41641 ingress from 0.0.0.0/0..."
+    # Fetch current ingress rules and append the UDP 41641 rule.
+    _CURRENT_INGRESS="$(oci network security-list get \
+      --security-list-id "$SL_ID" \
+      --region "$REGION" \
+      --query 'data."ingress-security-rules"' \
+      --raw-output 2>/dev/null || true)"
+    _NEW_INGRESS="$(printf '%s' "$_CURRENT_INGRESS" | python3 -c "
+import json, sys
+rules = json.load(sys.stdin)
+rules.append({
+  'source': '0.0.0.0/0',
+  'protocol': '17',
+  'udpOptions': {'destinationPortRange': {'min': 41641, 'max': 41641}},
+  'isStateless': False
+})
+print(json.dumps(rules))
+" 2>/dev/null || true)"
+    if [ -n "$_NEW_INGRESS" ]; then
+      oci network security-list update \
+        --security-list-id "$SL_ID" \
+        --region "$REGION" \
+        --ingress-security-rules "$_NEW_INGRESS" \
+        --force >/dev/null 2>&1 || {
+        echo "::warning:: failed to add Tailscale UDP 41641 ingress — add manually if using Tailscale." >&2
+      }
+    fi
+  else
+    echo "[oci-vm] Tailscale UDP 41641 ingress rule already present — skipping."
   fi
 
   # ---- 4. Public subnet ----------------------------------------------------

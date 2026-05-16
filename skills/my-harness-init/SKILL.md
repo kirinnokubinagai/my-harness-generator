@@ -1093,6 +1093,121 @@ If the Mac doesn't have Nix installed and the user chose NixOS, surface:
 - **LANG=en:** "NixOS deployment requires the `nix` command on this Mac. Install it from https://nixos.org/download.html or via the Determinate Systems installer, then re-run setup-oci-vm.sh. Or pick Oracle Linux 9 above to skip."
 - **LANG=ja:** "NixOS デプロイには Mac 上に `nix` コマンドが必要です。https://nixos.org/download.html または Determinate Systems installer でインストール後、setup-oci-vm.sh を再実行してください。上の Oracle Linux 9 を選べばスキップできます。"
 
+### Setup Q9.8: Tailscale (recommended for SSH security)
+
+Run this question only when Q9 resulted in actual VM provisioning or "Already have one — connect to it". Skip if Q9 was "Skip — set up later". Skip also for Oracle Linux 9 VMs (`OS_KIND=oraclelinux`) — Tailscale on NixOS only.
+
+**Already-configured detection (option α) for Q9.8:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^TAILSCALE_ENABLED=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_TAILSCALE=$(grep '^TAILSCALE_ENABLED=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+fi
+```
+
+If already set, ask "Keep / Change". Otherwise:
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Use Tailscale for VM access? (Strongly recommended — closes SSH port 22 entirely; the VM is only reachable via your private Tailnet. Eliminates brute-force exposure.)",
+    "header": "SSH security / Tailscale",
+    "multiSelect": false,
+    "options": [
+      { "label": "Yes, use Tailscale (recommended)",
+        "description": "You'll generate a tagged auth key in the Tailscale admin console. SSH port 22 gets closed in the OCI Security List after Tailscale connectivity is verified. Access via `ssh opc@<tailscale-ip>`. Requires a free Tailscale account (tailscale.com)." },
+      { "label": "No, keep SSH on port 22 (fail2ban protects it)",
+        "description": "SSH stays open to OCI_SSH_SOURCE_CIDR (default 0.0.0.0/0). fail2ban (3 strikes, escalating ban up to 1 week) is the only brute-force defense. Acceptable but weaker than Tailscale." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "Tailscale で VM へのアクセスを保護しますか？（強く推奨 — SSH ポート 22 を完全に閉鎖し、VM はプライベート Tailnet 経由でのみアクセス可能になります。ブルートフォース攻撃の露出をゼロにします。）",
+    "header": "SSH セキュリティ / Tailscale",
+    "multiSelect": false,
+    "options": [
+      { "label": "はい、Tailscale を使う（推奨）",
+        "description": "Tailscale 管理コンソールでタグ付き認証キーを発行します。Tailscale の接続確認後、OCI Security List で SSH ポート 22 を閉鎖します。`ssh opc@<tailscale-ip>` でアクセス。無料の Tailscale アカウント（tailscale.com）が必要です。" },
+      { "label": "いいえ、SSH ポート 22 のまま使う（fail2ban で保護）",
+        "description": "SSH は OCI_SSH_SOURCE_CIDR（デフォルト 0.0.0.0/0）に開放されたまま。fail2ban（3 回失敗で最大 1 週間のエスカレーティングバン）がブルートフォース防御を担います。許容できますが Tailscale より弱いです。" }
+    ]
+  }]
+}
+```
+
+**If user chooses "Yes, use Tailscale":**
+
+1. Persist `TAILSCALE_ENABLED=yes` to `.notification.env`:
+   ```bash
+   NOTIF="$ROOT/.my-harness/.notification.env"
+   { grep -v '^TAILSCALE_ENABLED=' "$NOTIF" 2>/dev/null || true; echo "TAILSCALE_ENABLED=yes"; } > "$NOTIF.tmp"
+   mv "$NOTIF.tmp" "$NOTIF"
+   chmod 600 "$NOTIF"
+   ```
+
+2. Walk the user through generating the auth key — display verbatim:
+
+   **LANG=en:**
+   ```
+   Tailscale auth key setup:
+
+   1. Go to https://login.tailscale.com/admin/settings/keys
+      (Sign up for a free Tailscale account if you don't have one.)
+
+   2. Click "Generate auth key" with these settings:
+        - Description:  oci-harness
+        - Reusable:     OFF  (one VM, one key)
+        - Ephemeral:    OFF  (VM is long-lived; ephemeral would deregister it offline)
+        - Tags:         tag:oci-harness  (create the tag in Access Controls first if needed)
+        - Expiry:       90 days  (the node stays up; only the key expires)
+
+   3. Copy the generated key (starts with tskey-auth-...).
+
+   4. Type "continue" when ready to paste it.
+   ```
+
+   **LANG=ja:**
+   ```
+   Tailscale 認証キーのセットアップ:
+
+   1. https://login.tailscale.com/admin/settings/keys を開く
+      （アカウントをお持ちでない場合は無料で作成してください。）
+
+   2. "Generate auth key" をクリックし、以下の設定で生成:
+        - Description:  oci-harness
+        - Reusable:     OFF（1 VM、1 キー）
+        - Ephemeral:    OFF（VM は長期稼働；ephemeral にするとオフライン時に登録解除される）
+        - Tags:         tag:oci-harness（必要なら Access Controls で先にタグを作成）
+        - Expiry:       90 日（ノードは稼働し続け、キーのみ失効）
+
+   3. 生成されたキー（tskey-auth-... で始まる）をコピー。
+
+   4. 貼り付け準備ができたら「continue」と入力してください。
+   ```
+
+3. Wait for user to type `continue`, then AskUserQuestion for the key:
+
+   **LANG=en:** "Paste your Tailscale auth key (tskey-auth-...):"
+   **LANG=ja:** "Tailscale 認証キーを貼り付けてください（tskey-auth-... の形式）:"
+
+4. Run:
+   ```bash
+   bash scripts/ensure-tailscale-authkey.sh "$ROOT" "<pasted-key>"
+   ```
+   - Exit 0: key saved to `.my-harness/.tailscale-authkey`. Proceed.
+   - Exit 2: format validation failed. Show error, re-ask for the key.
+   - Exit 3: no key provided. Re-display guidance and re-loop.
+
+**If user chooses "No, keep SSH on port 22":**
+
+Persist `TAILSCALE_ENABLED=no` to `.notification.env`. No further action needed here — `services/security.nix` (always imported) provides fail2ban + SSH hardening.
+
 ### Setup Q9.5: Claude Code subscription OAuth token
 
 Run this question only when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".

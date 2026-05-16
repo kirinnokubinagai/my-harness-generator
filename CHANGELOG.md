@@ -4,6 +4,37 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.32.0] — 2026-05-16
+
+### Security audit + hardening
+
+A full security audit of the generated OCI VM found: SSH open to 0.0.0.0/0, no fail2ban, no automatic security updates, sudo NOPASSWD with no wheel restriction. This release closes all of them, with Tailscale as the strongest single fix.
+
+### Added
+- `templates/oracle-cloud/nixos/services/security.nix` (new, always imported):
+  - `services.fail2ban` — 3-strike SSH jail with escalating ban (2× up to 1 week).
+  - `system.autoUpgrade` — weekly, `allowReboot = false` (never auto-reboots the headless bot host; reboot-needing kernel updates surface in journal).
+  - Extra SSH hardening: `MaxAuthTries=3`, `LoginGraceTime=20`, `KbdInteractiveAuthentication=false`, `ClientAliveInterval=300`, no TCP/agent/X11 forwarding.
+  - `security.sudo.execWheelOnly = true` (NOPASSWD kept — setup scripts depend on it — but only wheel can sudo).
+  - Conservative sysctl hardening (rp_filter, tcp_syncookies, kptr_restrict, dmesg_restrict).
+- `templates/oracle-cloud/nixos/services/tailscale.nix` (new, conditional on `harness.tailscaleEnabled`):
+  - `services.tailscale.enable` + `authKeyFile = /home/opc/.tailscale-authkey` (non-interactive headless join).
+  - `extraUpFlags = ["--ssh" "--accept-dns=false" "--hostname=harness-oci"]`, `useRoutingFeatures = "server"`.
+  - Firewall: UDP 41641 + trusted `tailscale0` interface. State persists at /var/lib/tailscale.
+- `scripts/ensure-tailscale-authkey.sh` (new) — captures the user's tagged auth key (validates `tskey-auth-...` shape) → `.my-harness/.tailscale-authkey` (chmod 600).
+- `skills/my-harness-init/SKILL.md` Q9.8 (Tailscale, bilingual, recommended) + a "⚠️ Leaked credential remediation" section listing how to revoke/regenerate every credential type (Claude OAuth, GitHub PAT, Discord webhook, Codex auth, Tailscale key) — the harness cannot revoke them; only the user can.
+
+### Changed
+- `templates/oracle-cloud/nixos/configuration.nix` always imports `security.nix`; conditionally imports `tailscale.nix` via the new `harness.tailscaleEnabled` option (mirrors `harness.hermesAgentEnabled` from 7.27.0).
+- `scripts/setup-oci-vm-nixos.sh`: when `TAILSCALE_ENABLED=yes`, scp's the auth key, sets `harness.tailscaleEnabled = true`, and — only AFTER verifying Tailscale SSH connectivity works — closes SSH port 22 in the OCI Security List (fail-safe: if Tailscale check fails, port 22 stays open and the user is warned, so we never lock ourselves out).
+- `scripts/ensure-oci-vm.sh`: new `OCI_SSH_SOURCE_CIDR` env (default `0.0.0.0/0`; set to `<my-ip>/32` to restrict). Adds a UDP 41641 ingress rule (harmless when Tailscale off, required when on).
+
+### Rationale
+Defense in depth. With Tailscale ON the public SSH attack surface is removed entirely (port 22 closed at the cloud Security List; the VM is only reachable inside the user's private Tailnet) — this is strictly better than fail2ban, which only slows brute-force on a still-public port. fail2ban + sysctl + SSH hardening remain as the baseline for users who decline Tailscale. Tailscale requires a free Tailscale account and a manually-generated **tagged, non-reusable, non-ephemeral** auth key (cannot be automated — it's account-bound); SKILL.md Q9.8 walks the user through it.
+
+### Note
+- The biggest real-world risk surfaced by the audit is not harness code but credentials that were pasted into chat / committed during this project's development. The new SKILL.md "Leaked credential remediation" section documents the revoke steps; the user must perform them.
+
 ## [7.31.0.1] — 2026-05-16
 
 ### Fixed
