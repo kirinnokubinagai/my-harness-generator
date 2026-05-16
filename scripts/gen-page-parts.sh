@@ -34,9 +34,11 @@ PROJECT_NAME="${4:?project name required}"
 
 HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMPL_PAGE="$HARNESS_DIR/prompts/codex-page-mock.md"
+TMPL_MANIFEST="$HARNESS_DIR/prompts/codex-page-manifest.md"
 TMPL_GRID="$HARNESS_DIR/prompts/codex-parts-grid-edit.md"
-[ -f "$TMPL_PAGE" ] || { echo "::error:: $TMPL_PAGE not found" >&2; exit 1; }
-[ -f "$TMPL_GRID" ] || { echo "::error:: $TMPL_GRID not found" >&2; exit 1; }
+[ -f "$TMPL_PAGE" ]     || { echo "::error:: $TMPL_PAGE not found" >&2; exit 1; }
+[ -f "$TMPL_MANIFEST" ] || { echo "::error:: $TMPL_MANIFEST not found" >&2; exit 1; }
+[ -f "$TMPL_GRID" ]     || { echo "::error:: $TMPL_GRID not found" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "::error:: jq required" >&2; exit 3; }
 command -v python3 >/dev/null 2>&1 || { echo "::error:: python3 required" >&2; exit 3; }
 
@@ -115,7 +117,14 @@ else
   PRIOR_BLOCK=$'## STYLE DECISIONS (this is the FIRST artifact for the project — you set the tone)\n\nThere are no prior invariants. Every visual choice you make here — palette (every hex), illustration_style, line_weight, character_design, decorative_motifs — becomes the project\'s locked-in style_guide that every later screen AND every later form factor must honor.\n\nBe deliberate: pick choices that will work for BOTH form factors (pc AND mobile) since both will share these invariants. Avoid pc-only or mobile-only tropes unless the brand genuinely demands them.\n'
 fi
 
-# ===== Turn 1: page mock + style_guide manifest =====
+# ===== Turn 1a: page mock PNG (image-only — Codex's normal image_gen flow) =====
+# 7.34.1 split: requesting an image_gen call AND a JSON manifest in ONE turn
+# structurally fails. codex-app-server-call.py classifies a turn as failure
+# only when it has neither agent_message text nor an image_generation_call;
+# Codex returns NO agent_message on an image_gen turn (that file's own
+# comment, ~L289-294), so "image + JSON in one turn" yields neither and
+# exits 1. Fix: 1a = image only; 1b = JSON only, SAME session so Codex sees
+# the 1a image in context and merely describes it (text-only, returns text).
 PROMPT_PAGE=$(render_template "$TMPL_PAGE" \
   "<PROJECT_NAME>" "$PROJECT_NAME" \
   "<FORM_FACTOR>" "$FORM_FACTOR" \
@@ -124,19 +133,45 @@ PROMPT_PAGE=$(render_template "$TMPL_PAGE" \
   "<root>" "$ROOT" \
   "<PRIOR_STYLE_GUIDE_BLOCK>" "$PRIOR_BLOCK")
 
-TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}.md"
-
 # cloudflare@openai-curated plugin interferes with image_gen turns
 # (observed: Codex stalls / Claude resorts to hand-editing config.toml).
 # Disable it PER-CALL (config.toml stays untouched). See HARD RULE 5.
-echo "=== Turn 1: page mock + manifest ($FORM_FACTOR / $SCREEN_NAME) ==="
+TURN1A_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}.md"
+echo "=== Turn 1a: page mock PNG ($FORM_FACTOR / $SCREEN_NAME) ==="
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --disable-plugin "cloudflare@openai-curated" \
   --role designer \
   --session "$SESSION_KEY" \
   --context "$ROOT/dev/docs/spec/"*.md \
-  --out "$TURN1_RESPONSE" \
+  --out "$TURN1A_RESPONSE" \
   "$PROMPT_PAGE"
+
+# Turn 1a retry loop — PAGE PNG only (image_gen turns return no text, so the
+# only success signal is the PNG existing at $OUT_PAGE).
+T1A_MAX=${HARNESS_GEN_RETRY:-3}
+T1A_RETRY=0
+while : ; do
+  PAGE_OK=0
+  is_png "$OUT_PAGE" && PAGE_OK=1
+  [ "$PAGE_OK" -eq 1 ] && break
+
+  T1A_RETRY=$(( T1A_RETRY + 1 ))
+  if [ "$T1A_RETRY" -gt "$T1A_MAX" ]; then
+    echo "::error:: Turn 1a (page PNG) failed after $T1A_MAX retries — no PNG at $OUT_PAGE. Session '$SESSION_KEY' preserved." >&2
+    exit 2
+  fi
+
+  NUDGE="Page PNG still missing at $OUT_PAGE for the '$SCREEN_NAME' screen ('$FORM_FACTOR', project '$PROJECT_NAME'). Call image_gen once and save the full page mock to that exact path. IMAGE ONLY this turn — no JSON, no commentary."
+  echo "::warning:: Turn 1a attempt $T1A_RETRY/$T1A_MAX failed; nudging" >&2
+  TURN1A_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}-r${T1A_RETRY}.md"
+  bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+    --disable-plugin "cloudflare@openai-curated" \
+    --role designer \
+    --session "$SESSION_KEY" \
+    --out "$TURN1A_RESPONSE" \
+    "$NUDGE"
+done
+echo "  page: $OUT_PAGE"
 
 extract_manifest() {
   local file="$1"
@@ -155,36 +190,49 @@ sys.exit(1)
 PY
 }
 
-# Turn 1 retry loop.
-TURN1_MAX_RETRY=${HARNESS_GEN_RETRY:-3}
-TURN1_RETRY=0
+# ===== Turn 1b: style_guide + manifest JSON (text-only — same session) =====
+# Same $SESSION_KEY → Codex still has the 1a page image in conversation
+# context. The prompt forbids image_gen, so this is a normal text turn that
+# returns an agent_message containing exactly one ```json block.
+PROMPT_MANIFEST=$(render_template "$TMPL_MANIFEST" \
+  "<PROJECT_NAME>" "$PROJECT_NAME" \
+  "<FORM_FACTOR>" "$FORM_FACTOR" \
+  "<SCREEN_NAME>" "$SCREEN_NAME" \
+  "<SCREEN_SLUG>" "$SCREEN_SLUG" \
+  "<root>" "$ROOT" \
+  "<PRIOR_STYLE_GUIDE_BLOCK>" "$PRIOR_BLOCK")
+
+TURN1B_RESPONSE="$ROOT/.my-harness/codex-manifest-${FORM_FACTOR}-${SCREEN_SLUG}.md"
+echo "=== Turn 1b: style_guide + manifest JSON ($FORM_FACTOR / $SCREEN_NAME) ==="
+bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+  --disable-plugin "cloudflare@openai-curated" \
+  --role designer \
+  --session "$SESSION_KEY" \
+  --out "$TURN1B_RESPONSE" \
+  "$PROMPT_MANIFEST"
+
+# Turn 1b retry loop — manifest JSON only.
+T1B_MAX=${HARNESS_GEN_RETRY:-3}
+T1B_RETRY=0
 MANIFEST_JSON=""
 while : ; do
-  PAGE_OK=0
-  is_png "$OUT_PAGE" && PAGE_OK=1
-  MANIFEST_JSON=$(extract_manifest "$TURN1_RESPONSE" 2>/dev/null) || MANIFEST_JSON=""
+  MANIFEST_JSON=$(extract_manifest "$TURN1B_RESPONSE" 2>/dev/null) || MANIFEST_JSON=""
+  [ -n "$MANIFEST_JSON" ] && break
 
-  if [ "$PAGE_OK" -eq 1 ] && [ -n "$MANIFEST_JSON" ]; then
-    break
-  fi
-
-  TURN1_RETRY=$(( TURN1_RETRY + 1 ))
-  if [ "$TURN1_RETRY" -gt "$TURN1_MAX_RETRY" ]; then
-    echo "::error:: Turn 1 failed after $TURN1_MAX_RETRY retries (page_ok=$PAGE_OK, manifest=${MANIFEST_JSON:+present}${MANIFEST_JSON:-missing}). Session '$SESSION_KEY' preserved." >&2
+  T1B_RETRY=$(( T1B_RETRY + 1 ))
+  if [ "$T1B_RETRY" -gt "$T1B_MAX" ]; then
+    echo "::error:: Turn 1b (manifest JSON) failed after $T1B_MAX retries — no parseable \`\`\`json (style_guide+image_count) in $TURN1B_RESPONSE. The 1a page PNG at $OUT_PAGE is fine; only the JSON description failed. Session '$SESSION_KEY' preserved." >&2
     exit 2
   fi
 
-  NUDGE="For the '$SCREEN_NAME' screen on '$FORM_FACTOR' form factor of project '$PROJECT_NAME':  "
-  [ "$PAGE_OK" -eq 0 ] && NUDGE="$NUDGE Page PNG missing at $OUT_PAGE — call image_gen and save it.  "
-  [ -z "$MANIFEST_JSON" ] && NUDGE="$NUDGE Manifest JSON missing or unparseable — output exactly one \`\`\`json block with the full schema (style_guide, image_count, rows_per_image, cells).  "
-
-  echo "::warning:: Turn 1 attempt $TURN1_RETRY/$TURN1_MAX_RETRY failed; nudging" >&2
-  TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}-r${TURN1_RETRY}.md"
+  NUDGE="Manifest JSON missing or unparseable for the '$SCREEN_NAME' page you generated last turn. Output EXACTLY one \`\`\`json block (keys: style_guide, image_count, rows_per_image, cells) describing that image. TEXT ONLY — do NOT call image_gen, no commentary around the block."
+  echo "::warning:: Turn 1b attempt $T1B_RETRY/$T1B_MAX failed; nudging" >&2
+  TURN1B_RESPONSE="$ROOT/.my-harness/codex-manifest-${FORM_FACTOR}-${SCREEN_SLUG}-r${T1B_RETRY}.md"
   bash "$HARNESS_DIR/scripts/codex-ask.sh" \
     --disable-plugin "cloudflare@openai-curated" \
     --role designer \
     --session "$SESSION_KEY" \
-    --out "$TURN1_RESPONSE" \
+    --out "$TURN1B_RESPONSE" \
     "$NUDGE"
 done
 

@@ -4,6 +4,26 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.1] — 2026-05-16
+
+### Fixed — Phase-5 image pipeline: Turn 1 split into 1a (image) + 1b (JSON)
+
+**Symptom (user-reported):** `$imagegen` + page-mock + JSON-manifest in one Codex turn failed with exit 1 after 3 retries, while a plain image_gen call succeeded.
+
+**Root cause (found by reading the code, not guessing):** `prompts/codex-page-mock.md` required Codex to make an `image_gen` tool call **and** emit a JSON manifest as `agent_message` text **in the same turn**. `scripts/codex-app-server-call.py`'s own comment (~L289-294) documents that Codex returns **no agent_message on an image_gen turn** — the entire Phase-5 flow depends on image-only turns being empty-text. So "image + JSON in one turn" produced neither, the classify branch at L335-337 (`if not text and not images: return 1`) fired → exit 1, and retrying the same self-contradictory request merely exhausted the 3 attempts. A plain image_gen call worked precisely because it did *not* also demand JSON text in the same turn.
+
+**Fix (root, not symptom):** the turn is now two single-responsibility turns in the same Codex session:
+- `prompts/codex-page-mock.md` (rewritten): **image only** — one `image_gen` call, no JSON. Explicitly states the JSON is asked for in a separate follow-up turn.
+- `prompts/codex-page-manifest.md` (new): **text only** — describe the just-generated image as exactly one ```json block; `image_gen` explicitly forbidden. Same session, so Codex still has the 1a image in conversation context.
+- `scripts/gen-page-parts.sh`: Turn 1 is now Turn 1a (retry on `is_png $OUT_PAGE` only) → Turn 1b (retry on `extract_manifest` only), same `$SESSION_KEY`. Everything from `IMG_COUNT` onward is unchanged (still reads `$MANIFEST_JSON`).
+
+### Verified
+- `bash -n scripts/gen-page-parts.sh` → syntax OK.
+- Variable continuity confirmed: no stale `TURN1_RESPONSE`/`TURN1_MAX_RETRY`/`TURN1_RETRY`; `MANIFEST_JSON` is still produced by Turn 1b and consumed unchanged by `IMG_COUNT` / `OUT_MANIFEST` / Turn 2..N.
+
+### Verification scope (honest)
+Syntax + variable-flow only. The actual Codex pipeline was **NOT executed** — there is no Codex auth in this environment (same constraint as the OCI work). Whether Codex's image-only Turn 1a reliably saves to `$OUT_PAGE`, and whether the text-only Turn 1b reliably emits the JSON while seeing the 1a image in session context, is a real-Codex layer confirmable only by running `/my-harness-init` Phase 5 against live Codex. The fix is grounded in `codex-app-server-call.py`'s own documented turn-classification behaviour; the design contradiction it removes is concrete and code-evidenced.
+
 ## [7.34.0] — 2026-05-16
 
 ### Added — OCI billing alert + free-tier maximum spec
