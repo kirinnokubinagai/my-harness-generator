@@ -4,6 +4,24 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.2] — 2026-05-16
+
+### Added — per-turn JSONL diagnostics for the Phase-5 image pipeline
+
+**7.34.1 actually worked — verified by evidence, not assumption.** The user's project has `dev/docs/design/page-pc-home.png` at **1,463,553 bytes, mtime 2026-05-16 19:02:30** — generated **11 minutes after the 7.34.1 commit (18:51:29)**. Turn 1a (image-only) succeeds: `image_gen` produces the real 1.4 MB page mock. "PNG creation failed" was a misread.
+
+What actually did not complete: there is **no `manifest.json` and `parts/` is empty**, and the user's run log showed **`(timeout 5m)`**. The most likely cause is NOT a Turn 1b code bug but the run hitting the 5-minute timeout: a single `image_gen` turn is slow, and the invocation attempted 28 screens × (PC + Mobile) in one timeboxed call, so the process was killed at/just after the first screen's Turn 1a — Turn 1b (and screens 2..28) never ran.
+
+This release does **not** guess-patch Turn 1b (no evidence yet = no fix, per systematic-debugging). It adds evidence collection so the next run is diagnosable from facts:
+
+- `scripts/gen-page-parts.sh`: every Turn 1a / 1b `codex-ask.sh` call (first attempt + retries) now passes `--log` → a full JSONL event stream at `.my-harness/codex-1a-<ff>-<slug>.jsonl` and `.my-harness/codex-1b-<ff>-<slug>.jsonl`. Reveals per turn: was `image_generation_call` emitted, what `agent_message` text returned, how `codex-app-server-call.py` classified the turn. Retries overwrite the same path (final failed attempt is what matters for root-cause).
+
+### Verified
+- `bash -n scripts/gen-page-parts.sh` → syntax OK; 4 `--log` lines wired (1a first/retry, 1b first/retry).
+
+### Verification scope (honest)
+This is **instrumentation, not a fix**. Turn 1b's real behaviour is still unproven because the prior run never reached it (timeout). Next step: run a SINGLE screen with NO timeout (or a generous one); the two JSONL files then show exactly what Turn 1a and Turn 1b did. **Do not run all 56 screens under a 5-minute timeout** — `image_gen` is minutes per turn.
+
 ## [7.34.1] — 2026-05-16
 
 ### Fixed — Phase-5 image pipeline: Turn 1 split into 1a (image) + 1b (JSON)

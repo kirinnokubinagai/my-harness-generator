@@ -137,12 +137,18 @@ PROMPT_PAGE=$(render_template "$TMPL_PAGE" \
 # (observed: Codex stalls / Claude resorts to hand-editing config.toml).
 # Disable it PER-CALL (config.toml stays untouched). See HARD RULE 5.
 TURN1A_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}.md"
+# 7.34.2: full JSONL event log per turn so 1a/1b failures are diagnosable
+# from evidence (was image_gen called? agent_message text? how did the turn
+# classify?). Retries overwrite the same path — the final failed attempt's
+# events are what matter for root-causing.
+T1A_LOG="$ROOT/.my-harness/codex-1a-${FORM_FACTOR}-${SCREEN_SLUG}.jsonl"
 echo "=== Turn 1a: page mock PNG ($FORM_FACTOR / $SCREEN_NAME) ==="
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --disable-plugin "cloudflare@openai-curated" \
   --role designer \
   --session "$SESSION_KEY" \
   --context "$ROOT/dev/docs/spec/"*.md \
+  --log "$T1A_LOG" \
   --out "$TURN1A_RESPONSE" \
   "$PROMPT_PAGE"
 
@@ -168,6 +174,7 @@ while : ; do
     --disable-plugin "cloudflare@openai-curated" \
     --role designer \
     --session "$SESSION_KEY" \
+    --log "$T1A_LOG" \
     --out "$TURN1A_RESPONSE" \
     "$NUDGE"
 done
@@ -203,11 +210,13 @@ PROMPT_MANIFEST=$(render_template "$TMPL_MANIFEST" \
   "<PRIOR_STYLE_GUIDE_BLOCK>" "$PRIOR_BLOCK")
 
 TURN1B_RESPONSE="$ROOT/.my-harness/codex-manifest-${FORM_FACTOR}-${SCREEN_SLUG}.md"
+T1B_LOG="$ROOT/.my-harness/codex-1b-${FORM_FACTOR}-${SCREEN_SLUG}.jsonl"
 echo "=== Turn 1b: style_guide + manifest JSON ($FORM_FACTOR / $SCREEN_NAME) ==="
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
   --disable-plugin "cloudflare@openai-curated" \
   --role designer \
   --session "$SESSION_KEY" \
+  --log "$T1B_LOG" \
   --out "$TURN1B_RESPONSE" \
   "$PROMPT_MANIFEST"
 
@@ -232,6 +241,7 @@ while : ; do
     --disable-plugin "cloudflare@openai-curated" \
     --role designer \
     --session "$SESSION_KEY" \
+    --log "$T1B_LOG" \
     --out "$TURN1B_RESPONSE" \
     "$NUDGE"
 done
