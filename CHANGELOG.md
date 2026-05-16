@@ -4,6 +4,39 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.3] — 2026-05-16
+
+### Fixed — THE actual root cause: `inactivity_timeout` killed image_gen turns
+
+**This is the real fix. 7.34.1 and 7.34.2 were misdirected — stated plainly below.**
+
+Root cause, found by a researcher **reading the emsi SDK source** (`codex-app-server-sdk` `client.py` L572-579), not by guessing:
+
+- emsi SDK's `_receive_turn_event()` uses `inactivity_timeout` as the **max wait for the NEXT turn notification**.
+- An `image_gen` turn has a long **silent interval**: Codex emits *no* notifications for the minutes it spends generating the image.
+- When that silent interval exceeds `inactivity_timeout`, the SDK raises `CodexTurnInactiveError`, which surfaced to the caller as **`transport error: failed reading from stdio/websocket transport`**.
+- Text turns return fast → never hit it. image_gen turns do → they "fail". Exactly the reported symptom (text works, image_gen breaks, same on ws and stdio).
+- **NOT a protocol/version incompatibility.** `codex exec` works with the very same `codex-cli 0.130.0` binary — that fact alone disproves the version theory.
+
+### The fix (2 settings)
+`scripts/codex-app-server-call.py`, 3 call sites:
+- `connect_websocket` / `connect_stdio`: `inactivity_timeout = None` (wait indefinitely for the next event), `request_timeout 30.0 → 60.0` (also covers the cancel/interrupt fallback path).
+- `handle.chat(...)`: `inactivity_timeout = None` per-call.
+- The overall turn cap is now explicitly the **caller's** responsibility (codex-ask.sh's own timeout / systemd `TimeoutStartSec` / Ctrl-C). `--turn-timeout` is kept in argparse for back-compat but no longer bounds SDK inactivity.
+
+### Honest correction of the prior two releases
+- **7.34.1** (split Turn 1 into 1a/1b): the premise ("image + JSON in one turn fails") was wrong — evidence showed the PNG was being generated fine. The split is harmless and still functions, but it did **not** fix anything and was not the cause. Not reverted here (it works and reverting adds risk), but it was unnecessary complexity born of guessing.
+- **7.34.2** (diagnostics): just instrumentation; correct to add, but it wasn't a fix.
+- The cause was a fixed `inactivity_timeout` the whole time. Two releases were spent on wrong theories (one-turn contradiction, then SDK/codex version incompatibility) before the emsi source was actually read. That was avoidable.
+
+### Official-SDK investigation (closed)
+- Python `openai-codex`: PyPI 404 (unpublished), no 0.130.0-matching build, WebSocket-less → unusable.
+- TypeScript `@openai/codex-sdk@0.130.0`: **does** exist on npm (prior research missed it), but it is `codex exec --experimental-json` (exec mode) only — would discard the shared app-server daemon and require Node. Not worth it given the real fix is two settings.
+- Conclusion: **keep emsi SDK + daemon architecture; the timeout fix is minimal and correct.**
+
+### Verification scope (honest)
+`python3 -m py_compile` passes; the 3 SDK call sites carry `inactivity_timeout=None`; `args.turn_timeout` no longer feeds SDK inactivity (argparse def retained for back-compat). The fix is grounded in the emsi `client.py` source the researcher read. It was **not** run against live Codex here (no Codex auth in this environment). Confirm by re-running `gen-page-auto.sh` for a SINGLE screen with no external timeout — image_gen turns should now wait through the silent interval instead of dropping the transport.
+
 ## [7.34.2] — 2026-05-16
 
 ### Added — per-turn JSONL diagnostics for the Phase-5 image pipeline

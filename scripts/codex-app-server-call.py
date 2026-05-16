@@ -225,21 +225,37 @@ async def run_async(args: argparse.Namespace) -> int:
                 "(plugin set is fixed at daemon start)"
             )
         log(f"connecting to daemon ws://127.0.0.1:{daemon_port}")
+        # inactivity_timeout=None — THE root-cause fix (7.34.3).
+        # emsi SDK's _receive_turn_event() uses inactivity_timeout as the max
+        # wait for the NEXT turn notification. An image_gen turn has a long
+        # SILENT interval (Codex emits no notifications for the minutes it
+        # spends generating). If that interval exceeds inactivity_timeout the
+        # SDK raises CodexTurnInactiveError, which surfaced to us as
+        # "transport error: failed reading from websocket transport". Text
+        # turns return fast so they never hit it — exactly why text worked
+        # and image_gen didn't. None = wait indefinitely for the next event;
+        # the overall turn cap is the caller's responsibility (codex-ask.sh
+        # timeout / systemd / Ctrl-C). Confirmed by reading emsi client.py
+        # L572-579 — NOT a protocol/version incompatibility (codex exec works
+        # with the same binary).
         client_ctx = CodexClient.connect_websocket(
             url=f"ws://127.0.0.1:{daemon_port}",
             connect_timeout=10.0,
-            request_timeout=30.0,
-            inactivity_timeout=args.turn_timeout + 30.0,
+            request_timeout=60.0,
+            inactivity_timeout=None,
         )
         mode = f"ws({daemon_port})"
     else:
         cmd = build_stdio_command(disabled_plugins)
         log(f"spawning stdio: {' '.join(cmd)}")
+        # inactivity_timeout=None — same root-cause fix as the ws branch
+        # above (7.34.3). image_gen's silent interval was exceeding the SDK's
+        # inactivity timeout and surfacing as a stdio transport read error.
         client_ctx = CodexClient.connect_stdio(
             command=cmd,
             connect_timeout=30.0,
-            request_timeout=30.0,
-            inactivity_timeout=args.turn_timeout + 30.0,
+            request_timeout=60.0,
+            inactivity_timeout=None,
         )
         mode = "stdio" + (f" [-{len(disabled_plugins)} plugins]" if disabled_plugins else "")
 
@@ -303,9 +319,12 @@ async def run_async(args: argparse.Namespace) -> int:
             event_dicts: list[dict[str, Any]] = []
 
             try:
+                # inactivity_timeout=None per-call too (7.34.3): the silent
+                # interval during image_gen must not trip a turn-level
+                # inactivity timeout. Overall cap is the caller's job.
                 async for step in handle.chat(
                     prompt_text,
-                    inactivity_timeout=args.turn_timeout,
+                    inactivity_timeout=None,
                 ):
                     # Capture serialized form once — used for log file + image
                     # detection scan.
