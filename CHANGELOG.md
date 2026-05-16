@@ -4,6 +4,41 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.5] — 2026-05-16
+
+### Fixed — REAL root cause: reverted execution core from emsi SDK to `codex exec` (verified on the real machine)
+
+**This is verified by actually running it — a 752 KB PNG was produced — not by reasoning.**
+
+Reproduced on the user's machine (`codex-app-server-call.py`, stdio, no daemon, image_gen prompt):
+```
+[codex-app-server] starting new thread
+[codex-app-server] thread id saved      ← start_thread SUCCEEDS
+[codex-app-server] transport error: failed reading from stdio transport   ← dies on the FIRST chat() read, BEFORE image_gen
+```
+`codex app-server --listen stdio://` itself starts fine in codex-cli 0.130.0 (confirmed via `--help` + a probe). The emsi `codex-app-server-sdk` 0.3.2 (frozen 2026-02) is **structurally incompatible with codex-cli 0.130.0 at the turn level**: the handshake/`thread/start` works, the first turn read does not. This is an architecture problem, not a setting — proven by **five setting-level fixes that all failed**: 7.34.1 (Turn 1 split), 7.34.2 (diagnostics), 7.34.3 (`inactivity_timeout=None`), the version theory, the "wrong app-server command" theory. systematic-debugging's rule (3+ failed fixes ⇒ question the architecture) applied — late, but applied.
+
+The user was right from the start: this path used `codex exec` until 2.2.0 (`d5defb5`) replaced it with the SDK bridge. **`codex exec` works** (text and image_gen, user-verified, and now harness-verified).
+
+### The fix
+`scripts/codex-ask.sh`: the execution core (the `codex-app-server-call.py` invocation, ~58 lines) is reverted to `codex exec`:
+- `codex exec --json --output-last-message <f> --cd <cwd> --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check [-m MODEL] [-c plugins."x".enabled=false] - < prompt`
+- Session continuation: `codex exec resume <thread_id> …`; `thread_id` captured from the `{"type":"thread.started","thread_id":…}` JSONL event on first run, stored in `$SESSION_FILE` verbatim (codex 0.128+ ids resume transparently — existing files migrate as-is).
+- Assistant text via `--output-last-message` (exact, no stdout parsing). `--json` stream mirrored to `$LOG_FILE` when `--log` was passed (diagnostics parity).
+- **The external interface is unchanged** (`--session`/`--context`/`--out`/`--disable-plugin`/`--log`/`--role`, `$SESSION_FILE` resume, stderr→auth-rescue scan), so `gen-page-parts.sh` and the lane roles need **zero changes**.
+
+### Verified — on the real machine, not assumed
+`bash -n` OK. Ran `codex-ask.sh --session … "image_gen … save to /tmp/vfix-square.png"`:
+- exit 0
+- **`/tmp/vfix-square.png` = 752.3 KB, `PNG image data, 1254 x 1254, 8-bit/color RGB`** — the image was actually generated
+- `.codex-sessions/<session>.id` = a real `thread_id` (resume works)
+- image-only turn → empty assistant text (correct; the image pipeline judges success by the PNG existing)
+
+### Notes / honest scope
+- `codex-app-server-call.py` and `install-codex-sdk.sh` are now unused by `codex-ask.sh` (kept for now to avoid touching unrelated callers; deletion is a future cleanup). The stale "codex app-server returned an empty body" warning text is a harmless leftover string.
+- Official SDK is closed out: Python `openai-codex` is PyPI-unpublished; TS `@openai/codex-sdk@0.130.0` is exec-mode-only — so `codex exec` is both the pragmatic and the official-shaped path.
+- **Cache caveat (important):** this fix is in the repo. A plugin cache still holding an old `7.34.x/scripts/codex-ask.sh` (the emsi-SDK version) will keep failing until refreshed — see the report to the user.
+
 ## [7.34.4] — 2026-05-16
 
 ### Fixed — /my-harness-init stalled right after find-existing-state.sh

@@ -451,64 +451,84 @@ if [ "${#CONTEXT_FILES[@]}" -gt 0 ]; then
   } >> "$TMP_PROMPT"
 fi
 
-# ===== Execute Codex via app-server (JSON-RPC stdio) =====
-# Architecture (since v2.x):
-#   `codex exec` per-call cold start replaced by `codex app-server --listen stdio://`
-#   driven by codex-app-server-call.py (a small JSON-RPC 2.0 client). Same per-call
-#   model (one app-server process spawned per question) but with a clean protocol,
-#   first-class thread/resume semantics, and minimal stdout (only the final
-#   assistant text reaches Claude — deltas / plan updates / token-usage are dropped).
-#
-# Thread id storage:
-#   $SESSION_DIR/$SESSION_KEY.id is reused verbatim. Codex 0.128+ thread ids are
-#   compatible with `thread/resume`, so existing files migrate transparently.
-HELPER_PY="${CLAUDE_PLUGIN_ROOT:-$HOME/my-harness-generator}/scripts/codex-app-server-call.py"
-if [ ! -f "$HELPER_PY" ]; then
-  echo "::error:: helper not found: $HELPER_PY" >&2
-  echo "  reinstall the plugin or check CLAUDE_PLUGIN_ROOT" >&2
-  exit 1
-fi
-# Dedicated venv with codex_app_server_sdk + websockets + pydantic. Built by
-# scripts/install-codex-sdk.sh. Falls back to system python3 only if the
-# venv is missing — the helper itself will then emit a clear error.
-VENV_PY="${MY_HARNESS_CODEX_PY:-$HOME/.codex/my-harness-venv/bin/python}"
-if [ -x "$VENV_PY" ]; then
-  PYTHON_BIN="$VENV_PY"
-elif command -v python3 >/dev/null 2>&1; then
-  echo "::warning:: SDK venv missing at $VENV_PY; falling back to system python3" >&2
-  echo "  run scripts/install-codex-sdk.sh to install the SDK" >&2
-  PYTHON_BIN="python3"
-else
-  echo "::error:: no python3 found (looked for $VENV_PY and PATH)" >&2
-  exit 1
-fi
+# ===== Execute Codex via `codex exec` (7.34.5 — reverted from emsi SDK) =====
+# History: 2.2.0 (d5defb5) replaced `codex exec` with the emsi
+# codex-app-server-sdk bridge (codex-app-server-call.py). The emsi SDK 0.3.2
+# (frozen 2026-02) is structurally incompatible with codex-cli 0.130.0:
+# reproduced on the real machine, start_thread succeeds but the FIRST chat()
+# read dies — "transport error: failed reading from stdio transport" —
+# BEFORE image_gen, at turn level. Five setting-level fixes (Turn split,
+# diagnostics, inactivity_timeout=None, …) all failed → the SDK architecture
+# itself was the cause. `codex exec` works (text AND image_gen,
+# user-verified) and is exactly what 2.0.x used. So: revert the execution
+# core to `codex exec`, keep the SAME external interface (session resume via
+# $SESSION_FILE, MODEL, LOG_FILE diagnostics, DISABLE_PLUGINS, ASSISTANT_TEXT,
+# stderr→auth scan) so every caller (gen-page-parts.sh, lane roles) is
+# unchanged. Session continuation uses `codex exec resume <thread_id>`;
+# thread_id is captured from the `{"type":"thread.started","thread_id":...}`
+# JSONL event on first run and stored in $SESSION_FILE verbatim (codex 0.128+
+# ids resume transparently — existing files migrate as-is).
+command -v codex >/dev/null 2>&1 || {
+  echo "::error:: codex CLI not on PATH" >&2
+  exit 127
+}
 
-HELPER_ARGS=(
-  --prompt-file "$TMP_PROMPT"
-  --cwd "$PWD"
+# Final assistant message goes to a file (exact text, no stdout parsing).
+LAST_MSG_FILE="$TMP_LOG.last"
+: > "$LAST_MSG_FILE"
+
+CODEX_OPTS=(
+  --cd "$PWD"
+  --dangerously-bypass-approvals-and-sandbox
+  --skip-git-repo-check
+  --json
+  --output-last-message "$LAST_MSG_FILE"
 )
-[ -n "$MODEL" ]    && HELPER_ARGS+=(--model "$MODEL")
-[ -n "$LOG_FILE" ] && HELPER_ARGS+=(--log-file "$LOG_FILE")
+[ -n "$MODEL" ] && CODEX_OPTS+=(--model "$MODEL")
 for _p in "${DISABLE_PLUGINS[@]+"${DISABLE_PLUGINS[@]}"}"; do
-  HELPER_ARGS+=(--disable-plugin "$_p")
+  CODEX_OPTS+=(-c "plugins.\"$_p\".enabled=false")
 done
 
+RESUME_ID=""
+SESSION_FILE=""
 if [ -n "$SESSION_KEY" ]; then
   mkdir -p "$SESSION_DIR"
   SESSION_FILE="$SESSION_DIR/$SESSION_KEY.id"
-  HELPER_ARGS+=(--thread-id-file "$SESSION_FILE")
-  if [ -f "$SESSION_FILE" ]; then
-    echo "[codex-ask] resuming thread for session '$SESSION_KEY' (file=$SESSION_FILE)" >&2
+  if [ -f "$SESSION_FILE" ] && [ -s "$SESSION_FILE" ]; then
+    RESUME_ID=$(tr -d '[:space:]' < "$SESSION_FILE")
+    echo "[codex-ask] resuming session '$SESSION_KEY' (id=$RESUME_ID)" >&2
   else
-    echo "[codex-ask] creating new thread for session '$SESSION_KEY'" >&2
+    echo "[codex-ask] creating new session '$SESSION_KEY'" >&2
   fi
 fi
 
-# Helper writes JSONL to --log-file, the assistant text to stdout, lifecycle
-# messages + the app-server subprocess stderr to stderr. Stderr is captured to
-# $TMP_LOG.err so the auth-detection pass below can scan it.
-ASSISTANT_TEXT=$("$PYTHON_BIN" "$HELPER_PY" "${HELPER_ARGS[@]}" 2>"$TMP_LOG.err")
-CODEX_EXIT=$?
+# JSONL events → captured to a temp file; mirrored to $LOG_FILE when --log
+# was passed (parity with the old --log-file diagnostics). stderr → .err so
+# the auth-detection pass below can scan it (codex exec emits the same
+# auth/subscription errors on stderr).
+CODEX_JSONL="$TMP_LOG.jsonl"
+if [ -n "$RESUME_ID" ]; then
+  codex exec resume "$RESUME_ID" "${CODEX_OPTS[@]}" - < "$TMP_PROMPT" \
+    > "$CODEX_JSONL" 2>"$TMP_LOG.err"
+  CODEX_EXIT=$?
+else
+  codex exec "${CODEX_OPTS[@]}" - < "$TMP_PROMPT" \
+    > "$CODEX_JSONL" 2>"$TMP_LOG.err"
+  CODEX_EXIT=$?
+  # Capture the new thread_id for future `codex exec resume`.
+  if [ -n "$SESSION_FILE" ]; then
+    NEW_ID=$(grep -m1 '"type":"thread.started"' "$CODEX_JSONL" 2>/dev/null \
+      | sed -n 's/.*"thread_id":"\([^"]*\)".*/\1/p')
+    [ -n "$NEW_ID" ] && printf '%s\n' "$NEW_ID" > "$SESSION_FILE"
+  fi
+fi
+
+# Diagnostics parity with the old --log-file.
+[ -n "$LOG_FILE" ] && cp "$CODEX_JSONL" "$LOG_FILE" 2>/dev/null
+
+# Exact final assistant text (empty on image-only turns — that is fine; the
+# image pipeline judges success by the PNG existing, not by this text).
+ASSISTANT_TEXT=$(cat "$LAST_MSG_FILE" 2>/dev/null)
 
 # ===== Post-exec auth / subscription error detection =====
 #       Only fires when codex itself exited non-zero. Many MCP servers (e.g.,
