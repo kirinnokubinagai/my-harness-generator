@@ -382,14 +382,14 @@ REPO_NAME="${REPO_SLUG#*/}"
 # Provider-specific setup (CLIs are now installed via NixOS — no npm install needed)
 case "$AI_PROVIDER" in
   claude)
-    # claude CLI is installed via NixOS (templates/oracle-cloud/nixos/configuration.nix
-    # environment.systemPackages — buildNpmPackage derivation added in 7.29.2).
-    # No npm install -g @anthropic-ai/claude-code needed here.
+    # claude CLI is installed via NixOS (configuration.nix environment.systemPackages
+    # — pkgs.llm-agents.claude-code from numtide/llm-agents.nix since 7.33.0,
+    # binary-cache hit). No npm install -g @anthropic-ai/claude-code needed here.
     :
     ;;
   codex)
-    # codex CLI is installed via NixOS (same derivation — pkgs/openai-codex.nix, 7.29.2).
-    # No npm install -g @openai/codex needed here.
+    # codex CLI is installed via NixOS (pkgs.llm-agents.codex from
+    # numtide/llm-agents.nix since 7.33.0). No npm install -g @openai/codex needed.
     mkdir -p "$HOME/.codex"  # ensure local auth dir exists before scp below
     CODEX_AUTH="$ROOT/.my-harness/.codex-auth.json"
     [ -f "$CODEX_AUTH" ] || bash "$HARNESS_DIR/scripts/ensure-codex-auth.sh" "$ROOT"
@@ -488,10 +488,10 @@ if [ "${HERMES_AGENT_ENABLED:-no}" = "yes" ]; then
   ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p ~/hermes-agent/data && chmod 750 ~/hermes-agent"
 
   # Deploy CLIProxyAPI config + auth when needed (codex or claude-code provider).
-  # 7.29.0: The CLIProxyAPI binary is now built by NixOS via pkgs/cliproxyapi.nix
-  # (buildGoModule). nixos-rebuild switch installs it into /nix/store and enables
-  # cliproxyapi.service via wantedBy = [ "multi-user.target" ] — no manual
-  # systemctl enable or tarball download needed here.
+  # 7.33.0: The CLIProxyAPI binary now comes from numtide/llm-agents.nix
+  # (pkgs.llm-agents.cli-proxy-api, binary-cache hit). nixos-rebuild switch
+  # installs it into /nix/store and enables cliproxyapi.service via
+  # wantedBy = [ "multi-user.target" ] — no manual systemctl enable needed.
   if [ "$HERMES_AI_PROVIDER" = "codex" ] || [ "$HERMES_AI_PROVIDER" = "claude-code" ]; then
     echo "[setup-vm-nixos] deploying CLIProxyAPI config for provider=$HERMES_AI_PROVIDER (binary built by NixOS)..."
 
@@ -577,17 +577,15 @@ chmod 600 "\$HOME/hermes-agent/.env"
 echo "[remote] hermes-agent .env written (chmod 600)"
 REMOTE_HERMES_ENV
 
-  # 7.29.3: hermes-agent is now managed by NixOS (pkgs/hermes-agent-fhs.nix).
+  # 7.33.0: hermes-agent now comes from numtide/llm-agents.nix
+  # (pkgs.llm-agents.hermes-agent — self-contained binary, binary-cache hit).
   # nixos-rebuild switch (run by nixos-anywhere above) enables the service via
-  # wantedBy = [ "multi-user.target" ] — no manual systemctl enable needed.
-  # On first start the FHS env launcher (hermes-agent-env) will:
-  #   1. git clone NousResearch/hermes-agent at v2026.5.7 → /var/lib/hermes/
-  #   2. uv pip install --editable .[messaging,voice] into /var/lib/hermes/venv/
-  #   3. Launch `hermes gateway start --foreground`
-  # This is idempotent — subsequent starts skip steps 1-2 if the venv exists.
-  # No curl | bash, no pip install, no install.sh: the FHS env is the install.
+  # wantedBy = [ "multi-user.target" ]. The old FHS launcher (ghq clone + uv
+  # venv + PYTHONPATH seed of ~25 nixpkgs deps) is GONE — the numtide binary
+  # is the whole install. ExecStartPre only symlinks the scp'd config into
+  # ~/.hermes/config.yaml; then `hermes gateway start --foreground` runs.
   echo "[setup-vm-nixos] Hermes Agent service enabled by NixOS (wantedBy = multi-user.target)."
-  echo "                 First-run will git clone + uv install + start (allow 5-10 min)."
+  echo "                 numtide binary — no git clone / uv install. Starts in seconds."
   echo "                 Monitor: journalctl -u hermes-agent -f (on the VM)"
 
   # Register the daily-report cron job inside Hermes (session-aware, persistent memory across days).

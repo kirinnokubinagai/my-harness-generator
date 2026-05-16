@@ -4,6 +4,38 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.33.0] — 2026-05-16
+
+### Changed — all 5 self-built Nix derivations replaced by numtide/llm-agents.nix
+
+The OCI NixOS host built claude-code, codex, cli-proxy-api, hermes-agent and openclaw from scratch via 5 hand-maintained derivations under `templates/oracle-cloud/nixos/pkgs/`. Three carried `lib.fakeHash` placeholders (vendorHash / npmDepsHash) that only resolve on the *first* `nixos-rebuild switch` error — the long-standing **#2 concern**. `hermes-agent-fhs.nix` was a 167-line `buildFHSEnv` that, on every first start, ghq-cloned the repo at a pinned tag, ran `uv venv` + `uv pip install --editable .[messaging,voice]`, and seeded PYTHONPATH with ~25 hand-listed nixpkgs Python deps (Hermes is not on PyPI; 3 deps absent from nixpkgs 25.05).
+
+[numtide/llm-agents.nix](https://github.com/numtide/llm-agents.nix) packages all 5 (and 90+ other agents), aarch64-linux, **daily auto-updated upstream**, served prebuilt from `https://cache.numtide.com`. This eliminates the fakeHash class of bug entirely and removes ~250 lines of fragile, weekly-rotting packaging.
+
+### Added
+- `templates/oracle-cloud/flake.nix`: input `llm-agents.url = "github:numtide/llm-agents.nix"` (deliberately **not** `inputs.nixpkgs.follows = "nixpkgs"` — keeping numtide's pinned nixpkgs is precisely what makes the binary cache hit; following ours would force a full from-source rebuild of every agent on every deploy). A `{ nixpkgs.overlays = [ llm-agents.overlays.default ]; }` module exposes `pkgs.llm-agents.<name>`.
+- `configuration.nix`: `nix.settings.extra-substituters = [ "https://cache.numtide.com" ]` + `extra-trusted-public-keys` (numtide `niks3` key) so `nixos-rebuild` does not compile any agent from source.
+- CLI tools default set added to `environment.systemPackages`: `bat eza yq delta tldr` (joining the existing curl/jq/gh/git/tmux/htop/vim/ripgrep/fzf/ghq) — interactive SSH sessions on the VM are now actually pleasant.
+
+### Changed
+- `configuration.nix`: removed the `let claude-code/openai-codex = pkgs.callPackage ./pkgs/…` bindings; `systemPackages` now uses `pkgs.llm-agents.claude-code` + `pkgs.llm-agents.codex`. `allowUnfreePredicate` widened to `[ "claude-code" "codex" "openai-codex" ]` (numtide's claude-code/codex are unfree; the legacy self-built pname is kept for robustness).
+- `services/cliproxyapi.nix` → `lib.getExe pkgs.llm-agents.cli-proxy-api` (binary name unchanged: `cli-proxy-api`).
+- `services/openclaw.nix` → `lib.getExe pkgs.llm-agents.openclaw`.
+- `services/hermes-agent.nix`: the entire FHS launcher is gone. numtide's `hermes-agent` is a self-contained binary (`meta.mainProgram = "hermes"`). `ExecStartPre` now only symlinks the scp'd `/home/opc/hermes-agent/config.yaml` into Hermes's default discovery path `~/.hermes/config.yaml` (the one thing the old launcher did that systemd still must); `ExecStart = hermes gateway start --foreground` (a Hermes-native subcommand, unchanged from the old launcher's final exec). `/var/lib/hermes` (git checkout + venv) is gone — no mutable state to persist. `TimeoutStartSec` 15min → 5min (no clone/install on start).
+- `setup-oci-vm-nixos.sh`: comments + deploy-time `echo`s updated — they no longer print "First-run will git clone + uv install" (which was about to show false info to every user).
+
+### Removed
+- `templates/oracle-cloud/nixos/pkgs/{claude-code,openai-codex,cliproxyapi,hermes-agent-fhs,openclaw}.nix` (5 files, ~250 lines incl. 3 `lib.fakeHash` placeholders + a 167-line `buildFHSEnv`). The `pkgs/` directory no longer exists.
+
+### Verified
+Confirmed via real `nix` commands here (not assumed):
+- `nix flake lock` resolved `llm-agents` (rev `44e88554`, 2026-05-16) + its full closure.
+- `nix eval …#packages.aarch64-linux` confirmed exact attr names + `meta.mainProgram`: `claude-code`→`claude`, `codex`→`codex`, `cli-proxy-api`→`cli-proxy-api`, `hermes-agent`→`hermes`, `openclaw`→`openclaw` (all have `mainProgram` → `lib.getExe` is safe, no hard-coded `/bin/` paths).
+- `nix flake check --no-build` → **`all checks passed!`** (overlay wiring, module structure, the widened unfree predicate, every service module's `lib.getExe`).
+
+### Verification scope (honest)
+`nix flake check` is eval-level. It does NOT prove: (a) the numtide binary cache actually serves an aarch64-linux build for every agent at deploy time — if a cache entry is missing, that agent builds from numtide's pinned nixpkgs (slow, but correct, not broken); (b) runtime — whether numtide's `hermes` reads `~/.hermes/config.yaml` the way the old launcher's symlink assumed, and whether it accepts `gateway start --foreground` identically. Those need a real VM. **But the fakeHash class (#2 concern) is now structurally impossible**, and ~250 lines of weekly-rotting packaging are gone.
+
 ## [7.32.1] — 2026-05-16
 
 ### Changed — Hermes install uses `ghq get` instead of ad-hoc `git clone`

@@ -5,12 +5,11 @@
 # harness.hermesAgentEnabled or harness.openClawEnabled may be true.
 #
 # 7.30.0: OpenClaw integration (Hermes alternative).
-#
-# Packaging approach: buildNpmPackage (Approach npm — preferred).
-#   OpenClaw is published to npm as `openclaw` (Node 24 recommended).
-#   Unlike Hermes (git-only Python), it ships a self-contained npm tarball.
-#   buildNpmPackage gives a fully reproducible Nix closure with atomic rollback.
-#   No runtime git clone or pip install — the binary is in the Nix store.
+# 7.33.0: Migrated from the self-built buildNpmPackage derivation
+# (pkgs/openclaw.nix — deleted) to numtide/llm-agents.nix
+# (pkgs.llm-agents.openclaw). binary-cache hit, daily auto-updated
+# upstream, meta.mainProgram = "openclaw" (binary name unchanged).
+# No more lib.fakeHash npmDepsHash placeholder to maintain.
 #
 # Config layout:
 #   ~/.openclaw/openclaw.json    — written by setup-oci-vm-nixos.sh via scp
@@ -34,9 +33,7 @@
 #     --announce
 #   The register-agent-daily-report.sh openclaw branch uses this command.
 
-let
-  openclaw-pkg = pkgs.callPackage ./../pkgs/openclaw.nix { };
-in {
+{
   # Inert unless harness.openClawEnabled = true. Imported unconditionally
   # by configuration.nix; mkIf is the correct NixOS conditional pattern.
   config = lib.mkIf config.harness.openClawEnabled {
@@ -64,9 +61,9 @@ in {
       # Written by setup-oci-vm-nixos.sh with chmod 600.
       EnvironmentFile = "/home/opc/openclaw/.env";
 
-      # openclaw gateway start reads ~/.openclaw/openclaw.json automatically.
-      # The config file path can also be overridden with --config <path>.
-      ExecStart = "${openclaw-pkg}/bin/openclaw gateway start --foreground";
+      # numtide binary (binary-cache hit). openclaw gateway start reads
+      # ~/.openclaw/openclaw.json automatically; --config <path> overrides.
+      ExecStart = "${lib.getExe pkgs.llm-agents.openclaw} gateway start --foreground";
 
       Restart          = "on-failure";
       RestartSec       = "30s";
