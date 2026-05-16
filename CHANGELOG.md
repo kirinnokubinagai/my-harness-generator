@@ -4,6 +4,22 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.31.0.1] — 2026-05-16
+
+### Fixed
+- `scripts/codex-ask.sh` now forwards `--disable-plugin <id>` (repeatable) to `codex-app-server-call.py`. Previously codex-ask.sh only passed `--model` / `--log-file`, so callers had no per-call way to disable a Codex plugin through the wrapper — the only escape was editing `~/.codex/config.toml` by hand (persistent, breaks other Codex uses).
+- `scripts/gen-page-parts.sh` now passes `--disable-plugin "cloudflare@openai-curated"` on every Phase 5 image_gen codex-ask.sh invocation. The cloudflare plugin was observed to interfere with image_gen turns, which led Claude sessions to hand-edit config.toml. Now disabled PER-CALL (config.toml untouched).
+- `scripts/codex-ask.sh` reasoning-model warning text updated: "GPT-5 / GPT-4o" → "GPT-5.5 — the Codex default since 2026-04-23" (doc accuracy; GPT-5.5 rolled out 2026-04-23).
+
+### Added
+- HARD RULE 5 in `skills/my-harness-init/SKILL.md`: never hand-edit `~/.codex/config.toml` to toggle plugins; use `codex-ask.sh --disable-plugin` (per-call, non-destructive) or `$MY_HARNESS_CODEX_DISABLE_PLUGINS`.
+- `hooks/guard-codex-direct.sh` second detection arm: blocks Bash-level edits of `~/.codex/config.toml` (sed -i / >> / tee / dd) with the same escape hatch as the codex-direct guard.
+
+### Rationale
+A user observed a Claude session repeatedly doing `Update(~/.codex/config.toml)` to flip `cloudflare@openai-curated` `enabled = true → false` before each Phase 5 image_gen run. Investigation showed: (1) the cloudflare plugin genuinely interferes with image_gen; (2) the harness had a per-call disable mechanism in codex-app-server-call.py but codex-ask.sh didn't expose it; (3) so the only path Claude found was hand-editing the global config, which persists and breaks Codex elsewhere. This patch closes the gap end-to-end: the wrapper forwards --disable-plugin, Phase 5 uses it automatically, the rule is documented at the top of SKILL.md, and the hook blocks the bad pattern technically.
+
+Codex model selection unchanged — Phase 5 still delegates to the Codex CLI default (GPT-5.5 as of 2026-04-23), per decision (a). No explicit --model is added (would re-introduce the 7.29.3.1 reasoning-model footgun).
+
 ## [7.31.0] — 2026-05-15
 
 ### Added

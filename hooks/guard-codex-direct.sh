@@ -79,4 +79,28 @@ EOF
   exit 2   # Block the Bash tool call
 fi
 
+# Block Bash-level edits of ~/.codex/config.toml plugin flags (HARD RULE 5).
+# (The Edit/Write tools are a separate matcher; this catches sed/tee/echo.)
+if echo "$CMD" | grep -qE '(\.codex/config\.toml|CODEX_HOME.*config\.toml)' && \
+   echo "$CMD" | grep -qE '(sed -i|>>|> |tee |dd of=)'; then
+  cat >&2 <<'EOF'
+
+::block:: Attempt to edit ~/.codex/config.toml via Bash — BLOCKED (HARD RULE 5).
+
+Toggling Codex plugins by editing config.toml PERSISTS the change and
+breaks Codex for every other use on this machine.
+
+Use the per-call mechanism instead:
+  bash ~/my-harness-generator/scripts/codex-ask.sh --disable-plugin "<plugin-id>" "<prompt>"
+
+Or for a session-wide default without touching the file:
+  export MY_HARNESS_CODEX_DISABLE_PLUGINS="<plugin-id>,<another>"
+
+Escape hatch (debugging the harness itself):
+  HARNESS_ALLOW_DIRECT_CODEX=yes <command>
+EOF
+  case "${HARNESS_ALLOW_DIRECT_CODEX:-no}" in yes|1|true) exit 0 ;; esac
+  exit 2
+fi
+
 exit 0   # Allow everything else

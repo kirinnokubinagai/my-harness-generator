@@ -62,6 +62,18 @@ Bypassing the wrapper loses every defensive layer. The `hooks/guard-codex-direct
 
 **Escape hatch**: when debugging the harness itself, set `HARNESS_ALLOW_DIRECT_CODEX=yes` in the environment. This bypasses the hook AND signals to the wrapper that you know what you're doing. Document why in the next chat turn.
 
+### Rule 5: Never hand-edit `~/.codex/config.toml` to toggle plugins
+
+If a Codex plugin (e.g. `cloudflare@openai-curated`) interferes with image_gen or any Codex turn, the fix is a PER-CALL disable, NOT a file edit:
+
+  bash scripts/codex-ask.sh --disable-plugin "cloudflare@openai-curated" "<prompt>"
+
+`codex-ask.sh --disable-plugin <id>` forwards to `codex-app-server-call.py`, which passes `-c plugins."<id>".enabled=false` for that single invocation. `~/.codex/config.toml` is NEVER written.
+
+Editing `~/.codex/config.toml` directly (changing `enabled = true` → `enabled = false`) **persists** the change — it stays disabled for every OTHER use of Codex on this machine, silently breaking unrelated workflows. The Phase 5 pipeline (`gen-page-parts.sh`) already disables `cloudflare@openai-curated` per-call since 7.31.0.1; you do not need to do anything manually.
+
+If you catch yourself opening `~/.codex/config.toml` in an editor to flip a plugin flag — STOP. Use `--disable-plugin` instead. The harness's default per-call disable list also comes from `$MY_HARNESS_CODEX_DISABLE_PLUGINS` (comma-separated) if you need a session-wide default without touching the file.
+
 ---
 
 ## Installation & Quick start

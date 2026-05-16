@@ -126,8 +126,12 @@ PROMPT_PAGE=$(render_template "$TMPL_PAGE" \
 
 TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}.md"
 
+# cloudflare@openai-curated plugin interferes with image_gen turns
+# (observed: Codex stalls / Claude resorts to hand-editing config.toml).
+# Disable it PER-CALL (config.toml stays untouched). See HARD RULE 5.
 echo "=== Turn 1: page mock + manifest ($FORM_FACTOR / $SCREEN_NAME) ==="
 bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+  --disable-plugin "cloudflare@openai-curated" \
   --role designer \
   --session "$SESSION_KEY" \
   --context "$ROOT/dev/docs/spec/"*.md \
@@ -177,6 +181,7 @@ while : ; do
   echo "::warning:: Turn 1 attempt $TURN1_RETRY/$TURN1_MAX_RETRY failed; nudging" >&2
   TURN1_RESPONSE="$ROOT/.my-harness/codex-page-${FORM_FACTOR}-${SCREEN_SLUG}-r${TURN1_RETRY}.md"
   bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+    --disable-plugin "cloudflare@openai-curated" \
     --role designer \
     --session "$SESSION_KEY" \
     --out "$TURN1_RESPONSE" \
@@ -216,6 +221,7 @@ for (( i=0; i<IMG_COUNT; i++ )); do
   echo "=== Turn $((i + 2)): parts-grid $i (edit-mode against page) ==="
   GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${FORM_FACTOR}-${SCREEN_SLUG}-${i}.md"
   bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+    --disable-plugin "cloudflare@openai-curated" \
     --role designer \
     --session "$SESSION_KEY" \
     --out "$GRID_RESPONSE" \
@@ -232,6 +238,7 @@ for (( i=0; i<IMG_COUNT; i++ )); do
     GRID_RESPONSE="$ROOT/.my-harness/codex-grid-${FORM_FACTOR}-${SCREEN_SLUG}-${i}-r${GRID_RETRY}.md"
     NUDGE="Grid PNG missing at $GRID_PATH. Call image_gen in EDIT mode against the page-${FORM_FACTOR}-${SCREEN_SLUG}.png already in this session's context and save the 1024×$((ROWS * 256)) grid to that path. Keep every immutable style invariant from the prior message."
     bash "$HARNESS_DIR/scripts/codex-ask.sh" \
+      --disable-plugin "cloudflare@openai-curated" \
       --role designer \
       --session "$SESSION_KEY" \
       --out "$GRID_RESPONSE" \

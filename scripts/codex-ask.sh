@@ -27,6 +27,9 @@
 #                    image_gen, breaking Phase 5 image generation. Default
 #                    (empty = Codex's own default) is the right choice for
 #                    almost all use cases.
+#   --disable-plugin <id>  Repeatable. Disables a Codex plugin for THIS call only
+#                    via `-c plugins."<id>".enabled=false` (does NOT edit
+#                    ~/.codex/config.toml). Forwarded to codex-app-server-call.py.
 #
 # Roles (--role):
 #   architect / critic / analyst / planner / code-reviewer / security-reviewer / designer / tdd
@@ -58,6 +61,7 @@ ACTIVE_POINTER="${CODEX_ACTIVE_POINTER:-$HOME/.codex-active-session}"
 # ===== Defaults =====
 ROLE=""
 MODEL=""        # Empty by default (defer to Codex CLI default model)
+DISABLE_PLUGINS=()
 CONTEXT_FILES=()
 OUT_FILE=""
 LOG_FILE=""
@@ -84,6 +88,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --role)            ROLE="$2";          shift 2 ;;
     --model)           MODEL="$2";         shift 2 ;;
+    --disable-plugin)  DISABLE_PLUGINS+=("$2"); shift 2 ;;
     --context)         PARSE_CONTEXT=1;    shift ;;
     --out)             OUT_FILE="$2";      shift 2 ;;
     --log)             LOG_FILE="$2";      shift 2 ;;
@@ -116,8 +121,9 @@ if [ -n "$MODEL" ]; then
             If your turn requires image generation (Phase 5 of /my-harness-init,
             or any Codex prompt with \$imagegen), this run WILL fail with:
               "turn ended with no agent_message and no image_generation_call"
-            Remove --model entirely to use Codex's default (GPT-5 / GPT-4o,
-            which support tool-calling and image generation).
+            Remove --model entirely to use Codex's default (GPT-5.5 — the
+            Codex default since 2026-04-23, which supports tool-calling and
+            image generation).
             Continuing in 3 seconds — Ctrl-C to abort.
 EOF
       [ "${CODEX_ALLOW_REASONING_MODEL:-no}" = "yes" ] || sleep 3
@@ -483,6 +489,9 @@ HELPER_ARGS=(
 )
 [ -n "$MODEL" ]    && HELPER_ARGS+=(--model "$MODEL")
 [ -n "$LOG_FILE" ] && HELPER_ARGS+=(--log-file "$LOG_FILE")
+for _p in "${DISABLE_PLUGINS[@]+"${DISABLE_PLUGINS[@]}"}"; do
+  HELPER_ARGS+=(--disable-plugin "$_p")
+done
 
 if [ -n "$SESSION_KEY" ]; then
   mkdir -p "$SESSION_DIR"
