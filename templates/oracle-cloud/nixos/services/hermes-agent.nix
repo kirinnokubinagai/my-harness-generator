@@ -33,6 +33,12 @@
 let
   hermes-env = pkgs.callPackage ./../pkgs/hermes-agent-fhs.nix { };
 in {
+  # Inert unless harness.hermesAgentEnabled = true (set by
+  # setup-oci-vm-nixos.sh's harness-overlay when HERMES_AGENT_ENABLED=yes).
+  # Imported unconditionally by configuration.nix; mkIf is the correct
+  # NixOS conditional-module pattern (avoids the imports-vs-config
+  # infinite recursion that lib.optional config.X would cause).
+  config = lib.mkIf config.harness.hermesAgentEnabled {
   # Persistent state directory for Hermes's git checkout and venv.
   # These must survive nixos-rebuild switch (hence StateDirectory, not tmpfiles).
   systemd.tmpfiles.rules = [
@@ -81,4 +87,5 @@ in {
       ReadWritePaths   = [ "/var/lib/hermes" "/home/opc/hermes-agent" ];
     };
   };
+  };  # end config = lib.mkIf config.harness.hermesAgentEnabled
 }

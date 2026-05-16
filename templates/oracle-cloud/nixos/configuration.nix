@@ -28,22 +28,32 @@ in
     };
   };
 
+  # imports MUST be static — referencing `config.harness.*` here causes
+  # infinite recursion (config needs imports, imports needs config). The
+  # conditional services (hermes-agent / openclaw / tailscale) are always
+  # imported but each wraps its body in `config = lib.mkIf config.harness.X {}`
+  # so they are inert unless their option is true. cliproxyapi is always
+  # active since 7.31.0 (dual-OAuth: daily-progress always routes through it).
   imports = [
     ./services/daily-progress.nix
     ./services/logrotate.nix
     ./services/security.nix
-    # cliproxyapi.nix is conditionally injected by setup-oci-vm-nixos.sh when
-    # AI_PROVIDER ∈ {codex, claude-code}. Not listed here statically so the
-    # base config evaluates cleanly without it.
-    # hermes-agent.nix is conditionally injected via harness-overlay.nix when
-    # harness.hermesAgentEnabled = true (HERMES_AGENT_ENABLED=yes in Q12.5).
-    # openclaw.nix is conditionally injected via harness-overlay.nix when
-    # harness.openClawEnabled = true (OPENCLAW_ENABLED=yes in Q12.5). Added 7.30.0.
-    # tailscale.nix is conditionally injected via harness-overlay.nix when
-    # harness.tailscaleEnabled = true (TAILSCALE_ENABLED=yes in Q9.8). Added 7.32.0.
-  ] ++ lib.optional config.harness.hermesAgentEnabled ./services/hermes-agent.nix
-    ++ lib.optional config.harness.openClawEnabled    ./services/openclaw.nix
-    ++ lib.optional config.harness.tailscaleEnabled   ./services/tailscale.nix;
+    ./services/cliproxyapi.nix
+    ./services/hermes-agent.nix
+    ./services/openclaw.nix
+    ./services/tailscale.nix
+  ];
+
+  # All NixOS config attributes MUST live under `config` because this module
+  # also declares top-level `options` (harness.*). Mixing bare config attrs
+  # with `options` is rejected by the module system (nixpkgs lib/modules.nix).
+  config = {
+  # claude-code / openai-codex CLIs are proprietary (licenses.unfree in
+  # pkgs/*.nix). Allow ONLY those two — every other unfree package is
+  # still refused. (7.29.2 added the derivations; 7.32.0.1 wires the
+  # predicate so nixos-rebuild can actually evaluate them.)
+  nixpkgs.config.allowUnfreePredicate = pkg:
+    builtins.elem (lib.getName pkg) [ "claude-code" "openai-codex" ];
 
   system.stateVersion = "25.05";
 
@@ -82,8 +92,14 @@ in
     description = "Oracle Cloud default user";
     extraGroups = [ "wheel" ];
     shell = pkgs.bash;
-    openssh.authorizedKeys.keyFiles = [
-      "/etc/ssh/authorized_keys.d/opc"
+    # Placeholder literal — setup-oci-vm-nixos.sh replaces this `keys`
+    # entry with the real SSH public key at deploy time. Using a literal
+    # `keys` (NOT `keyFiles` with an absolute path) keeps the flake
+    # pure-eval clean so `nix flake check` can validate the whole config
+    # without `--impure`. (7.32.0.1: was keyFiles=/etc/ssh/... which
+    # broke pure eval and hid downstream bugs.)
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAREPLACEDBYSETUPOCIVMNIXOSSH placeholder@harness-replaced-at-deploy"
     ];
   };
 
@@ -113,4 +129,5 @@ in
     useUserPackages = true;
     users.opc = import ./home.nix;
   };
+  };  # end config
 }

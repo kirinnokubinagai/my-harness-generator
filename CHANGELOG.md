@@ -4,6 +4,22 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.32.0.1] — 2026-05-16
+
+### Fixed — 4 NixOS evaluation bugs found by running `nix flake check` locally
+
+The OCI NixOS config had **never been validated**. Running `nix flake check --no-build` against `templates/oracle-cloud/` surfaced 4 fatal evaluation errors, each fixed here. `nix flake check` now reports `all checks passed!`.
+
+1. **`configuration.nix` module structure** (7.32.0 regression): adding top-level `options.harness.*` (7.32.0's tailscaleEnabled) made the module system reject the bare `boot`/`networking`/`services`/… attributes. All config attributes are now nested under `config = { … }`; `imports` and `options` stay top-level.
+2. **`imports` infinite recursion** (latent since **7.27.0**): `imports = [ … ] ++ lib.optional config.harness.X ./services/Y.nix` referenced `config` to compute `imports`, and `config` needs `imports` → infinite recursion. **Every NixOS deploy since 7.27.0 (Hermes integration) would have failed** — it was simply never run. Fixed by importing all service modules unconditionally and wrapping each conditional module's body in `config = lib.mkIf config.harness.X { … }` (the correct NixOS conditional-module pattern).
+3. **Unfree license refused** (latent since 7.29.2): `claude-code` / `openai-codex` derivations are `licenses.unfree`; NixOS refuses unfree by default. Added a scoped `nixpkgs.config.allowUnfreePredicate` that allows ONLY those two — all other unfree packages still refused.
+4. **`keyFiles` absolute path in pure eval** (latent since 7.24.0): `openssh.authorizedKeys.keyFiles = ["/etc/ssh/authorized_keys.d/opc"]` is read at eval time and forbidden in pure mode, breaking `nix flake check` and hiding downstream bugs. Switched the template to a literal `keys` placeholder; `setup-oci-vm-nixos.sh`'s injection regex updated from `keyFiles` to `keys` (still replaces it with the real pubkey at deploy time, but the template is now pure-eval clean).
+
+Also: `daily-progress.nix` no longer redeclares `options.harness.hermesAgentEnabled` (duplicate of configuration.nix's declaration — now read-only via the `hermesEnabled` let-binding). `hermes-agent.nix` / `openclaw.nix` / `tailscale.nix` bodies wrapped in `config = lib.mkIf config.harness.X { }`. `templates/oracle-cloud/flake.lock` committed (pins nixpkgs for reproducible deploys).
+
+### Verification scope (honest)
+`nix flake check --no-build` validates **eval-level correctness** (syntax, types, module structure). It does NOT cover: (a) the `lib.fakeHash` placeholders in `pkgs/cliproxyapi.nix` / `claude-code.nix` / `openai-codex.nix` — those still need the real hash from the first `nixos-rebuild switch` error (designed behaviour since 7.29.0); (b) runtime behaviour (does Hermes actually reach Discord, does daily-report actually post). Those are separate layers requiring a real VM. But the "deploy fails 4 times in a row before it even starts" class of problem is now eliminated.
+
 ## [7.32.0] — 2026-05-16
 
 ### Security audit + hardening

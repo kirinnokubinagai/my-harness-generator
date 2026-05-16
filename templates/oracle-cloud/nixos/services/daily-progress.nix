@@ -3,18 +3,10 @@
 let
   hermesEnabled = config.harness.hermesAgentEnabled or false;
 in {
-  options.harness.hermesAgentEnabled = lib.mkOption {
-    type = lib.types.bool;
-    default = false;
-    description = ''
-      When true, daily-progress.timer and event-watch.timer stay disabled
-      because Hermes Agent's internal cron (session daily-report-<repo>,
-      registered by register-agent-daily-report.sh) handles the daily report
-      instead. The .sh scripts remain on disk for emergency manual invocation.
-      Set to true by setup-oci-vm-nixos.sh when HERMES_AGENT_ENABLED=yes.
-    '';
-  };
-
+  # NOTE: harness.hermesAgentEnabled is declared once in configuration.nix
+  # (options.harness). Do NOT redeclare it here — duplicate option
+  # declarations across modules are fragile. We only READ it via the
+  # `hermesEnabled` let-binding above.
   config = {
     # daily-progress.sh — once a day at 09:00 UTC (= 18:00 JST)
     systemd.services.daily-progress = {

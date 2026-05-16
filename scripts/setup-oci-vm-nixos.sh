@@ -109,7 +109,7 @@ python3 - <<PYEOF
 import re, sys
 src = open("$STAGE_DIR/nixos/configuration.nix").read()
 new = re.sub(
-    r'openssh\.authorizedKeys\.keyFiles\s*=\s*\[[^\]]*\]\s*;',
+    r'openssh\.authorizedKeys\.keys\s*=\s*\[[^\]]*\]\s*;',
     'openssh.authorizedKeys.keys = [ "$PUB_KEY_CONTENT" ];',
     src,
     count=1

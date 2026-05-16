@@ -37,6 +37,9 @@
 let
   openclaw-pkg = pkgs.callPackage ./../pkgs/openclaw.nix { };
 in {
+  # Inert unless harness.openClawEnabled = true. Imported unconditionally
+  # by configuration.nix; mkIf is the correct NixOS conditional pattern.
+  config = lib.mkIf config.harness.openClawEnabled {
   # Config directory for openclaw (~/.openclaw/ convention).
   systemd.tmpfiles.rules = [
     "d /home/opc/.openclaw          0750 opc opc -"
@@ -77,4 +80,5 @@ in {
       ReadWritePaths   = [ "/home/opc/.openclaw" "/home/opc/openclaw" ];
     };
   };
+  };  # end config = lib.mkIf config.harness.openClawEnabled
 }
