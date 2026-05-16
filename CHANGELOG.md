@@ -4,6 +4,25 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.4] — 2026-05-16
+
+### Fixed — /my-harness-init stalled right after find-existing-state.sh
+
+**Symptom (user, fresh session):** ran `/my-harness:my-harness-init`; it executed `find-existing-state.sh` (found `init-state.json`, `EXIT_CODE=0`), said "確認します" and then **stopped — no AskUserQuestion, no resume**.
+
+**Root cause (read SKILL.md, not guessed):** the "At startup: auto-detect init-state.json" section was structurally broken as an instruction:
+- The bash block's "what to do when found" body was a no-op placeholder (`# resume` / `:`).
+- The actual next action ("call AskUserQuestion to offer resume") lived in a **separate section several lines away** ("Pre-Phase 0 messages").
+- So after running the script and seeing the state path, the model had a no-op as its immediate next instruction and the real action was disconnected → it narrated a status sentence and ended the turn. Exactly the observed stall.
+
+**Fix:** rewrote the section into ONE continuous, numbered procedure:
+- Detect → `Read` the `init-state.json` → call `AskUserQuestion` (Resume / Start over) **all in the same turn, with no stop in between**.
+- Explicitly states: calling the script and then ending the turn with only a status sentence (e.g. "確認します") is a BUG; there is no user input required between detection and AskUserQuestion, so do not wait.
+- `FIND_STATE_EXIT=0` and `=1` branches each spell out the required immediate next action; the no-op `:` placeholders are gone.
+
+### Verification scope (honest)
+SKILL.md is an instruction document for the model — this removes the structural ambiguity (no-op body + the real action separated into another section) that caused the stall, and adds an explicit "do not end the turn here" rule. Whether a given session obeys it is still execution-dependent, but the disconnected-instruction defect that produced this specific stall is eliminated. **Cache note:** this fix is in the repo; a plugin cache still holding the old 7.34.x `SKILL.md` will keep stalling until refreshed (see report to the user).
+
 ## [7.34.3] — 2026-05-16
 
 ### Fixed — THE actual root cause: `inactivity_timeout` killed image_gen turns

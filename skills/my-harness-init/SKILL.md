@@ -260,28 +260,33 @@ When the user says "pause", "stop", or similar:
 When the user comes back:
 - Read `<root>/.my-harness/init-state.json` and check `current_phase`. Resume from the first question of that phase. Existing `docs/spec/`, `docs/design/`, and `docs/talk/` are carried forward.
 
-### At startup: auto-detect init-state.json
+### At startup: auto-detect init-state.json — DO NOT STALL HERE
+
+Run this as the FIRST action, then **immediately continue to the matching step below in the SAME turn**. Detecting state is not a stopping point. Do **not** narrate ("I found a saved state, let me check…") and end the turn — that is the exact stall this section forbids.
 
 ```bash
-STATE_FILE=$(bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/find-existing-state.sh") && {
-  # resume — STATE_FILE points to the init-state.json that should be loaded
-  :
-} || {
-  # not found — proceed with fresh start
-  :
-}
+bash "${CLAUDE_PLUGIN_ROOT:?}/scripts/find-existing-state.sh"; echo "FIND_STATE_EXIT=$?"
 ```
 
-Implementation: walks up to 5 parent directories from `$PWD`. Source: `scripts/find-existing-state.sh`.
+It prints the `init-state.json` path and exits `0` when found (walks up to 5 parent dirs from `$PWD`), or exits `1` when not found. Source: `scripts/find-existing-state.sh`.
 
-**Pre-Phase 0 messages are also shown bilingually** because `LANG` isn't set yet:
+Branch on `FIND_STATE_EXIT` **without pausing**:
 
-- **State found** → call `AskUserQuestion` with question text:
-  > "I found a saved interview at `<phase>`. Resume?  /  保存済みのインタビュー（`<phase>` 段階）が見つかりました。再開しますか？"
-  >
-  > Options: `Resume / 再開する` (description: "Continue from where you left off / 続きから再開") and `Start over / 最初からやり直す` (description: "Discard the saved state and start a fresh interview / 保存済み状態を破棄して新規インタビュー").
+**`FIND_STATE_EXIT=0` (state found) — REQUIRED next action, immediately:**
 
-- **No state found** → no message at all. Go straight to Phase 0; do not announce that you couldn't find anything.
+1. `Read` the printed `init-state.json` path. Note its `current_phase`.
+2. In the **same turn, with no intervening stop**, call `AskUserQuestion` (bilingual — `LANG` isn't set yet):
+   > "I found a saved interview at `<current_phase>`. Resume?  /  保存済みのインタビュー（`<current_phase>` 段階）が見つかりました。再開しますか？"
+   >
+   > Options: `Resume / 再開する` ("Continue from where you left off / 続きから再開") and `Start over / 最初からやり直す` ("Discard the saved state and start a fresh interview / 保存済み状態を破棄して新規インタビュー").
+3. On **Resume**: load that `init-state.json`, jump to the **first question of `current_phase`** (carry forward existing `docs/spec/`, `docs/design/`, `docs/talk/`). Continue the interview right away — do not stop again.
+4. On **Start over**: proceed to Phase 0 as a fresh interview (the old state is overwritten as the interview progresses).
+
+> Calling `find-existing-state.sh` and then ending the turn with only a status sentence (e.g. "確認します") is a BUG. The `Read` + `AskUserQuestion` MUST happen in the same turn as the detection. There is no user input required between detection and the `AskUserQuestion` call — so do not wait for any.
+
+**`FIND_STATE_EXIT=1` (no state) — REQUIRED next action, immediately:**
+
+Go straight to Phase 0. Output **no message at all** about state detection (do not announce that nothing was found). Begin Phase 0 in the same turn.
 
 ---
 
