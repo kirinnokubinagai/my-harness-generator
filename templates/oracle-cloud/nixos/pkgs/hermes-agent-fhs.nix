@@ -75,6 +75,8 @@ in pkgs.buildFHSEnv {
     python.pkgs.pip
     uv
     git
+    ghq        # repo manager — clones into $GHQ_ROOT/github.com/owner/repo
+               # (avoids ad-hoc git clone paths scattering across the FS)
     ffmpeg     # required by faster-whisper for audio decode
     gcc        # for compiling any wheel that needs a C extension
     libffi     # common transitive C dependency
@@ -87,24 +89,31 @@ in pkgs.buildFHSEnv {
     set -eu
 
     HERMES_HOME="/var/lib/hermes"
-    HERMES_REPO="$HERMES_HOME/hermes-agent"
+    # ghq centralises every clone under $GHQ_ROOT/github.com/<owner>/<repo>
+    # instead of an ad-hoc path. Keeps the VM's checkout layout predictable
+    # and consistent with the user's `ghq` workflow (no scattered clones).
+    export GHQ_ROOT="$HERMES_HOME/ghq"
+    HERMES_REPO="$GHQ_ROOT/github.com/NousResearch/hermes-agent"
     HERMES_VENV="$HERMES_HOME/venv"
     HERMES_TAG="v2026.5.7"
     HERMES_BIN="$HERMES_VENV/bin/hermes"
 
     # ── First-run install (idempotent) ──────────────────────────────────────
     if [ ! -x "$HERMES_BIN" ]; then
-      echo "[hermes-agent] first-run install: cloning hermes-agent $HERMES_TAG..."
-      mkdir -p "$HERMES_HOME"
+      echo "[hermes-agent] first-run install: ghq get hermes-agent → $HERMES_TAG..."
+      mkdir -p "$HERMES_HOME" "$GHQ_ROOT"
 
-      # Clone or update the repo to the pinned tag.
+      # ghq get clones into the canonical $GHQ_ROOT/github.com/... path.
+      # ghq itself does not check out tags (it manages *where* repos live,
+      # not *which* ref), so we pin the tag with an explicit git checkout
+      # after the clone. On re-runs the repo already exists → fetch+checkout.
       if [ -d "$HERMES_REPO/.git" ]; then
-        git -C "$HERMES_REPO" fetch --quiet origin
+        git -C "$HERMES_REPO" fetch --quiet origin --tags
         git -C "$HERMES_REPO" checkout --quiet "$HERMES_TAG"
       else
-        git clone --quiet --branch "$HERMES_TAG" --depth 1 \
-          https://github.com/NousResearch/hermes-agent.git \
-          "$HERMES_REPO"
+        ghq get https://github.com/NousResearch/hermes-agent.git
+        git -C "$HERMES_REPO" fetch --quiet origin --tags
+        git -C "$HERMES_REPO" checkout --quiet "$HERMES_TAG"
       fi
 
       # Create venv with Python 3.11 (already in PATH via FHS env).

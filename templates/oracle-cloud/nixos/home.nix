@@ -19,6 +19,11 @@ in {
       # daily-progress-bot scripts dir on PATH so the timer commands
       # work without absolute paths.
       [ -d "$HOME/daily-progress-bot" ] && export PATH="$PATH:$HOME/daily-progress-bot"
+
+      # ghq: every `ghq get` clones under ~/ghq/github.com/<owner>/<repo>.
+      # Keeps interactive-SSH clones consistent with the Hermes systemd
+      # checkout layout (which uses GHQ_ROOT=/var/lib/hermes/ghq).
+      export GHQ_ROOT="$HOME/ghq"
     '';
   };
 
@@ -27,6 +32,12 @@ in {
     enable = true;
     enableBashIntegration = true;
   };
+
+  # ghq — repo manager. home-manager 25.05 has NO programs.ghq module,
+  # so configuration is just: (1) the ghq binary (in configuration.nix
+  # environment.systemPackages since 7.29.1) + (2) GHQ_ROOT exported in
+  # bashrcExtra above. `ghq get <url>` then clones into
+  # ~/ghq/github.com/<owner>/<repo> — no scattered ad-hoc git clones.
 
   # Daily-progress bot scripts placed declaratively (read-only symlinks
   # into the Nix store). The .env file (secrets) is NOT here — it is

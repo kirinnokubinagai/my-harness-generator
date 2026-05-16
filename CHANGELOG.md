@@ -4,6 +4,22 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.32.1] — 2026-05-16
+
+### Changed — Hermes install uses `ghq get` instead of ad-hoc `git clone`
+
+User policy: repositories must be cloned via `ghq` so they live under a predictable `$GHQ_ROOT/github.com/<owner>/<repo>` path, not scattered ad-hoc `git clone` directories.
+
+- `templates/oracle-cloud/nixos/pkgs/hermes-agent-fhs.nix`:
+  - Launcher's first-run install changed from `git clone --branch <tag> https://github.com/NousResearch/hermes-agent.git /var/lib/hermes/hermes-agent` to `ghq get https://github.com/NousResearch/hermes-agent.git` with `GHQ_ROOT=/var/lib/hermes/ghq`. The repo now lives at `/var/lib/hermes/ghq/github.com/NousResearch/hermes-agent`. Tag pinning (`v2026.5.7`) is still done via an explicit `git checkout` after the clone (ghq manages *where* repos live, not *which* ref).
+  - `ghq` added to the buildFHSEnv `targetPkgs` so the launcher can call it.
+- `templates/oracle-cloud/nixos/home.nix`:
+  - `export GHQ_ROOT="$HOME/ghq"` added to bash so interactive-SSH `ghq get` is consistent with the Hermes systemd checkout layout.
+  - NOTE: home-manager 25.05 has **no** `programs.ghq` module (verified — `nix flake check` rejected `programs.ghq` with "option does not exist"). ghq is configured purely via the binary (in `configuration.nix` `environment.systemPackages` since 7.29.1) + the `GHQ_ROOT` env var.
+
+### Verified
+`nix flake check --no-build` run after each change — `all checks passed!`. The non-existent `programs.ghq` module was caught by flake check before any deploy (same eval-level validation that found the 7.32.0.1 bugs).
+
 ## [7.32.0.1] — 2026-05-16
 
 ### Fixed — 4 NixOS evaluation bugs found by running `nix flake check` locally
