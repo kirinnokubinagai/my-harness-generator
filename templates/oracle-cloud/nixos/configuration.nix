@@ -28,6 +28,11 @@
       default = false;
       description = "When true, import services/tailscale.nix and the OCI Security List closes SSH port 22 (Tailscale becomes the only ingress).";
     };
+    billingCheckEnabled = lib.mkOption {
+      type    = lib.types.bool;
+      default = false;
+      description = "When true, activate services/billing-check.nix — a daily systemd timer that polls the OCI Budget actual-spend via instance principal and alerts the notification webhook on any charge beyond Always Free. Set by setup-oci-vm-nixos.sh when BILLING_ALERT_MODE is chat or both. Added 7.34.0.";
+    };
   };
 
   # imports MUST be static — referencing `config.harness.*` here causes
@@ -44,6 +49,7 @@
     ./services/hermes-agent.nix
     ./services/openclaw.nix
     ./services/tailscale.nix
+    ./services/billing-check.nix
   ];
 
   # All NixOS config attributes MUST live under `config` because this module

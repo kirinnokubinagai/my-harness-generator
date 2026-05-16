@@ -4,6 +4,32 @@ All notable changes documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html)
 
+## [7.34.0] — 2026-05-16
+
+### Added — OCI billing alert + free-tier maximum spec
+
+Two user requests: (1) alert when OCI charges anything beyond Always Free, to the configured Discord/Slack; (2) make the VM the Always-Free maximum.
+
+**Honest constraint (stated up front — in the Q9.9 prompt and here):** OCI billing data updates on a **~24h cycle**; the Usage API is officially unsupported on non-metered (Always Free) tenancies. There is **no real-time billing alert on Always Free** — ~24h is OCI's structural floor, not fixable here. Researched against OCI docs, not assumed.
+
+#### Billing alert (researcher-confirmed architecture)
+- `scripts/ensure-oci-billing-alert.sh` (new): idempotently creates an OCI Budget ($1, MONTHLY, target=tenancy) + Alert Rule (ACTUAL, 1% ≈ $0.01, recipients=email). For chat/both it also creates a dynamic-group + policy (`read budgets in tenancy`) so the VM's instance principal can read actual-spend. Everything looked up by name → safe to re-run.
+- `templates/oracle-cloud/nixos/services/billing-check.nix` (new, `mkIf harness.billingCheckEnabled`): daily systemd timer → reads budget actual-spend via `OCI_CLI_AUTH=instance_principal`, posts via the existing `post-notification.sh` (discord/slack/teams — the **same webhook the daily-progress bot already uses, so Discord works with no relay**). De-dupes one alert per month.
+- `templates/oracle-cloud/daily-progress-bot/billing-check.sh` (new): the poll+notify script.
+- Why this shape: OCI Budget Alert Rules deliver **email only** (no ONS-topic field — confirmed in the Terraform `oci` provider + Budgets docs), and ONS has no native Discord protocol plus a confirmation handshake Discord rejects. The email path (lives entirely in OCI, VM-independent) is the **mandatory backup in every mode**; the VM poll is what reaches chat. ONS / Monitoring-alarm / OCI-Functions all turned out unnecessary.
+- `configuration.nix`: `harness.billingCheckEnabled` option + `./services/billing-check.nix` import. `home.nix`: places `billing-check.sh`.
+- `setup-oci-vm-nixos.sh`: `BILLING_ALERT_MODE` (off|email|chat|both) gate; runs `ensure-oci-billing-alert.sh`; merges `harness.billingCheckEnabled = true` into the harness-overlay (same merge-or-create pattern as the Tailscale overlay); writes `BILLING_BUDGET_OCID` into the VM `.env`.
+- `skills/my-harness-init/SKILL.md` Q9.9 (bilingual): "Email + chat / Email only / No billing alert". The ~24h limitation is shown verbatim before the question. Chat reuses the existing Q6 webhook — no new webhook asked. "Email + chat" on a non-NixOS VM degrades to email only (billing-check.nix is NixOS-only; the OCI Budget email still works).
+
+#### Free-tier maximum spec
+- `scripts/ensure-oci-vm.sh`: added `--boot-volume-size-in-gbs 200`. CPU/RAM were already at the Always Free max (`ocpus:4, memoryInGBs:24`); the boot volume was defaulting to ~47 GB. 200 GB = the full Always Free Boot+Block allowance (no separate block volume is created, so it stays free). `disko.nix` is `root="100%"` so `/` auto-expands to ~199 GB.
+
+### Verified
+- `nix flake check --no-build` → **`all checks passed!`** after wiring `billing-check.nix` + the option/import (the standard git-untracked-file gate appeared first; `git add` then passed — same as prior releases). Validates the systemd unit/timer structure, the `mkIf` conditional, and that `pkgs.oci-cli` / `bc` / `coreutils` resolve.
+
+### Verification scope (honest — unchanged discipline)
+`nix flake check` is eval-level (NixOS side only). It does **NOT** prove the OCI side: there is no OCI account here and `oci budgets` was **never executed**. Unconfirmed until a real deploy: (a) whether `oci budgets budget get` actual-spend returns a value on an Always Free (non-metered) tenancy — OCI docs do not explicitly guarantee it; (b) the exact `oci budgets alert-rule create --recipients` argument form across CLI versions; (c) that Budget creation is accepted on a pure Always Free account. The code follows the official-docs research (two researcher passes, citations in those reports); the OCI API behaviour is a real-VM layer. And regardless of code: detection is **~24h, never real-time** — that is an OCI limitation, not a defect here.
+
 ## [7.33.0] — 2026-05-16
 
 ### Changed — all 5 self-built Nix derivations replaced by numtide/llm-agents.nix

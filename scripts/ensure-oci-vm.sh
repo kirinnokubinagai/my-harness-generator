@@ -410,6 +410,7 @@ launch_in_ad() {
     --compartment-id "$TENANCY_OCID" \
     --shape "VM.Standard.A1.Flex" \
     --shape-config '{"ocpus":4,"memoryInGBs":24}' \
+    --boot-volume-size-in-gbs 200 \
     --display-name "$VM_NAME" \
     --image-id "$IMAGE_ID" \
     --subnet-id "$SUBNET_ID" \

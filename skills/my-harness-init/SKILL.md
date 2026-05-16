@@ -1208,6 +1208,91 @@ If already set, ask "Keep / Change". Otherwise:
 
 Persist `TAILSCALE_ENABLED=no` to `.notification.env`. No further action needed here — `services/security.nix` (always imported) provides fail2ban + SSH hardening.
 
+### Setup Q9.9: OCI billing alert (recommended — catch any charge beyond Always Free)
+
+Run this question only when Q9 resulted in actual VM provisioning or "Already have one — connect to it". Skip if Q9 was "Skip — set up later".
+
+**Honest constraint — surface this verbatim BEFORE asking (do NOT hide it):**
+
+- **LANG=en:** "OCI billing data updates on a ~24-hour cycle. There is NO real-time billing alert on Always Free — the fastest possible detection is ~24h after a charge appears. This is an OCI limitation, not fixable here. The email path is a backup that lives entirely in OCI and fires even if the VM is down."
+- **LANG=ja:** "OCI の課金データは約24時間サイクルでしか更新されません。Always Free にリアルタイム課金アラートは存在せず、課金発生から検知まで最短でも約24時間かかります（OCI 側の制約で回避不可）。メール通知は OCI 側で完結する保険で、VM が停止していても届きます。"
+
+**Already-configured detection (option α) for Q9.9:**
+
+```bash
+if [ -f "$ROOT/.my-harness/.notification.env" ] && grep -q '^BILLING_ALERT_MODE=' "$ROOT/.my-harness/.notification.env"; then
+  CURRENT_BILLING=$(grep '^BILLING_ALERT_MODE=' "$ROOT/.my-harness/.notification.env" | cut -d= -f2)
+fi
+```
+
+If already set, ask "Keep / Change". Otherwise:
+
+**LANG=en:**
+```json
+{
+  "questions": [{
+    "question": "Alert you if OCI ever charges anything beyond Always Free? (Detection lags ~24h — OCI limitation. An OCI Budget of $1 with a 1% actual-spend alert ≈ $0.01 is created either way.)",
+    "header": "Billing alert",
+    "multiSelect": false,
+    "options": [
+      { "label": "Email + chat (recommended)",
+        "description": "OCI Budget emails you (VM-independent backup) AND the VM polls the budget daily and posts to your existing notification webhook (the same Discord/Slack/Teams the daily-progress bot uses — no new webhook). Chat part requires the NixOS VM. Needs an email address." },
+      { "label": "Email only",
+        "description": "Just the OCI Budget email alert. Simplest, zero VM moving parts, works on any OS (incl. Oracle Linux). ~24h latency. Needs an email address." },
+      { "label": "No billing alert",
+        "description": "Skip entirely; rely on manually checking the OCI console. Not recommended — a runaway charge could go unnoticed." }
+    ]
+  }]
+}
+```
+
+**LANG=ja:**
+```json
+{
+  "questions": [{
+    "question": "OCI が Always Free を超えて課金したら通知しますか？（検知は約24時間遅延 — OCI の制約。どちらを選んでも $1 予算 + 1%（≈ $0.01）の実績アラートを作成します。）",
+    "header": "課金アラート",
+    "multiSelect": false,
+    "options": [
+      { "label": "メール + チャット（推奨）",
+        "description": "OCI Budget がメール送信（VM 非依存の保険）+ VM が予算を毎日ポーリングして既存の通知 webhook（daily-progress bot と同じ Discord/Slack/Teams。新規 webhook 不要）に投稿。チャット部分は NixOS VM が必要。メールアドレスが必要。" },
+      { "label": "メールのみ",
+        "description": "OCI Budget のメールアラートのみ。最もシンプル・VM 依存ゼロ・どの OS でも動作（Oracle Linux 含む）。約24時間遅延。メールアドレスが必要。" },
+      { "label": "課金アラートなし",
+        "description": "完全にスキップし OCI コンソールを手動確認する運用。非推奨 — 暴走課金に気づけない恐れ。" }
+    ]
+  }]
+}
+```
+
+**If user chooses "Email + chat" or "Email only":**
+
+1. Persist the mode to `.notification.env` (`both` for Email + chat, `email` for Email only):
+   ```bash
+   NOTIF="$ROOT/.my-harness/.notification.env"
+   { grep -v '^BILLING_ALERT_MODE=' "$NOTIF" 2>/dev/null || true; echo "BILLING_ALERT_MODE=<both|email>"; } > "$NOTIF.tmp"
+   mv "$NOTIF.tmp" "$NOTIF"; chmod 600 "$NOTIF"
+   ```
+   Chat delivery reuses the existing `NOTIFICATION_SERVICE` / `NOTIFICATION_WEBHOOK_URL` (Q6) — no new webhook. "Email + chat" on a non-NixOS VM (Oracle Linux) degrades to email only: `billing-check.nix` is NixOS-only, but the OCI Budget email still works.
+
+2. AskUserQuestion for the alert email (required in BOTH modes — the OCI email is the VM-independent backup; OCI sends it, no SMTP setup on your side):
+
+   **LANG=en:** "Email address for the OCI billing alert (OCI sends it directly — no SMTP setup needed):"
+   **LANG=ja:** "OCI 課金アラートの送信先メールアドレス（OCI が直接送信するため SMTP 設定は不要）:"
+
+3. Persist `BILLING_ALERT_EMAIL=<email>` to `.notification.env` (same grep-replace pattern), then run:
+   ```bash
+   bash scripts/ensure-oci-billing-alert.sh "$ROOT" "<email>"
+   ```
+   - Exit 0: Budget + Alert Rule (+ dynamic-group/policy for chat/both) provisioned. Proceed.
+   - Exit 2: email format invalid. Re-ask.
+   - Exit 3: no email captured. Re-ask, then re-run.
+   `setup-oci-vm-nixos.sh` also runs this idempotently; running it here surfaces OCI errors early (before the long nixos-anywhere step).
+
+**If user chooses "No billing alert":**
+
+Persist `BILLING_ALERT_MODE=off` to `.notification.env`. No OCI Budget is created. Remind the user verbatim: a runaway charge will only be visible by manually checking the OCI console — there will be no automatic notification of any kind.
+
 ### Setup Q9.5: Claude Code subscription OAuth token
 
 Run this question only when Q9 resulted in actual VM provisioning ("Yes — provision now") or "Already have one — connect to it". Skip entirely if Q9 was "Skip — set up later".

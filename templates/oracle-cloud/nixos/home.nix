@@ -51,6 +51,10 @@ in {
       source = "${botSrc}/event-watch.sh";
       executable = true;
     };
+    "daily-progress-bot/billing-check.sh" = {
+      source = "${botSrc}/billing-check.sh";
+      executable = true;
+    };
     "daily-progress-bot/lib/ai-provider.sh".source = "${botSrc}/lib/ai-provider.sh";
     "daily-progress-bot/lib/post-notification.sh".source = "${botSrc}/lib/post-notification.sh";
     "daily-progress-bot/crontab.example".source = "${botSrc}/crontab.example";
